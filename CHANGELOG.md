@@ -34,7 +34,7 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
 - **Host-rendered ripple** driven by a `WH_KEYBOARD_LL` hook that observes key presses without
   swallowing or synthesising input.
 - **Device emulator** that validates CRCs and answers the protocol, so the entire stack is testable
-  without hardware. 148 tests plus a fleet simulation covering every capability of all 267 devices.
+  without hardware. 160 tests plus a fleet simulation covering every capability of all 267 devices.
 - Standalone `openrazer-win.exe` and `openrazer-win-gui.exe` builds.
 
 ### Known limitations
