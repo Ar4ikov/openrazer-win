@@ -30,6 +30,21 @@ RIPPLE_DURATION = 0.6
 SOFTWARE_EFFECTS = ('ripple', 'ripple_random', 'wave_soft', 'spectrum_soft')
 
 
+def can_render(device) -> bool:
+    """Whether host-rendered effects are meaningful on this device.
+
+    A frame has to be worth drawing: a mouse with a single addressable LED
+    reports a 1x1 matrix, and a ripple across one cell is nothing at all.
+    Upstream draws the same line -- its ripple manager refuses devices without
+    matrix capabilities.
+    """
+    capabilities = device.capabilities()
+    if not capabilities.get('custom_frame'):
+        return False
+    dimensions = capabilities.get('matrix_dimensions') or (1, 1)
+    return dimensions[0] * dimensions[1] > 1
+
+
 class EffectThread(threading.Thread):
     """Renders one software effect onto one device."""
 
@@ -238,9 +253,9 @@ class EffectEngine:
             return {'effect': None}
         if effect not in SOFTWARE_EFFECTS:
             raise NotSupported('unknown software effect: {0}'.format(effect))
-        if not device.capabilities()['custom_frame']:
+        if not can_render(device):
             raise NotSupported(
-                '{0} has no addressable matrix, so it cannot run {1}'.format(
+                '{0} has no addressable matrix big enough to render {1}'.format(
                     device.name, effect))
 
         self.clear(device)

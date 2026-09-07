@@ -248,3 +248,38 @@ def test_the_os_hook_installs_and_shuts_down():
         hook.stop()
     assert not hook.running
     assert hook._hook is None
+
+
+def test_a_single_led_device_is_not_offered_host_effects(persistence):
+    """A 1x1 matrix cannot show a ripple, so do not pretend it can."""
+    from openrazer_win.effects.engine import can_render
+
+    mouse, _fake = make_device(MOUSE_PID, persistence)          # Viper: 1x1
+    keyboard, _fake2 = make_device(KEYBOARD_PID, persistence)   # Chroma: 6x22
+    try:
+        assert mouse.capabilities()['custom_frame'] is True
+        assert mouse.capabilities()['software_effects'] is False
+        assert not can_render(mouse)
+
+        assert keyboard.capabilities()['software_effects'] is True
+        assert can_render(keyboard)
+    finally:
+        mouse.close()
+        keyboard.close()
+
+
+def test_the_engine_refuses_a_device_it_cannot_draw_on(persistence):
+    from openrazer_win.core.manager import DeviceManager
+    from openrazer_win.hid.fake import FakeHidBackend, FakeRazerDevice
+
+    backend = FakeHidBackend([FakeRazerDevice(MOUSE_PID, 'Razer Viper', interface=0)])
+    manager = DeviceManager(backend=backend, persistence=persistence)
+    manager.scan()
+    engine = EffectEngine(manager)
+    engine.keys = FakeKeySource()
+    try:
+        with pytest.raises(NotSupported, match='matrix big enough'):
+            engine.set_effect(manager.devices[0], 'ripple', {})
+    finally:
+        engine.stop()
+        manager.close()

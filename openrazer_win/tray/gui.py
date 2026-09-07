@@ -226,7 +226,7 @@ class ControlPanel(ttk.Frame):
         zone = self.zone_var.get()
         effects = self.current.capabilities.get('zones', {}).get(
             zone, {}).get('effects', [])
-        if self.current.capabilities.get('custom_frame'):
+        if self.current.capabilities.get('software_effects'):
             effects = list(effects) + ['ripple', 'ripple_random']
         self.effect_box.config(values=effects)
         if effects and self.effect_var.get() not in effects:

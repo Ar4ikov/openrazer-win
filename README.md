@@ -221,8 +221,8 @@ to have a backlight it does not have.
 **Features:** all hardware effects (static, spectrum, wave, wheel, reactive, blinking, breathing ×3,
 starlight ×3), per-key custom frames, per-zone brightness, DPI and DPI stages, polling rate up to
 8000 Hz, battery level and charging state, idle timeout, low-battery threshold, game mode, macro LED,
-scroll mode and acceleration, keyboard layout, addressable-RGB channels, and a host-rendered ripple
-effect driven by a low-level keyboard hook.
+scroll mode and acceleration, keyboard layout, addressable-RGB channels, a host-rendered ripple
+effect driven by a low-level keyboard hook, and autostart at logon.
 
 **Not ported:** macro recording and playback (upstream reads Linux input events for this), and the
 Kraken headset family's separate protocol.

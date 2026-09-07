@@ -611,6 +611,13 @@ class RazerDevice:
         """A feature is present when both the recipe and the device class agree."""
         return self._declares(method_names) and self.supports(attribute)
 
+    def _software_effects_possible(self) -> bool:
+        """Whether a host-rendered effect has enough LEDs to be worth drawing."""
+        if not self._feature('write:matrix_custom_frame', 'set_key_row'):
+            return False
+        rows, columns = self.info.matrix_dims or (1, 1)
+        return rows * columns > 1
+
     def capabilities(self) -> dict:
         """What this device can actually do, probed against the recipe table."""
         if self._capabilities is not None:
@@ -656,6 +663,7 @@ class RazerDevice:
             'keyboard_layout': self._feature('read:kbd_layout', 'get_keyboard_layout'),
             'scroll_mode': self._feature('read:scroll_mode', 'get_scroll_mode'),
             'custom_frame': self._feature('write:matrix_custom_frame', 'set_key_row'),
+            'software_effects': self._software_effects_possible(),
             'transport': {
                 'path': self.transport.info.path,
                 'interface': self.transport.info.interface,
