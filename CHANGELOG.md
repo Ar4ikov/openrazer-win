@@ -4,7 +4,7 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [semantic versioning](https://semver.org/).
 
-## [1.1.1] - 2026-09-08
+## [1.1.2] - 2026-09-08
 
 ### Changed
 
@@ -13,10 +13,12 @@ uses [semantic versioning](https://semver.org/).
   from the user's point of view but is completely absent from the HID
   enumeration, so the report was an unhelpful "none -- is the device plugged
   in?". It now also lists what Windows *does* see the device as, and says why
-  that form is not controllable: Bluetooth carries audio only, and lighting
-  needs a USB data cable. Devices that are plainly not lighting hardware -- a
-  webcam, an audio endpoint -- are named as such rather than reported as gaps
-  in the database.
+  that form is not controllable: this port drives lighting over USB HID, and
+  many bundled cables carry power only. Where a headset also exposes a
+  Bluetooth serial port -- the proprietary channel vendor software uses to
+  reach it wirelessly -- the report says so, rather than claiming Bluetooth is
+  audio-only. Devices that are plainly not lighting hardware, like a webcam,
+  are named as such rather than reported as gaps in the database.
 
 ## [1.1.0] - 2026-09-08
 
@@ -107,7 +109,7 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
 - The Kraken headset family uses a separate protocol that is not covered.
 - Razer Synapse must be closed: it holds the device open and competes for the LEDs.
 
-[1.1.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.1.1
+[1.1.2]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.1.2
 [1.1.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.1.0
 [1.0.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.0.0

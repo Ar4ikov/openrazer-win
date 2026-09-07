@@ -552,8 +552,14 @@ def _report_devices_beyond_hid(collections, database) -> None:
             '{0:04x}'.format(product_id) if product_id else '????',
             entry['name']))
         if entry['transport'].startswith('Bluetooth'):
-            print('      Bluetooth carries audio only. Lighting needs a USB '
-                  'data cable -- many bundled cables only charge.')
+            print('      Paired over Bluetooth. This port drives lighting over '
+                  'USB HID only.')
+            if 'Ports' in entry['classes']:
+                print('      It also exposes a Bluetooth serial port, which is '
+                      'how vendor software reaches it wirelessly -- a '
+                      'proprietary channel openrazer-win does not speak.')
+            print('      Connect it with a USB *data* cable; many bundled '
+                  'cables only carry power.')
         elif known is not None:
             print('      Attached, but exposing no lighting control interface.')
         elif NON_LIGHTING_CLASSES.intersection(entry['classes']):
