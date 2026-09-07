@@ -35,6 +35,8 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
   swallowing or synthesising input.
 - **Device emulator** that validates CRCs and answers the protocol, so the entire stack is testable
   without hardware. 160 tests plus a fleet simulation covering every capability of all 267 devices.
+- **Autostart** via the per-user `Run` key (`openrazer-win autostart enable`), so the daemon comes
+  up at logon without administrator rights or a Windows service.
 - Standalone `openrazer-win.exe` and `openrazer-win-gui.exe` builds.
 
 ### Known limitations

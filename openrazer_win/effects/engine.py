@@ -40,7 +40,9 @@ class EffectThread(threading.Thread):
         self.effect = effect
         self.options = options
         self._hook_source = hook_source
-        self._stop = threading.Event()
+        # Not ``_stop``: threading.Thread already has a private ``_stop()``
+        # method that join() calls, and shadowing it breaks join().
+        self._stop_event = threading.Event()
         self._presses: list = []
         self._presses_lock = threading.Lock()
         rows, columns = device.matrix_dimensions or (1, 1)
@@ -61,7 +63,7 @@ class EffectThread(threading.Thread):
             self._presses.append((time.monotonic(), position, colour))
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stop_event.set()
 
     # -- rendering ---------------------------------------------------------
     def run(self) -> None:
@@ -75,7 +77,7 @@ class EffectThread(threading.Thread):
 
     def _loop(self) -> None:
         phase = 0.0
-        while not self._stop.wait(self.refresh):
+        while not self._stop_event.wait(self.refresh):
             try:
                 if self.effect in ('ripple', 'ripple_random'):
                     if not self._render_ripple():

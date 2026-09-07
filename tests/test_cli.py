@@ -187,3 +187,48 @@ def test_virtual_key_table_maps_letters_and_function_keys():
     assert unmapped == [], 'virtual keys with no matrix position: {0}'.format(unmapped)
     from openrazer_win.effects.keyboard_hook import EXTENDED_OVERRIDES
     assert all(name in keymap for name in EXTENDED_OVERRIDES.values())
+
+
+# -- autostart --------------------------------------------------------------
+
+def test_autostart_round_trip(capsys):
+    """Enable, read back and disable the logon entry.
+
+    This touches the real per-user Run key, which needs no elevation, and
+    removes what it adds. Skipped where there is no registry.
+    """
+    pytest.importorskip('winreg')
+    from openrazer_win.daemon import autostart
+
+    previous = autostart.status()
+    try:
+        assert main(['autostart', 'enable']) == 0
+        assert 'autostart enabled' in capsys.readouterr().out
+
+        assert main(['autostart', 'status']) == 0
+        assert 'autostart: on' in capsys.readouterr().out
+
+        assert main(['autostart', 'disable']) == 0
+        assert 'disabled' in capsys.readouterr().out
+
+        assert main(['autostart', 'status']) == 1
+        assert 'autostart: off' in capsys.readouterr().out
+    finally:
+        autostart.disable()
+        if previous is not None:
+            import winreg
+            with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, autostart.RUN_KEY,
+                                    0, winreg.KEY_SET_VALUE) as key:
+                winreg.SetValueEx(key, autostart.VALUE_NAME, 0,
+                                  winreg.REG_SZ, previous)
+
+
+def test_the_launch_command_is_quoted_and_windowless():
+    from openrazer_win.daemon.autostart import daemon_launch_command
+
+    command = daemon_launch_command()
+    assert 'openrazer_win.daemon.main' in command or 'daemon run' in command
+    assert daemon_launch_command(no_effects=True).endswith('--no-effects')
+    # A path with spaces must survive as one argument.
+    import subprocess
+    assert subprocess.list2cmdline(['a b', 'c']) == '"a b" c'

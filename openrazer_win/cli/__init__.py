@@ -399,6 +399,41 @@ def _daemon_start(args) -> int:
     return 1
 
 
+def cmd_autostart(args) -> int:
+    from ..daemon.autostart import AutostartError, disable, enable, status
+
+    try:
+        if args.action == 'status':
+            command = status()
+            if args.json:
+                print(json.dumps({'enabled': command is not None,
+                                  'command': command}, indent=2))
+                return 0
+            if command is None:
+                print('autostart: off')
+                print('Turn it on with:  openrazer-win autostart enable')
+                return 1
+            print('autostart: on')
+            print('command:   {0}'.format(command))
+            return 0
+
+        if args.action == 'disable':
+            if disable():
+                print('autostart disabled')
+            else:
+                print('autostart was already off')
+            return 0
+
+        command = enable(args.no_effects)
+        print('autostart enabled; the daemon will start at logon')
+        print('command:   {0}'.format(command))
+        print('\nRemove it later with:  openrazer-win autostart disable')
+        print('It also shows up in Task Manager under Startup apps.')
+        return 0
+    except AutostartError as error:
+        raise CliError(str(error)) from error
+
+
 def cmd_doctor(args) -> int:
     from ..hid import get_backend, is_supported_platform
     from ..protocol.report import VENDOR_ID
@@ -506,6 +541,13 @@ def build_parser() -> argparse.ArgumentParser:
     daemon.add_argument('--no-effects', action='store_true',
                         help='disable host-rendered effects and the keyboard hook')
     daemon.add_argument('--verbose', '-v', action='store_true')
+
+    autostart = add('autostart', cmd_autostart,
+                    'run the daemon automatically at logon')
+    autostart.add_argument('action', nargs='?', default='status',
+                           choices=('enable', 'disable', 'status'))
+    autostart.add_argument('--no-effects', action='store_true',
+                           help='start it without host-rendered effects')
 
     add('doctor', cmd_doctor, 'diagnose device detection problems')
     return parser

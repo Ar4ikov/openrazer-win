@@ -58,6 +58,26 @@ jobs:
             dist/*.exe
           if-no-files-found: error
 
+  pypi:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel
+          path: dist
+
+      - name: Keep only the Python distributions
+        run: |
+          find dist -type f ! -name '*.whl' ! -name '*.tar.gz' -delete
+          ls -la dist
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          skip-existing: true
+
   release:
     name: Publish the release
     needs: build
@@ -82,10 +102,10 @@ jobs:
             Install with pip:
 
             ```
-            pip install git+https://github.com/Ar4ikov/openrazer-win@${{ github.event.inputs.tag || github.ref_name }}
+            pip install openrazer-win
             ```
 
-            Or download the wheel below, or `openrazer-win.exe` to run it without Python at all.
+            Or download `openrazer-win.exe` below and run it without Python at all.
 
             Device data generated from upstream OpenRazer. See the
             [documentation](https://ar4ikov.github.io/openrazer-win/) for details.

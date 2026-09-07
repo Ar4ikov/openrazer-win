@@ -91,6 +91,17 @@ openrazer-win battery
 Every command takes `--device` (serial, product id or a fragment of the name), `--zone`
 (`backlight`, `logo`, `scroll`, `left`, `right`, …) and `--json`.
 
+To have the daemon come up with Windows:
+
+```bash
+openrazer-win autostart enable      # per-user, no admin rights
+openrazer-win autostart status
+openrazer-win autostart disable
+```
+
+This writes one entry under `HKCU\...\CurrentVersion\Run`, so it also appears in Task Manager's
+Startup tab and can be removed from there.
+
 ### Python
 
 The API mirrors upstream's `openrazer.client`, so scripts written for Linux usually port by changing

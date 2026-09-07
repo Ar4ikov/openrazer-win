@@ -257,10 +257,14 @@ footer p { margin: 0 0 8px; }
 <span class="c-cmd">openrazer-win</span> brightness 60
 <span class="c-cmd">openrazer-win</span> dpi 1800
 <span class="c-cmd">openrazer-win</span> poll-rate 1000
-<span class="c-cmd">openrazer-win</span> battery</code></pre>
+<span class="c-cmd">openrazer-win</span> battery
+
+<span class="c-com"># start the daemon with Windows (per-user, no admin rights)</span>
+<span class="c-cmd">openrazer-win</span> autostart enable</code></pre>
       <p class="sub" style="margin:0">
         Every command accepts <code>--device</code> (serial, product id or part of the name),
-        <code>--zone</code> and <code>--json</code>.
+        <code>--zone</code> and <code>--json</code>. Autostart writes a single
+        <code>HKCU\…\Run</code> entry, so it shows up in Task Manager's Startup tab too.
       </p>
     </div>
 

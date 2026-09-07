@@ -195,3 +195,31 @@ def test_key_press_source_shares_one_hook(monkeypatch):
     assert stopped == [], 'the hook stays while another effect still needs it'
     source.unsubscribe(second)
     assert len(stopped) == 1, 'the hook is released when the last effect stops'
+
+
+def test_the_effect_thread_does_not_shadow_thread_internals(ripple):
+    """Nothing on the subclass may hide a ``threading.Thread`` member.
+
+    The engine originally stored its shutdown flag as ``self._stop``, which on
+    Python 3.9-3.12 shadows the private ``Thread._stop()`` that ``join()``
+    calls -- joining a live thread then raised ``TypeError: 'Event' object is
+    not callable``. Python 3.13 dropped that member, so a local run passed and
+    only CI caught it. Comparing against the real class keeps the check honest
+    on every version.
+    """
+    import threading
+
+    _device, _fake, _keys, thread = ripple
+
+    # Names Thread sets on its own instances are fine; names it defines on the
+    # class are not, because assigning to them replaces the inherited member.
+    own = set(vars(threading.Thread(target=lambda: None)))
+    thread_members = set(dir(threading.Thread)) - own
+    shadowed = sorted(name for name in vars(thread) if name in thread_members)
+    assert shadowed == [], (
+        'these attributes hide threading.Thread members: {0}'.format(shadowed))
+
+    thread.start()
+    thread.stop()
+    thread.join(timeout=3)
+    assert not thread.is_alive()
