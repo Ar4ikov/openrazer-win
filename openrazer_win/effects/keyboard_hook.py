@@ -27,6 +27,7 @@ _DWORD = ctypes.c_ulong          # what wintypes.DWORD resolves to on Windows
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
 WM_SYSKEYDOWN = 0x0104
+WM_QUIT = 0x0012
 LLKHF_EXTENDED = 0x01
 
 #: Windows virtual-key code -> the key name used by OpenRazer's matrix map.
@@ -93,6 +94,7 @@ class KeyboardHook:
         self._thread: Optional[threading.Thread] = None
         self._thread_id: Optional[int] = None
         self._hook = None
+        self._procedure = None
         self._ready = threading.Event()
         self._running = False
 
@@ -115,10 +117,15 @@ class KeyboardHook:
     def stop(self) -> None:
         if self._thread is None:
             return
-        user32 = ctypes.WinDLL('user32', use_last_error=True)
         if self._thread_id:
-            # WM_QUIT == 0x0012; breaks the message loop below.
-            user32.PostThreadMessageW(self._thread_id, 0x0012, 0, 0)
+            from ctypes import wintypes
+
+            user32 = ctypes.WinDLL('user32', use_last_error=True)
+            user32.PostThreadMessageW.argtypes = [
+                wintypes.DWORD, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+            user32.PostThreadMessageW.restype = wintypes.BOOL
+            # WM_QUIT == 0x0012; breaks the message loop in _run().
+            user32.PostThreadMessageW(self._thread_id, WM_QUIT, 0, 0)
         self._thread.join(timeout=2.0)
         self._thread = None
         self._running = False
@@ -129,13 +136,31 @@ class KeyboardHook:
         hook_proc = _hook_proc_type()
         user32 = ctypes.WinDLL('user32', use_last_error=True)
         kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+
+        # Declaring restype on every call that returns a handle is not
+        # optional: ctypes defaults to c_int, which truncates a 64-bit HMODULE
+        # or HHOOK to 32 bits.  A truncated module handle is what makes
+        # SetWindowsHookEx fail with ERROR_MOD_NOT_FOUND.
+        kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+        kernel32.GetModuleHandleW.restype = wintypes.HMODULE
+        kernel32.GetCurrentThreadId.argtypes = []
+        kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+
         user32.SetWindowsHookExW.argtypes = [
             ctypes.c_int, hook_proc, wintypes.HINSTANCE, wintypes.DWORD]
         user32.SetWindowsHookExW.restype = wintypes.HHOOK
+        user32.UnhookWindowsHookEx.argtypes = [wintypes.HHOOK]
+        user32.UnhookWindowsHookEx.restype = wintypes.BOOL
         user32.CallNextHookEx.argtypes = [
             wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM,
             ctypes.POINTER(KBDLLHOOKSTRUCT)]
-        user32.CallNextHookEx.restype = ctypes.c_long
+        user32.CallNextHookEx.restype = wintypes.LPARAM
+        user32.GetMessageW.argtypes = [
+            ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
+        user32.GetMessageW.restype = wintypes.BOOL
+        user32.TranslateMessage.argtypes = [ctypes.POINTER(wintypes.MSG)]
+        user32.DispatchMessageW.argtypes = [ctypes.POINTER(wintypes.MSG)]
+        user32.DispatchMessageW.restype = wintypes.LPARAM
 
         def callback(code, message, data):
             if code >= 0 and message in (WM_KEYDOWN, WM_SYSKEYDOWN):
@@ -145,9 +170,13 @@ class KeyboardHook:
                     logger.debug('key handler failed', exc_info=True)
             return user32.CallNextHookEx(None, code, message, data)
 
-        procedure = hook_proc(callback)
+        # Keep a reference for as long as the hook is installed, or the
+        # trampoline is collected and Windows calls freed memory.
+        self._procedure = hook_proc(callback)
+        # WH_KEYBOARD_LL ignores the module handle, but pass the real one
+        # rather than a truncated value.
         self._hook = user32.SetWindowsHookExW(
-            WH_KEYBOARD_LL, procedure, kernel32.GetModuleHandleW(None), 0)
+            WH_KEYBOARD_LL, self._procedure, kernel32.GetModuleHandleW(None), 0)
         if not self._hook:
             logger.warning('SetWindowsHookEx failed: WinError %d',
                            ctypes.get_last_error())
@@ -165,6 +194,7 @@ class KeyboardHook:
 
         user32.UnhookWindowsHookEx(self._hook)
         self._hook = None
+        self._procedure = None
         self._running = False
 
     def _dispatch(self, event: KBDLLHOOKSTRUCT) -> None:

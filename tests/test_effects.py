@@ -223,3 +223,28 @@ def test_the_effect_thread_does_not_shadow_thread_internals(ripple):
     thread.stop()
     thread.join(timeout=3)
     assert not thread.is_alive()
+
+
+def test_the_os_hook_installs_and_shuts_down():
+    """Install the real WH_KEYBOARD_LL hook, on Windows only.
+
+    Regression guard for a ctypes prototype bug: without an explicit restype,
+    ``GetModuleHandleW`` returned a c_int and truncated the 64-bit module
+    handle, so ``SetWindowsHookEx`` failed with ERROR_MOD_NOT_FOUND and every
+    key-reactive effect silently did nothing. Only a real install catches that.
+    """
+    from openrazer_win.effects.keyboard_hook import KeyboardHook, is_available
+
+    if not is_available():
+        pytest.skip('the OS hook is a Windows feature')
+
+    hook = KeyboardHook(lambda name: None)
+    try:
+        assert hook.start(), 'SetWindowsHookEx failed; see the log for the WinError'
+        assert hook.running
+        assert hook._hook is not None
+        assert hook._procedure is not None, 'the callback must stay referenced'
+    finally:
+        hook.stop()
+    assert not hook.running
+    assert hook._hook is None
