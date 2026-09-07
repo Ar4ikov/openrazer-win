@@ -52,14 +52,17 @@ Razer Viper: dpi (3200, 3200)
 ## Install
 
 ```bash
-pip install openrazer-win
+pip install git+https://github.com/Ar4ikov/openrazer-win
 ```
 
-That is the whole dependency list — the port runs on the Python standard library alone. No compiler,
-no `hidapi` wheel, no driver signing, no administrator rights, no reboot.
+There is no dependency list to speak of — the port runs on the Python standard library alone. No
+compiler, no `hidapi` wheel, no driver signing, no administrator rights, no reboot.
 
 Prefer a single file? Grab `openrazer-win.exe` from the
-[latest release](https://github.com/Ar4ikov/openrazer-win/releases/latest) and run it directly.
+[latest release](https://github.com/Ar4ikov/openrazer-win/releases/latest) and run it directly; it
+needs no Python at all.
+
+> Not on PyPI yet, so `pip install openrazer-win` will not find it — use the git URL above.
 
 > **Close Razer Synapse before using this.** Synapse holds the device open and will fight you for
 > control of the LEDs. `openrazer-win doctor` tells you if that is happening.

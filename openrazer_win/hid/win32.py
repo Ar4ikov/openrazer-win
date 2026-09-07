@@ -11,19 +11,31 @@ from __future__ import annotations
 
 import ctypes
 import sys
-from ctypes import wintypes
 from typing import Optional
 
 from .base import HidDeviceInfo, HidError
 
+# Win32 type aliases spelled with plain ctypes types rather than
+# ``ctypes.wintypes``, which does not exist off Windows.  Keeping the module
+# importable everywhere lets the test suite check for accidental Windows-only
+# work at import time, and lets documentation tooling read it.
+DWORD = ctypes.c_ulong
+ULONG = ctypes.c_ulong
+BOOL = ctypes.c_int
+BOOLEAN = ctypes.c_byte
+HANDLE = ctypes.c_void_p
+HWND = ctypes.c_void_p
+LPCWSTR = ctypes.c_wchar_p
+
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+# ``WinDLL`` only exists on Windows; everything below is inert without it.
 if sys.platform == 'win32':  # pragma: no branch - guarded import
     _setupapi = ctypes.WinDLL('setupapi', use_last_error=True)
     _hid = ctypes.WinDLL('hid', use_last_error=True)
     _kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-else:  # pragma: no cover - allows importing the module for docs/tests on CI
+else:  # pragma: no cover - non-Windows import path
     _setupapi = _hid = _kernel32 = None
-
-INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
 
 GENERIC_READ = 0x80000000
 GENERIC_WRITE = 0x40000000
@@ -47,21 +59,21 @@ class GUID(ctypes.Structure):
 
 
 class SP_DEVICE_INTERFACE_DATA(ctypes.Structure):
-    _fields_ = [('cbSize', wintypes.DWORD),
+    _fields_ = [('cbSize', DWORD),
                 ('InterfaceClassGuid', GUID),
-                ('Flags', wintypes.DWORD),
+                ('Flags', DWORD),
                 ('Reserved', ctypes.POINTER(ctypes.c_ulong))]
 
 
 class SP_DEVINFO_DATA(ctypes.Structure):
-    _fields_ = [('cbSize', wintypes.DWORD),
+    _fields_ = [('cbSize', DWORD),
                 ('ClassGuid', GUID),
-                ('DevInst', wintypes.DWORD),
+                ('DevInst', DWORD),
                 ('Reserved', ctypes.POINTER(ctypes.c_ulong))]
 
 
 class HIDD_ATTRIBUTES(ctypes.Structure):
-    _fields_ = [('Size', wintypes.ULONG),
+    _fields_ = [('Size', ULONG),
                 ('VendorID', ctypes.c_ushort),
                 ('ProductID', ctypes.c_ushort),
                 ('VersionNumber', ctypes.c_ushort)]
@@ -90,14 +102,14 @@ def _configure_prototypes() -> None:
     _hid.HidD_GetHidGuid.argtypes = [ctypes.POINTER(GUID)]
     _hid.HidD_GetHidGuid.restype = None
 
-    _hid.HidD_GetAttributes.argtypes = [wintypes.HANDLE, ctypes.POINTER(HIDD_ATTRIBUTES)]
-    _hid.HidD_GetAttributes.restype = wintypes.BOOLEAN
+    _hid.HidD_GetAttributes.argtypes = [HANDLE, ctypes.POINTER(HIDD_ATTRIBUTES)]
+    _hid.HidD_GetAttributes.restype = BOOLEAN
 
-    _hid.HidD_GetPreparsedData.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_void_p)]
-    _hid.HidD_GetPreparsedData.restype = wintypes.BOOLEAN
+    _hid.HidD_GetPreparsedData.argtypes = [HANDLE, ctypes.POINTER(ctypes.c_void_p)]
+    _hid.HidD_GetPreparsedData.restype = BOOLEAN
 
     _hid.HidD_FreePreparsedData.argtypes = [ctypes.c_void_p]
-    _hid.HidD_FreePreparsedData.restype = wintypes.BOOLEAN
+    _hid.HidD_FreePreparsedData.restype = BOOLEAN
 
     _hid.HidP_GetCaps.argtypes = [ctypes.c_void_p, ctypes.POINTER(HIDP_CAPS)]
     _hid.HidP_GetCaps.restype = ctypes.c_long
@@ -105,42 +117,42 @@ def _configure_prototypes() -> None:
     for name in ('HidD_GetManufacturerString', 'HidD_GetProductString',
                  'HidD_GetSerialNumberString'):
         func = getattr(_hid, name)
-        func.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.c_ulong]
-        func.restype = wintypes.BOOLEAN
+        func.argtypes = [HANDLE, ctypes.c_void_p, ctypes.c_ulong]
+        func.restype = BOOLEAN
 
-    _hid.HidD_SetFeature.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.c_ulong]
-    _hid.HidD_SetFeature.restype = wintypes.BOOLEAN
+    _hid.HidD_SetFeature.argtypes = [HANDLE, ctypes.c_void_p, ctypes.c_ulong]
+    _hid.HidD_SetFeature.restype = BOOLEAN
 
-    _hid.HidD_GetFeature.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.c_ulong]
-    _hid.HidD_GetFeature.restype = wintypes.BOOLEAN
+    _hid.HidD_GetFeature.argtypes = [HANDLE, ctypes.c_void_p, ctypes.c_ulong]
+    _hid.HidD_GetFeature.restype = BOOLEAN
 
-    _hid.HidD_SetNumInputBuffers.argtypes = [wintypes.HANDLE, ctypes.c_ulong]
-    _hid.HidD_SetNumInputBuffers.restype = wintypes.BOOLEAN
+    _hid.HidD_SetNumInputBuffers.argtypes = [HANDLE, ctypes.c_ulong]
+    _hid.HidD_SetNumInputBuffers.restype = BOOLEAN
 
     _setupapi.SetupDiGetClassDevsW.argtypes = [
-        ctypes.POINTER(GUID), wintypes.LPCWSTR, wintypes.HWND, wintypes.DWORD]
-    _setupapi.SetupDiGetClassDevsW.restype = wintypes.HANDLE
+        ctypes.POINTER(GUID), LPCWSTR, HWND, DWORD]
+    _setupapi.SetupDiGetClassDevsW.restype = HANDLE
 
     _setupapi.SetupDiEnumDeviceInterfaces.argtypes = [
-        wintypes.HANDLE, ctypes.c_void_p, ctypes.POINTER(GUID), wintypes.DWORD,
+        HANDLE, ctypes.c_void_p, ctypes.POINTER(GUID), DWORD,
         ctypes.POINTER(SP_DEVICE_INTERFACE_DATA)]
-    _setupapi.SetupDiEnumDeviceInterfaces.restype = wintypes.BOOL
+    _setupapi.SetupDiEnumDeviceInterfaces.restype = BOOL
 
     _setupapi.SetupDiGetDeviceInterfaceDetailW.argtypes = [
-        wintypes.HANDLE, ctypes.POINTER(SP_DEVICE_INTERFACE_DATA), ctypes.c_void_p,
-        wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(SP_DEVINFO_DATA)]
-    _setupapi.SetupDiGetDeviceInterfaceDetailW.restype = wintypes.BOOL
+        HANDLE, ctypes.POINTER(SP_DEVICE_INTERFACE_DATA), ctypes.c_void_p,
+        DWORD, ctypes.POINTER(DWORD), ctypes.POINTER(SP_DEVINFO_DATA)]
+    _setupapi.SetupDiGetDeviceInterfaceDetailW.restype = BOOL
 
-    _setupapi.SetupDiDestroyDeviceInfoList.argtypes = [wintypes.HANDLE]
-    _setupapi.SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
+    _setupapi.SetupDiDestroyDeviceInfoList.argtypes = [HANDLE]
+    _setupapi.SetupDiDestroyDeviceInfoList.restype = BOOL
 
     _kernel32.CreateFileW.argtypes = [
-        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
-        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
-    _kernel32.CreateFileW.restype = wintypes.HANDLE
+        LPCWSTR, DWORD, DWORD, ctypes.c_void_p,
+        DWORD, DWORD, HANDLE]
+    _kernel32.CreateFileW.restype = HANDLE
 
-    _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    _kernel32.CloseHandle.restype = wintypes.BOOL
+    _kernel32.CloseHandle.argtypes = [HANDLE]
+    _kernel32.CloseHandle.restype = BOOL
 
 
 if _hid is not None:
@@ -240,7 +252,7 @@ class Win32HidBackend:
                     break
                 index += 1
 
-                required = wintypes.DWORD(0)
+                required = DWORD(0)
                 _setupapi.SetupDiGetDeviceInterfaceDetailW(
                     dev_info, ctypes.byref(interface_data), None, 0,
                     ctypes.byref(required), None)
@@ -251,7 +263,7 @@ class Win32HidBackend:
                 # SP_DEVICE_INTERFACE_DETAIL_DATA_W.cbSize is 8 on 64-bit and 6
                 # on 32-bit -- it counts the DWORD plus one WCHAR, aligned.
                 cb_size = 8 if ctypes.sizeof(ctypes.c_void_p) == 8 else 6
-                ctypes.memmove(buffer, ctypes.byref(wintypes.DWORD(cb_size)), 4)
+                ctypes.memmove(buffer, ctypes.byref(DWORD(cb_size)), 4)
                 if not _setupapi.SetupDiGetDeviceInterfaceDetailW(
                         dev_info, ctypes.byref(interface_data), buffer,
                         required.value, None, None):

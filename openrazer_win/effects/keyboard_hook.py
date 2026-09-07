@@ -14,10 +14,15 @@ import ctypes
 import logging
 import sys
 import threading
-from ctypes import wintypes
 from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
+
+# The module has to import on any platform: the test suite, the docs build and
+# the emulator all pull it in.  Only the Win32 calls are guarded -- the tables
+# below are plain data and are worth exercising everywhere.
+_IS_WINDOWS = sys.platform == 'win32'
+_DWORD = ctypes.c_ulong          # what wintypes.DWORD resolves to on Windows
 
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
@@ -57,19 +62,27 @@ EXTENDED_OVERRIDES = {0x0D: 'ENTER'}
 
 
 class KBDLLHOOKSTRUCT(ctypes.Structure):
-    _fields_ = [('vkCode', wintypes.DWORD),
-                ('scanCode', wintypes.DWORD),
-                ('flags', wintypes.DWORD),
-                ('time', wintypes.DWORD),
+    _fields_ = [('vkCode', _DWORD),
+                ('scanCode', _DWORD),
+                ('flags', _DWORD),
+                ('time', _DWORD),
                 ('dwExtraInfo', ctypes.POINTER(ctypes.c_ulong))]
 
 
-HOOKPROC = ctypes.WINFUNCTYPE(
-    ctypes.c_long, ctypes.c_int, wintypes.WPARAM, ctypes.POINTER(KBDLLHOOKSTRUCT))
+def _hook_proc_type():
+    """The callback signature, built lazily.
+
+    ``ctypes.WINFUNCTYPE`` exists only on Windows, so it cannot be evaluated at
+    import time without making this module unimportable elsewhere.
+    """
+    from ctypes import wintypes
+    return ctypes.WINFUNCTYPE(
+        ctypes.c_long, ctypes.c_int, wintypes.WPARAM,
+        ctypes.POINTER(KBDLLHOOKSTRUCT))
 
 
 def is_available() -> bool:
-    return sys.platform == 'win32'
+    return _IS_WINDOWS
 
 
 class KeyboardHook:
@@ -111,10 +124,13 @@ class KeyboardHook:
         self._running = False
 
     def _run(self) -> None:
+        from ctypes import wintypes
+
+        hook_proc = _hook_proc_type()
         user32 = ctypes.WinDLL('user32', use_last_error=True)
         kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
         user32.SetWindowsHookExW.argtypes = [
-            ctypes.c_int, HOOKPROC, wintypes.HINSTANCE, wintypes.DWORD]
+            ctypes.c_int, hook_proc, wintypes.HINSTANCE, wintypes.DWORD]
         user32.SetWindowsHookExW.restype = wintypes.HHOOK
         user32.CallNextHookEx.argtypes = [
             wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM,
@@ -129,7 +145,7 @@ class KeyboardHook:
                     logger.debug('key handler failed', exc_info=True)
             return user32.CallNextHookEx(None, code, message, data)
 
-        procedure = HOOKPROC(callback)
+        procedure = hook_proc(callback)
         self._hook = user32.SetWindowsHookExW(
             WH_KEYBOARD_LL, procedure, kernel32.GetModuleHandleW(None), 0)
         if not self._hook:

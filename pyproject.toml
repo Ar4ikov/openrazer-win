@@ -39,7 +39,7 @@ dependencies = []
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
-    "ruff>=0.5",
+    "ruff>=0.5,<1.0",
 ]
 build = [
     "pyinstaller>=6.0",
@@ -77,12 +77,14 @@ line-length = 100
 target-version = "py39"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "B", "UP", "C4"]
+# The pyupgrade (UP) family is deliberately not selected: this codebase targets
+# Python 3.9 and reads as such on purpose -- explicit str.format indices,
+# typing.Optional, typing.Sequence. Selecting UP and then ignoring a growing
+# list of its rules also breaks whenever a new ruff release splits one of them,
+# which is exactly what happened on first CI run.
+select = ["E", "F", "W", "B", "C4"]
 ignore = [
     "E501",   # long lines are a formatting matter, not a lint failure
-    # The codebase targets Python 3.9 and reads as such on purpose: explicit
-    # str.format indices, typing.Optional, and typing.Sequence.
-    "UP006", "UP007", "UP008", "UP030", "UP032", "UP035", "UP037",
     "B008",
 ]
 

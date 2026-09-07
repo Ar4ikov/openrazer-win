@@ -82,10 +82,10 @@ jobs:
             Install with pip:
 
             ```
-            pip install openrazer-win==${{ github.event.inputs.tag || github.ref_name }}
+            pip install git+https://github.com/Ar4ikov/openrazer-win@${{ github.event.inputs.tag || github.ref_name }}
             ```
 
-            Or download `openrazer-win.exe` below and run it directly — no Python needed.
+            Or download the wheel below, or `openrazer-win.exe` to run it without Python at all.
 
             Device data generated from upstream OpenRazer. See the
             [documentation](https://ar4ikov.github.io/openrazer-win/) for details.
