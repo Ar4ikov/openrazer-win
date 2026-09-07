@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [semantic versioning](https://semver.org/).
 
+## [1.1.1] - 2026-09-08
+
+### Changed
+
+- **`doctor` now explains devices it cannot reach.** A Razer device connected
+  over Bluetooth, or plugged into a charge-only cable, is obviously attached
+  from the user's point of view but is completely absent from the HID
+  enumeration, so the report was an unhelpful "none -- is the device plugged
+  in?". It now also lists what Windows *does* see the device as, and says why
+  that form is not controllable: Bluetooth carries audio only, and lighting
+  needs a USB data cable. Devices that are plainly not lighting hardware -- a
+  webcam, an audio endpoint -- are named as such rather than reported as gaps
+  in the database.
+
 ## [1.1.0] - 2026-09-08
 
 ### Added
@@ -82,7 +96,7 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
 - **Host-rendered ripple** driven by a `WH_KEYBOARD_LL` hook that observes key presses without
   swallowing or synthesising input.
 - **Device emulator** that validates CRCs and answers the protocol, so the entire stack is testable
-  without hardware. 193 tests plus a fleet simulation covering every capability of all 267 devices.
+  without hardware. 208 tests plus a fleet simulation covering every capability of all 267 devices.
 - **Autostart** via the per-user `Run` key (`openrazer-win autostart enable`), so the daemon comes
   up at logon without administrator rights or a Windows service.
 - Standalone `openrazer-win.exe` and `openrazer-win-gui.exe` builds.
@@ -93,6 +107,7 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
 - The Kraken headset family uses a separate protocol that is not covered.
 - Razer Synapse must be closed: it holds the device open and competes for the LEDs.
 
+[1.1.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.1.0
 [1.0.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.0.0

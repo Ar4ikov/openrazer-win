@@ -22,6 +22,12 @@ COLOURS = {
     'purple': (128, 0, 255), 'pink': (255, 64, 128), 'razer': (0, 255, 0),
 }
 
+#: Device classes that are plainly not lighting hardware, so an unknown product
+#: id in one of them is not a gap worth reporting.
+NON_LIGHTING_CLASSES = frozenset((
+    'Camera', 'MEDIA', 'AudioEndpoint', 'Ports', 'Bluetooth', 'System',
+    'Image', 'USB', 'SoftwareDevice'))
+
 EFFECT_HELP = """\
 none, on, static, spectrum, wave, wheel, reactive, blinking, custom,
 breath_random, breath_single, breath_dual, breath_triple,
@@ -515,7 +521,46 @@ def cmd_doctor(args) -> int:
     if collections and not unusable:
         print('\nNo collection exposes the 90-byte feature report.')
         print('Razer Synapse may be holding the device -- close it and retry.')
+
+    _report_devices_beyond_hid(collections, database)
     return 0
+
+
+def _report_devices_beyond_hid(collections, database) -> None:
+    """Explain Razer hardware Windows has, but not as a usable HID collection.
+
+    A headset paired over Bluetooth, or plugged into a charge-only cable, is
+    obviously connected from where the user is standing while being completely
+    absent from the HID enumeration.  Saying what Windows *does* see it as
+    turns a blank list into an answer.
+    """
+    from ..hid.devices import list_attached, summarise
+    from ..protocol.report import VENDOR_ID
+
+    seen_over_hid = {info.product_id for info in collections}
+    others = [entry for entry in summarise(list_attached(vendor_id=VENDOR_ID))
+              if entry['product_id'] not in seen_over_hid]
+    if not others:
+        return
+
+    print('\nOther Razer devices Windows can see ({0}):'.format(len(others)))
+    for entry in others:
+        product_id = entry['product_id']
+        known = database.get(VENDOR_ID, product_id) if product_id else None
+        print('  {0:<11} {1}  {2}'.format(
+            entry['transport'],
+            '{0:04x}'.format(product_id) if product_id else '????',
+            entry['name']))
+        if entry['transport'].startswith('Bluetooth'):
+            print('      Bluetooth carries audio only. Lighting needs a USB '
+                  'data cable -- many bundled cables only charge.')
+        elif known is not None:
+            print('      Attached, but exposing no lighting control interface.')
+        elif NON_LIGHTING_CLASSES.intersection(entry['classes']):
+            print('      {0} -- not a device openrazer-win controls.'.format(
+                ', '.join(entry['classes'])))
+        else:
+            print('      Not in the database. Worth reporting this product id.')
 
 
 # ---------------------------------------------------------------------------

@@ -248,6 +248,7 @@ each product id is in the database.
 | Device listed as `NOT IN DATABASE` | Newer than the bundled data. [Open an issue](https://github.com/Ar4ikov/openrazer-win/issues) with the product id. |
 | `device replied not supported` | The firmware refused that command; the device genuinely lacks the feature. |
 | Effects reset after sleep | Windows cuts USB power. The daemon replays the stored state when the device reappears. |
+| Device is connected but nothing is listed | It may be paired over Bluetooth, or on a charge-only cable. `doctor` names what Windows sees it as. Lighting needs a USB data connection. |
 | Nothing at all listed | Only Razer devices (vendor `1532`) are handled. |
 
 ## Development
@@ -257,7 +258,7 @@ git clone https://github.com/Ar4ikov/openrazer-win
 cd openrazer-win
 pip install -e ".[dev]"
 
-pytest                              # 193 tests, no hardware needed
+pytest                              # 208 tests, no hardware needed
 ruff check .
 python tools/simulate_devices.py    # every capability of all 267 devices
 ```

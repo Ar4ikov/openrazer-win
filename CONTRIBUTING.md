@@ -11,7 +11,7 @@ pip install -e ".[dev]"
 ## Before opening a pull request
 
 ```bash
-pytest                              # 193 tests, no hardware required
+pytest                              # 208 tests, no hardware required
 ruff check .
 python tools/simulate_devices.py    # every capability of all 267 devices
 ```
