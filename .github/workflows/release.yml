@@ -49,11 +49,19 @@ jobs:
 
       - name: Smoke-test the executable
         if: matrix.artifact == 'exe'
+        # The runner appends `exit $LASTEXITCODE`, so the script has to end on a
+        # deliberate exit: `autostart status` reports 1 when autostart is off,
+        # which is the expected state on a fresh runner.
         run: |
           .\dist\openrazer-win.exe --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           .\dist\openrazer-win.exe supported viper
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           .\dist\openrazer-win.exe doctor
-          .\dist\openrazer-win.exe autostart status; if ($LASTEXITCODE -notin 0,1) { exit 1 }
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          .\dist\openrazer-win.exe autostart status
+          if ($LASTEXITCODE -notin 0, 1) { exit 1 }
+          exit 0
         shell: pwsh
 
       - uses: actions/upload-artifact@v4

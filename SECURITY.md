@@ -6,6 +6,9 @@
 boundary is the daemon:
 
 - The daemon binds **127.0.0.1 only** and refuses any other bind address.
+- The listening socket asks for `SO_EXCLUSIVEADDRUSE`, not `SO_REUSEADDR`. Windows, unlike Unix,
+  lets a second process bind a port that is already being listened on, so the usual `SO_REUSEADDR`
+  default would allow any process running as the user to hijack the socket.
 - Each run generates a random bearer token, written to `%LOCALAPPDATA%\openrazer-win\daemon.json`
   with owner-only permissions. Every request must carry it.
 - The RPC surface is a **fixed allowlist** of device methods, not `getattr` on the device object.

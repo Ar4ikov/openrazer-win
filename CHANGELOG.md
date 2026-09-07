@@ -23,8 +23,9 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
 - **Device database** extracted from upstream's `openrazer_daemon.hardware` package: names, types,
   matrix dimensions, DPI limits and per-device method lists.
 - **Daemon** serving newline-delimited JSON-RPC 2.0 over loopback TCP, authenticated with a random
-  bearer token in an owner-only file. Watches for hot-plug, restores persisted lighting state, and
-  exposes a fixed method allowlist.
+  bearer token in an owner-only file. The listening socket takes `SO_EXCLUSIVEADDRUSE` so no other
+  local process can hijack it. Watches for hot-plug, restores persisted lighting state, and exposes
+  a fixed method allowlist.
 - **Client library** mirroring upstream's `openrazer.client`, with an in-process `direct=True` mode
   for scripts that do not want a daemon.
 - **Command line** (`openrazer-win`) covering devices, effects, brightness, DPI, DPI stages,
