@@ -182,3 +182,27 @@ def test_direct_mode_bypasses_the_daemon():
     with DeviceManager(direct=True, hid_backend=backend) as manager:
         assert len(manager.devices) == 1
         manager.devices[0].fx.static(0, 255, 0)
+
+
+def test_the_listening_socket_cannot_be_hijacked(daemon):
+    """A second bind on the daemon's port must fail.
+
+    Windows honours SO_REUSEADDR on listening sockets, so leaving it on would
+    let any process on the machine bind the same port and intercept device
+    commands. The server asks for exclusive use instead.
+    """
+    import socket as socket_module
+
+    assert daemon.allow_reuse_address is False
+    with socket_module.socket(socket_module.AF_INET, socket_module.SOCK_STREAM) as thief:
+        thief.setsockopt(socket_module.SOL_SOCKET, socket_module.SO_REUSEADDR, 1)
+        with pytest.raises(OSError):
+            thief.bind((daemon.endpoint.host, daemon.endpoint.port))
+
+
+def test_the_daemon_refuses_non_loopback_binds():
+    """The only supported bind address is loopback; main() enforces it."""
+    from openrazer_win.daemon.main import main
+
+    with pytest.raises(SystemExit):
+        main(['--host', '0.0.0.0'])

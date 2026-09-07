@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 import socketserver
+import sys
 import threading
 import time
 from typing import Any, Callable, Optional
@@ -253,7 +255,21 @@ class DaemonServer(socketserver.ThreadingTCPServer):
     """Loopback-only threading server with a bearer token."""
 
     daemon_threads = True
-    allow_reuse_address = True
+
+    # Not SO_REUSEADDR: on Windows it lets another process bind a port that is
+    # already being listened on, which would let anything on the machine
+    # hijack the daemon's socket.  SO_EXCLUSIVEADDRUSE is the Windows way to
+    # say "this port is mine".
+    allow_reuse_address = False
+
+    def server_bind(self) -> None:
+        if sys.platform == 'win32':
+            try:
+                self.socket.setsockopt(socket.SOL_SOCKET,
+                                       getattr(socket, 'SO_EXCLUSIVEADDRUSE', -5), 1)
+            except OSError:
+                logger.debug('SO_EXCLUSIVEADDRUSE unavailable', exc_info=True)
+        super().server_bind()
 
     def __init__(self, service: DaemonService, host: str = '127.0.0.1', port: int = 0):
         super().__init__((host, port), RpcHandler)

@@ -12,20 +12,23 @@ Build with::
 """
 import os
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-# The generated device database and recipes must travel with the binary.
+PROJECT_ROOT = os.path.dirname(SPECPATH)
+
+# The generated device database, recipes and key map must travel with the
+# binary; they are read from disk at runtime.
 datas = collect_data_files('openrazer_win', includes=['devices/data/*.json'])
+if not datas:  # e.g. an editable install PyInstaller cannot introspect
+    data_dir = os.path.join(PROJECT_ROOT, 'openrazer_win', 'devices', 'data')
+    datas = [(os.path.join(data_dir, name), 'openrazer_win/devices/data')
+             for name in os.listdir(data_dir) if name.endswith('.json')]
 
-# ctypes reaches hid.dll and setupapi.dll at runtime, so there is nothing to
-# bundle for the HID backend -- they are Windows components.
-hidden_imports = [
-    'openrazer_win.hid.win32',
-    'openrazer_win.hid.fake',
-    'openrazer_win.daemon.main',
-    'openrazer_win.daemon.demo',
-    'openrazer_win.tray.gui',
-]
+# Every submodule, enumerated rather than inferred: the CLI reaches its
+# subpackages through plain imports that PyInstaller's graph walk misses under
+# an editable install, which produced a binary that could not find
+# openrazer_win.cli at all.
+hidden_imports = collect_submodules('openrazer_win')
 
 EXCLUDES = [
     'numpy', 'PIL', 'matplotlib', 'pandas', 'scipy', 'pytest', 'setuptools',
@@ -36,7 +39,7 @@ EXCLUDES = [
 # relative paths in a spec resolve against it, so build absolute ones.
 cli_analysis = Analysis(
     [os.path.join(SPECPATH, 'entry_cli.py')],
-    pathex=[],
+    pathex=[PROJECT_ROOT],
     binaries=[],
     datas=datas,
     hiddenimports=hidden_imports,
@@ -48,7 +51,7 @@ cli_analysis = Analysis(
 
 gui_analysis = Analysis(
     [os.path.join(SPECPATH, 'entry_gui.py')],
-    pathex=[],
+    pathex=[PROJECT_ROOT],
     binaries=[],
     datas=datas,
     hiddenimports=hidden_imports,

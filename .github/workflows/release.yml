@@ -39,8 +39,12 @@ jobs:
 
       - name: Build standalone executables
         if: matrix.artifact == 'exe'
+        # A regular install, not editable: PyInstaller cannot follow imports
+        # through a PEP 660 editable finder, and silently produced a binary
+        # that could not import openrazer_win.cli.
         run: |
-          pip install -e ".[build]"
+          pip install .
+          pip install pyinstaller
           pyinstaller --clean --noconfirm packaging/openrazer-win.spec
 
       - name: Smoke-test the executable
@@ -48,6 +52,9 @@ jobs:
         run: |
           .\dist\openrazer-win.exe --version
           .\dist\openrazer-win.exe supported viper
+          .\dist\openrazer-win.exe doctor
+          .\dist\openrazer-win.exe autostart status; if ($LASTEXITCODE -notin 0,1) { exit 1 }
+        shell: pwsh
 
       - uses: actions/upload-artifact@v4
         with:
