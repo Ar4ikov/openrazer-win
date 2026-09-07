@@ -409,17 +409,44 @@ def run(manager: Optional[DeviceManager] = None) -> int:
         pass
 
     if manager is None and not is_daemon_running():
-        if messagebox.askyesno(
-                WINDOW_TITLE,
-                'The openrazer-win daemon is not running.\n\n'
-                'Start it now?'):
-            from ..cli import _daemon_start
-            _daemon_start(type('Args', (), {'no_effects': False})())
+        _offer_to_start_the_daemon(root)
 
     panel = ControlPanel(root, manager)
     panel.reload()
     root.mainloop()
     return 0
+
+
+def _offer_to_start_the_daemon(root: tk.Misc) -> None:
+    """Ask once, start once, and say what happened.
+
+    The panel is useless without the daemon, but it must never end up asking
+    again in a loop -- which is what happened when the frozen GUI relaunched
+    itself and the new process opened a second panel instead of a daemon.
+    """
+    if not messagebox.askyesno(
+            WINDOW_TITLE,
+            'The openrazer-win daemon is not running.\n\n'
+            'It owns the connection to your devices. Start it now?'):
+        return
+
+    from ..cli import start_daemon_detached
+    from ..daemon.logs import log_path
+
+    root.config(cursor='watch')
+    root.update_idletasks()
+    try:
+        started = start_daemon_detached()
+    finally:
+        root.config(cursor='')
+
+    if not started:
+        messagebox.showerror(
+            WINDOW_TITLE,
+            'The daemon did not start.\n\n'
+            'Its log may say why:\n{0}\n\n'
+            'You can also run "openrazer-win daemon run" in a terminal to see '
+            'the error directly.'.format(log_path()))
 
 
 def main(argv=None) -> int:

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 import os
 import subprocess
 import sys
@@ -332,10 +331,9 @@ def cmd_daemon(args) -> int:
         print('daemon stopped')
         return 0
     if args.action == 'run':
+        from ..daemon import logs
         from ..daemon.server import serve
-        logging.basicConfig(
-            level=logging.DEBUG if args.verbose else logging.INFO,
-            format='%(asctime)s  %(levelname)-7s %(name)s: %(message)s')
+        logs.configure(getattr(args, 'verbose', False))
         serve(enable_effects=not args.no_effects)
         return 0
     return _daemon_start(args)
@@ -368,23 +366,44 @@ def _daemon_status(args) -> int:
     return 0
 
 
+#: PyInstaller puts these in the environment of a running onefile app.  A child
+#: that inherits them believes it is the same launch and reuses the parent's
+#: extraction directory, so the parent cannot delete it on exit -- that is the
+#: "Failed to remove temporary directory" warning.
+_PYINSTALLER_ENV = ('_MEIPASS2', '_PYI_ARCHIVE_FILE', '_PYI_APPLICATION_HOME_DIR',
+                    '_PYI_PARENT_PROCESS_LEVEL')
+
+
 def daemon_command() -> list:
     """How to launch the daemon from wherever this code is running.
 
     A PyInstaller build has no importable ``-m`` target, so the frozen binary
-    re-invokes itself with ``daemon run`` instead.
+    re-invokes itself.  Both frozen entry points accept CLI arguments, so this
+    works from ``openrazer-win.exe`` and ``openrazer-win-gui.exe`` alike.
     """
     if getattr(sys, 'frozen', False):
         return [sys.executable, 'daemon', 'run']
     return [sys.executable, '-m', 'openrazer_win.daemon.main']
 
 
-def _daemon_start(args) -> int:
+def child_environment() -> dict:
+    """A copy of the environment safe to hand to a spawned daemon."""
+    environment = dict(os.environ)
+    for name in _PYINSTALLER_ENV:
+        environment.pop(name, None)
+    return environment
+
+
+def start_daemon_detached(no_effects: bool = False, timeout: float = 15.0) -> bool:
+    """Spawn the daemon so it outlives this process.  True once it answers.
+
+    Shared with the GUI, which needs the same behaviour without an argparse
+    namespace to hand over.
+    """
     if is_daemon_running():
-        print('daemon is already running')
-        return 0
+        return True
     command = daemon_command()
-    if getattr(args, 'no_effects', False):
+    if no_effects:
         command.append('--no-effects')
     creationflags = 0
     if sys.platform == 'win32':
@@ -393,15 +412,28 @@ def _daemon_start(args) -> int:
             getattr(subprocess, 'DETACHED_PROCESS', 0)
     subprocess.Popen(command, creationflags=creationflags,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     stdin=subprocess.DEVNULL, close_fds=True)
+                     stdin=subprocess.DEVNULL, close_fds=True,
+                     env=child_environment())
 
     import time
-    for _ in range(60):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         if is_daemon_running():
-            print('daemon started')
-            return 0
+            return True
         time.sleep(0.25)
-    print('daemon did not come up; run "openrazer-win daemon run" to see why',
+    return False
+
+
+def _daemon_start(args) -> int:
+    if is_daemon_running():
+        print('daemon is already running')
+        return 0
+    if start_daemon_detached(getattr(args, 'no_effects', False)):
+        print('daemon started')
+        return 0
+    from ..daemon.logs import log_path
+    print('daemon did not come up. Its log is at:\n  {0}\n'
+          'Or run it in the foreground:  openrazer-win daemon run'.format(log_path()),
           file=sys.stderr)
     return 1
 
@@ -457,6 +489,9 @@ def cmd_doctor(args) -> int:
     print('database     {0} supported product ids'.format(len(database)))
     print('endpoint     {0}{1}'.format(
         endpoint_path(), '' if os.path.exists(endpoint_path()) else '  (absent)'))
+    from ..daemon.logs import log_path
+    print('daemon log   {0}{1}'.format(
+        log_path(), '' if os.path.exists(log_path()) else '  (absent)'))
     print('daemon       {0}'.format(
         'running' if is_daemon_running() else 'not running'))
 

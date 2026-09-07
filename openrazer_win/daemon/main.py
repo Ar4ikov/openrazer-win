@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import logging
-import sys
 
 from .server import serve
 
@@ -21,16 +19,11 @@ def main(argv=None) -> int:
     parser.add_argument('--emulate', action='store_true',
                         help='run against emulated devices instead of real hardware')
     parser.add_argument('--verbose', '-v', action='store_true')
-    parser.add_argument('--log-file', help='append logs to this file')
+    parser.add_argument('--log-file', help='write logs here instead of the default location')
     args = parser.parse_args(argv)
 
-    handlers = [logging.StreamHandler(sys.stderr)]
-    if args.log_file:
-        handlers.append(logging.FileHandler(args.log_file, encoding='utf-8'))
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format='%(asctime)s  %(levelname)-7s %(name)s: %(message)s',
-        handlers=handlers)
+    from . import logs
+    logs.configure(args.verbose, args.log_file)
 
     if args.host != '127.0.0.1' and not args.host.startswith('127.'):
         parser.error('the daemon only binds to loopback addresses')
