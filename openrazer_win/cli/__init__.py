@@ -319,8 +319,15 @@ def cmd_daemon(args) -> int:
             client = RpcClient(timeout=5.0)
             client.call('daemon.shutdown')
             client.close()
-        except (DaemonUnavailable, RpcError) as error:
+        except DaemonUnavailable as error:
+            # Clear the leftover endpoint file, or every later command reports
+            # a connection failure against a daemon that is long gone.
+            from ..daemon.protocol import Endpoint
+            Endpoint.remove()
             print('daemon is not running ({0})'.format(error))
+            return 1
+        except RpcError as error:
+            print('daemon refused the shutdown request ({0})'.format(error))
             return 1
         print('daemon stopped')
         return 0

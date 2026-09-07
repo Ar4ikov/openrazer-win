@@ -51,8 +51,13 @@ class RpcClient:
             connection = socket.create_connection(
                 (self.endpoint.host, self.endpoint.port), timeout=self.timeout)
         except OSError as error:
-            raise DaemonUnavailable('cannot reach the daemon at {0}:{1}: {2}'.format(
-                self.endpoint.host, self.endpoint.port, error)) from error
+            # An endpoint file with nothing listening behind it means the
+            # daemon died without cleaning up, which is worth saying plainly
+            # rather than surfacing a raw connection error.
+            raise DaemonUnavailable(
+                'the openrazer-win daemon is not running: nothing is listening on '
+                '{0}:{1}, so its endpoint file is stale ({2})'.format(
+                    self.endpoint.host, self.endpoint.port, error)) from error
         self._socket = connection
         self._stream = connection.makefile('rwb')
 

@@ -201,6 +201,7 @@ footer p { margin: 0 0 8px; }
       <span class="badge">No admin rights</span>
       <span class="badge">No telemetry</span>
       <span class="badge">GPL-2.0-or-later</span>
+      <span class="badge on">on PyPI</span>
     </div>
     <div class="cta">
       <a class="btn primary" href="#install">Get started</a>
@@ -214,13 +215,13 @@ footer p { margin: 0 0 8px; }
   <div class="wrap">
     <h2><span class="num">01</span>Install</h2>
     <p class="sub">Python 3.9 or newer on Windows 10 / 11 (amd64). Nothing else.</p>
-<pre><code><span class="c-cmd">pip install</span> git+https://github.com/Ar4ikov/openrazer-win</code></pre>
+<pre><code><span class="c-cmd">pip install</span> openrazer-win</code></pre>
     <p class="sub" style="margin-bottom:14px">
       The entire port runs on the standard library — no compiler, no <code>hidapi</code> wheel,
       no driver signing, no reboot. Prefer a single file? Download
       <code>openrazer-win.exe</code> from the
       <a href="https://github.com/Ar4ikov/openrazer-win/releases/latest">latest release</a>; it
-      needs no Python at all. Not on PyPI yet, so install from the git URL above.
+      needs no Python at all.
     </p>
     <div class="note">
       <strong>Close Razer Synapse first.</strong> Synapse holds the device open and will fight you

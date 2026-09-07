@@ -7,6 +7,7 @@
 [![CI](https://github.com/Ar4ikov/openrazer-win/actions/workflows/ci.yml/badge.svg)](https://github.com/Ar4ikov/openrazer-win/actions/workflows/ci.yml)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
 [![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-green)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/openrazer-win)](https://pypi.org/project/openrazer-win/)
 [![Devices: 267](https://img.shields.io/badge/devices-267-orange)](https://ar4ikov.github.io/openrazer-win/#devices)
 
 [Documentation](https://ar4ikov.github.io/openrazer-win/) ·
@@ -52,7 +53,7 @@ Razer Viper: dpi (3200, 3200)
 ## Install
 
 ```bash
-pip install git+https://github.com/Ar4ikov/openrazer-win
+pip install openrazer-win
 ```
 
 There is no dependency list to speak of — the port runs on the Python standard library alone. No
@@ -61,8 +62,6 @@ compiler, no `hidapi` wheel, no driver signing, no administrator rights, no rebo
 Prefer a single file? Grab `openrazer-win.exe` from the
 [latest release](https://github.com/Ar4ikov/openrazer-win/releases/latest) and run it directly; it
 needs no Python at all.
-
-> Not on PyPI yet, so `pip install openrazer-win` will not find it — use the git URL above.
 
 > **Close Razer Synapse before using this.** Synapse holds the device open and will fight you for
 > control of the LEDs. `openrazer-win doctor` tells you if that is happening.

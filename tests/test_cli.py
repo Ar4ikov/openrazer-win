@@ -232,3 +232,22 @@ def test_the_launch_command_is_quoted_and_windowless():
     # A path with spaces must survive as one argument.
     import subprocess
     assert subprocess.list2cmdline(['a b', 'c']) == '"a b" c'
+
+
+def test_stopping_a_dead_daemon_clears_the_stale_endpoint(tmp_path, monkeypatch, capsys):
+    """A crashed daemon leaves its endpoint file behind.
+
+    Without cleanup every later command reports a connection failure against a
+    process that no longer exists, instead of simply saying it is not running.
+    """
+    from openrazer_win.daemon.protocol import Endpoint, find_free_port
+
+    path = tmp_path / 'daemon.json'
+    monkeypatch.setattr('openrazer_win.daemon.protocol.endpoint_path', lambda: str(path))
+    Endpoint('127.0.0.1', find_free_port(), 'token', 999999, '1.0.0').write(str(path))
+    assert path.exists()
+
+    assert main(['daemon', 'stop']) == 1
+    output = capsys.readouterr().out
+    assert 'not running' in output
+    assert not path.exists(), 'the stale endpoint file should have been removed'
