@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenRazer for Windows</title>
+<meta name="description" content="Control Razer keyboards, mice and mousepads on Windows 10 and 11 without Synapse and without a kernel driver. A user-space port of OpenRazer covering 267 devices.">
+<meta property="og:title" content="OpenRazer for Windows">
+<meta property="og:description" content="Razer device control on Windows 10/11 — no Synapse, no kernel driver, no dependencies. 267 devices.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://ar4ikov.github.io/openrazer-win/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%90%8D%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #0d1117;
+  --bg-soft: #161b22;
+  --bg-raised: #1c2330;
+  --border: #2a3441;
+  --text: #e6edf3;
+  --text-dim: #9aa7b4;
+  --accent: #44d62c;
+  --accent-dim: #2ea31c;
+  --accent-glow: rgba(68, 214, 44, 0.16);
+  --link: #7ee787;
+  --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, "Segoe UI", Inter, Roboto, system-ui, sans-serif;
+  --radius: 10px;
+  --max: 980px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #f6f8fa;
+    --bg-raised: #ffffff;
+    --border: #d8dee4;
+    --text: #1f2328;
+    --text-dim: #59636e;
+    --accent: #1a7f37;
+    --accent-dim: #1a7f37;
+    --accent-glow: rgba(26, 127, 55, 0.10);
+    --link: #0969da;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 70px; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.65 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre, kbd { font-family: var(--mono); }
+.wrap { max-width: var(--max); margin: 0 auto; padding: 0 20px; }
+
+/* ---- nav ---- */
+nav {
+  position: sticky; top: 0; z-index: 20;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+nav .wrap { display: flex; align-items: center; gap: 20px; height: 56px; }
+nav .brand { font-weight: 650; color: var(--text); letter-spacing: -0.01em; }
+nav .brand span { color: var(--accent); }
+nav .links { margin-left: auto; display: flex; gap: 18px; font-size: 14px; }
+nav .links a { color: var(--text-dim); }
+nav .links a:hover { color: var(--text); text-decoration: none; }
+@media (max-width: 700px) { nav .links a.opt { display: none; } }
+
+/* ---- hero ---- */
+header { padding: 72px 0 56px; border-bottom: 1px solid var(--border);
+  background: radial-gradient(1000px 380px at 50% -140px, var(--accent-glow), transparent); }
+header h1 { font-size: clamp(34px, 6vw, 52px); line-height: 1.1; margin: 0 0 16px;
+  letter-spacing: -0.025em; font-weight: 700; }
+header h1 span { color: var(--accent); }
+header p.lead { font-size: clamp(17px, 2.3vw, 20px); color: var(--text-dim);
+  max-width: 660px; margin: 0 0 28px; }
+.badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+.badge { font-size: 12px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg-soft); color: var(--text-dim); }
+.badge.on { border-color: var(--accent-dim); color: var(--accent); }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.btn { display: inline-block; padding: 10px 20px; border-radius: 8px; font-weight: 560;
+  font-size: 15px; border: 1px solid var(--border); background: var(--bg-soft);
+  color: var(--text); }
+.btn:hover { text-decoration: none; border-color: var(--text-dim); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #08130a; }
+.btn.primary:hover { background: var(--accent-dim); border-color: var(--accent-dim); }
+@media (prefers-color-scheme: light) { .btn.primary { color: #fff; } }
+
+/* ---- sections ---- */
+section { padding: 60px 0; border-bottom: 1px solid var(--border); }
+section:last-of-type { border-bottom: 0; }
+h2 { font-size: 27px; letter-spacing: -0.02em; margin: 0 0 8px; }
+h2 .num { color: var(--accent); font-family: var(--mono); font-size: 15px;
+  margin-right: 10px; font-weight: 500; }
+h3 { font-size: 17px; margin: 28px 0 8px; }
+.sub { color: var(--text-dim); margin: 0 0 26px; max-width: 680px; }
+
+/* ---- code ---- */
+pre { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px 18px; overflow-x: auto; font-size: 13.5px; line-height: 1.6; margin: 0 0 16px; }
+pre code { color: var(--text); }
+.c-com { color: var(--text-dim); }
+.c-cmd { color: var(--accent); }
+.c-str { color: #ffab70; }
+.c-kw  { color: #d2a8ff; }
+@media (prefers-color-scheme: light) { .c-str { color: #953800; } .c-kw { color: #8250df; } }
+p code, li code, td code { background: var(--bg-soft); border: 1px solid var(--border);
+  border-radius: 5px; padding: 1px 5px; font-size: 0.88em; }
+
+/* ---- tabs ---- */
+.tabs { display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; }
+.tab { padding: 6px 14px; border-radius: 7px; font-size: 14px; cursor: pointer;
+  border: 1px solid transparent; color: var(--text-dim); background: none; font-family: inherit; }
+.tab:hover { color: var(--text); }
+.tab[aria-selected="true"] { background: var(--bg-soft); border-color: var(--border);
+  color: var(--text); }
+.panel[hidden] { display: none; }
+
+/* ---- grid ---- */
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.card { background: var(--bg-raised); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px 18px 16px; }
+.card h4 { margin: 0 0 6px; font-size: 15px; }
+.card p { margin: 0; color: var(--text-dim); font-size: 14px; line-height: 1.55; }
+.card .ico { font-size: 20px; display: block; margin-bottom: 10px; }
+
+/* ---- table ---- */
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--text-dim); font-weight: 550; font-size: 12.5px;
+  text-transform: uppercase; letter-spacing: 0.04em; }
+tbody tr:hover { background: var(--bg-soft); }
+.scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.num-cell { font-family: var(--mono); font-size: 12.5px; color: var(--text-dim); }
+
+/* ---- device browser ---- */
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
+input[type="search"] { flex: 1 1 220px; min-width: 180px; padding: 8px 12px;
+  border-radius: 8px; border: 1px solid var(--border); background: var(--bg-soft);
+  color: var(--text); font: inherit; font-size: 14px; }
+input[type="search"]:focus { outline: 2px solid var(--accent-dim); outline-offset: -1px; }
+.chip { padding: 6px 12px; border-radius: 999px; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-soft); color: var(--text-dim);
+  font-family: inherit; }
+.chip[aria-pressed="true"] { border-color: var(--accent-dim); color: var(--accent);
+  background: var(--accent-glow); }
+#device-count { color: var(--text-dim); font-size: 14px; margin: 10px 0 0; }
+.tick { color: var(--accent); }
+.dash { color: var(--text-dim); }
+#device-table-wrap { max-height: 520px; overflow-y: auto; }
+
+/* ---- diagram ---- */
+figure { margin: 0 0 8px; }
+figure svg { width: 100%; height: auto; display: block; }
+figcaption { color: var(--text-dim); font-size: 13.5px; margin-top: 6px; }
+
+/* ---- misc ---- */
+ul.plain { padding-left: 20px; color: var(--text-dim); }
+ul.plain li { margin-bottom: 6px; }
+ul.plain strong { color: var(--text); font-weight: 560; }
+footer { padding: 40px 0 60px; color: var(--text-dim); font-size: 14px; }
+footer p { margin: 0 0 8px; }
+.note { border-left: 3px solid var(--accent); background: var(--accent-glow);
+  padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 0 0 20px; font-size: 14.5px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#top">openrazer<span>-win</span></a>
+    <div class="links">
+      <a href="#install">Install</a>
+      <a href="#usage">Usage</a>
+      <a href="#how" class="opt">How it works</a>
+      <a href="#devices">Devices</a>
+      <a href="#help" class="opt">Troubleshooting</a>
+      <a href="https://github.com/Ar4ikov/openrazer-win">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header id="top">
+  <div class="wrap">
+    <h1>Razer control on Windows,<br><span>without Synapse.</span></h1>
+    <p class="lead">
+      A complete port of <a href="https://github.com/openrazer/openrazer">OpenRazer</a> to
+      Windows 10 and 11. The Linux kernel driver becomes user-space HID, D-Bus becomes a loopback
+      daemon, and every per-device quirk is transpiled straight from the upstream C sources.
+    </p>
+    <div class="badges">
+      <span class="badge on">267 devices</span>
+      <span class="badge">Zero dependencies</span>
+      <span class="badge">No kernel driver</span>
+      <span class="badge">No admin rights</span>
+      <span class="badge">No telemetry</span>
+      <span class="badge">GPL-2.0-or-later</span>
+    </div>
+    <div class="cta">
+      <a class="btn primary" href="#install">Get started</a>
+      <a class="btn" href="https://github.com/Ar4ikov/openrazer-win">View source</a>
+      <a class="btn" href="#devices">Is my device supported?</a>
+    </div>
+  </div>
+</header>
+
+<section id="install">
+  <div class="wrap">
+    <h2><span class="num">01</span>Install</h2>
+    <p class="sub">Python 3.9 or newer on Windows 10 / 11 (amd64). Nothing else.</p>
+<pre><code><span class="c-cmd">pip install</span> openrazer-win</code></pre>
+    <p class="sub" style="margin-bottom:14px">
+      The entire port runs on the standard library — no compiler, no <code>hidapi</code> wheel,
+      no driver signing, no reboot. Prefer a single file? Download
+      <code>openrazer-win.exe</code> from the
+      <a href="https://github.com/Ar4ikov/openrazer-win/releases/latest">latest release</a>.
+    </p>
+    <div class="note">
+      <strong>Close Razer Synapse first.</strong> Synapse holds the device open and will fight you
+      for the LEDs. Run <code>openrazer-win doctor</code> to check.
+    </div>
+  </div>
+</section>
+
+<section id="usage">
+  <div class="wrap">
+    <h2><span class="num">02</span>Usage</h2>
+    <p class="sub">A command line, a Python API and a small graphical panel — pick whichever suits.</p>
+
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-panel="p-cli">Command line</button>
+      <button class="tab" role="tab" aria-selected="false" data-panel="p-py">Python</button>
+      <button class="tab" role="tab" aria-selected="false" data-panel="p-gui">GUI</button>
+    </div>
+
+    <div class="panel" id="p-cli" role="tabpanel">
+<pre><code><span class="c-com"># start the background service, then look around</span>
+<span class="c-cmd">openrazer-win</span> daemon start
+<span class="c-cmd">openrazer-win</span> list
+<span class="c-cmd">openrazer-win</span> info
+
+<span class="c-com"># lighting</span>
+<span class="c-cmd">openrazer-win</span> effect static red
+<span class="c-cmd">openrazer-win</span> effect spectrum
+<span class="c-cmd">openrazer-win</span> effect wave --direction 2
+<span class="c-cmd">openrazer-win</span> effect breath_dual <span class="c-str">"#ff0080"</span> --colour2 cyan
+<span class="c-cmd">openrazer-win</span> effect ripple green   <span class="c-com"># follows your typing</span>
+
+<span class="c-com"># settings</span>
+<span class="c-cmd">openrazer-win</span> brightness 60
+<span class="c-cmd">openrazer-win</span> dpi 1800
+<span class="c-cmd">openrazer-win</span> poll-rate 1000
+<span class="c-cmd">openrazer-win</span> battery</code></pre>
+      <p class="sub" style="margin:0">
+        Every command accepts <code>--device</code> (serial, product id or part of the name),
+        <code>--zone</code> and <code>--json</code>.
+      </p>
+    </div>
+
+    <div class="panel" id="p-py" role="tabpanel" hidden>
+<pre><code><span class="c-kw">from</span> openrazer_win.client <span class="c-kw">import</span> DeviceManager
+
+<span class="c-kw">for</span> device <span class="c-kw">in</span> DeviceManager().devices:
+    print(device.name, device.serial, device.firmware_version)
+
+    device.fx.static(<span class="c-str">0</span>, <span class="c-str">255</span>, <span class="c-str">0</span>)
+    device.brightness = <span class="c-str">75</span>
+
+    <span class="c-kw">if</span> device.has(<span class="c-str">'dpi'</span>):
+        device.dpi = (<span class="c-str">1800</span>, <span class="c-str">1800</span>)
+
+<span class="c-com"># per-key lighting, same shape as upstream's fx.advanced</span>
+keyboard = DeviceManager().by_name(<span class="c-str">'BlackWidow'</span>)[<span class="c-str">0</span>]
+matrix = keyboard.fx.advanced
+<span class="c-kw">for</span> row <span class="c-kw">in</span> range(matrix.rows):
+    <span class="c-kw">for</span> column <span class="c-kw">in</span> range(matrix.columns):
+        matrix[row, column] = (<span class="c-str">255</span>, <span class="c-str">0</span>, <span class="c-str">128</span>)
+matrix.draw()</code></pre>
+      <p class="sub" style="margin:0">
+        The API mirrors upstream's <code>openrazer.client</code>, so Linux scripts usually port by
+        changing the import. No daemon? <code>DeviceManager(direct=True)</code> opens the HID
+        handles in-process.
+      </p>
+    </div>
+
+    <div class="panel" id="p-gui" role="tabpanel" hidden>
+<pre><code><span class="c-cmd">openrazer-win-gui</span></code></pre>
+      <p class="sub" style="margin:0">
+        A small Tk window: device list, zone and effect pickers, colour swatches, brightness, DPI
+        and polling rate. Tk ships with Python on Windows, so this needs no extra install either.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <h2><span class="num">03</span>How it works</h2>
+    <p class="sub">
+      The Linux stack is a kernel module plus a D-Bus daemon. Neither exists on Windows, so each
+      layer gets a direct replacement.
+    </p>
+
+    <figure>
+      <svg viewBox="0 0 900 340" role="img" aria-labelledby="arch-title">
+        <title id="arch-title">Linux and Windows layer stacks side by side, with the Razer vendor protocol shared between them</title>
+        <defs>
+          <style>
+            .lbl { font: 13px var(--sans, sans-serif); fill: var(--text); }
+            .lbl-s { font: 11px var(--mono, monospace); fill: var(--text-dim); }
+            .hdr { font: 600 13px var(--sans, sans-serif); fill: var(--text-dim);
+                   letter-spacing: .06em; }
+            .box { fill: var(--bg-raised); stroke: var(--border); stroke-width: 1; rx: 8; }
+            .box-a { fill: var(--accent-glow); stroke: var(--accent-dim); stroke-width: 1; rx: 8; }
+            .arrow { stroke: var(--border); stroke-width: 1.5; fill: none; }
+          </style>
+          <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6"
+                  orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--border)"/></marker>
+        </defs>
+
+        <text class="hdr" x="30" y="24">LINUX (UPSTREAM)</text>
+        <text class="hdr" x="500" y="24">WINDOWS (THIS PORT)</text>
+
+        <rect class="box" x="30" y="38" width="330" height="52"/>
+        <text class="lbl" x="46" y="60">openrazer.client</text>
+        <text class="lbl-s" x="46" y="78">D-Bus session bus</text>
+
+        <rect class="box" x="30" y="102" width="330" height="52"/>
+        <text class="lbl" x="46" y="124">openrazer-daemon</text>
+        <text class="lbl-s" x="46" y="142">python + dbus-python</text>
+
+        <rect class="box-a" x="30" y="166" width="330" height="62"/>
+        <text class="lbl" x="46" y="188">razerkbd.ko / razermouse.ko</text>
+        <text class="lbl-s" x="46" y="206">sysfs attributes, usb_control_msg()</text>
+        <text class="lbl-s" x="46" y="221">kernel space — needs DKMS</text>
+
+        <rect class="box" x="30" y="240" width="330" height="46"/>
+        <text class="lbl" x="46" y="262">usbhid / usbcore</text>
+
+        <rect class="box" x="500" y="38" width="370" height="52"/>
+        <text class="lbl" x="516" y="60">openrazer_win.client</text>
+        <text class="lbl-s" x="516" y="78">JSON-RPC over loopback TCP</text>
+
+        <rect class="box" x="500" y="102" width="370" height="52"/>
+        <text class="lbl" x="516" y="124">openrazer_win.daemon</text>
+        <text class="lbl-s" x="516" y="142">bearer token, hot-plug watcher</text>
+
+        <rect class="box-a" x="500" y="166" width="370" height="62"/>
+        <text class="lbl" x="516" y="188">openrazer_win.devices</text>
+        <text class="lbl-s" x="516" y="206">565 recipes transpiled from the same C</text>
+        <text class="lbl-s" x="516" y="221">user space — pip install, no reboot</text>
+
+        <rect class="box" x="500" y="240" width="370" height="46"/>
+        <text class="lbl" x="516" y="262">hid.dll + setupapi.dll via ctypes</text>
+
+        <path class="arrow" d="M368 197 L492 197" marker-end="url(#ah)"/>
+        <text class="lbl-s" x="376" y="190" style="fill:var(--accent)">transpiled</text>
+
+        <rect class="box" x="30" y="298" width="840" height="34"/>
+        <text class="lbl" x="46" y="320">Razer vendor protocol — one 90-byte HID feature report, XOR checksum over bytes 2–87</text>
+      </svg>
+      <figcaption>The protocol is identical on both sides; only the transport and the quirk
+        storage differ.</figcaption>
+    </figure>
+
+    <h3>The interesting part: transpiled quirks</h3>
+    <p class="sub">
+      OpenRazer's drivers encode roughly 20 000 lines of per-device behaviour as
+      <code>switch (device->usb_pid)</code> statements — which report builder to call, which LED id,
+      which transaction id. Hand-porting that would guarantee drift from upstream.
+    </p>
+    <p class="sub">
+      Instead a transpiler parses the C, folds every switch against each known product id, and emits
+      a tiny program per (attribute, device):
+    </p>
+<pre><code>[{<span class="c-str">"op"</span>: <span class="c-str">"build"</span>, <span class="c-str">"fn"</span>: <span class="c-str">"razer_chroma_extended_matrix_effect_static"</span>,
+  <span class="c-str">"args"</span>: [{<span class="c-str">"k"</span>: <span class="c-str">"const"</span>, <span class="c-str">"value"</span>: 1}, {<span class="c-str">"k"</span>: <span class="c-str">"var"</span>, <span class="c-str">"name"</span>: <span class="c-str">"led_id"</span>},
+           {<span class="c-str">"k"</span>: <span class="c-str">"rgb"</span>, <span class="c-str">"offset"</span>: 0}]},
+ {<span class="c-str">"op"</span>: <span class="c-str">"txid"</span>, <span class="c-str">"value"</span>: {<span class="c-str">"k"</span>: <span class="c-str">"const"</span>, <span class="c-str">"value"</span>: 63}},
+ {<span class="c-str">"op"</span>: <span class="c-str">"send"</span>}]</code></pre>
+    <p class="sub">
+      565 distinct recipes cover all 267 devices, and a runtime interpreter executes them. Tracking
+      a new upstream release means re-running the transpiler, not rewriting Python.
+    </p>
+
+    <div class="grid" style="margin-top:26px">
+      <div class="card">
+        <span class="ico">🔌</span>
+        <h4>Finding the device</h4>
+        <p>The kernel addresses a USB interface directly. Windows exposes each as its own HID
+          collection, so the port picks the one whose path carries the matching <code>&amp;mi_XX</code>
+          <em>and</em> declares a 90-byte feature report.</p>
+      </div>
+      <div class="card">
+        <span class="ico">🔓</span>
+        <h4>Exclusive access</h4>
+        <p>Windows denies read/write on keyboard and mouse collections. Feature-report IOCTLs are
+          <code>FILE_ANY_ACCESS</code>, so the port falls back to a zero-access handle and still
+          talks to the device.</p>
+      </div>
+      <div class="card">
+        <span class="ico">🧪</span>
+        <h4>Tested without hardware</h4>
+        <p>A built-in emulator validates CRCs and answers the protocol. 148 tests plus a fleet
+          simulation exercise every capability of all 267 devices on every commit.</p>
+      </div>
+      <div class="card">
+        <span class="ico">⌨️</span>
+        <h4>Ripple on Windows</h4>
+        <p>Upstream reads <code>/dev/input</code> to place ripples. Here a low-level keyboard hook
+          observes key presses — it never swallows or synthesises input — and the host renders the
+          frames.</p>
+      </div>
+      <div class="card">
+        <span class="ico">💾</span>
+        <h4>State that survives sleep</h4>
+        <p>Windows cuts USB power on suspend. The daemon records what was applied per serial and
+          replays it when the device reappears.</p>
+      </div>
+      <div class="card">
+        <span class="ico">🔐</span>
+        <h4>Local only</h4>
+        <p>The daemon binds loopback, generates a random bearer token in an owner-only file, and
+          exposes a fixed allowlist of methods. It never touches the network.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="devices">
+  <div class="wrap">
+    <h2><span class="num">04</span>Supported devices</h2>
+    <p class="sub">
+      Every product id OpenRazer knows about, generated from the upstream device classes. Search by
+      name, or filter by category.
+    </p>
+
+    <div class="filters">
+      <input type="search" id="device-search" placeholder="Search 267 devices — try “BlackWidow”, “Viper”, “0203”…" aria-label="Search devices">
+      <button class="chip" data-type="" aria-pressed="true">All</button>
+      <button class="chip" data-type="keyboard" aria-pressed="false">Keyboards</button>
+      <button class="chip" data-type="mouse" aria-pressed="false">Mice</button>
+      <button class="chip" data-type="mousemat" aria-pressed="false">Mousepads</button>
+      <button class="chip" data-type="keypad" aria-pressed="false">Keypads</button>
+      <button class="chip" data-type="headset" aria-pressed="false">Headsets</button>
+      <button class="chip" data-type="accessory" aria-pressed="false">Accessories</button>
+    </div>
+
+    <div class="scroll" id="device-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Device</th><th>Type</th><th>Product&nbsp;id</th>
+            <th>Matrix</th><th>Max&nbsp;DPI</th><th>Battery</th>
+          </tr>
+        </thead>
+        <tbody id="device-rows">
+          <tr><td colspan="6" style="color:var(--text-dim)">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p id="device-count"></p>
+  </div>
+</section>
+
+<section id="help">
+  <div class="wrap">
+    <h2><span class="num">05</span>Troubleshooting</h2>
+    <p class="sub">Start here — it lists every Razer HID collection Windows can see and marks the
+      control interface.</p>
+<pre><code><span class="c-cmd">openrazer-win</span> doctor</code></pre>
+    <div class="scroll">
+      <table>
+        <thead><tr><th style="width:44%">Symptom</th><th>Cause</th></tr></thead>
+        <tbody>
+          <tr><td><code>no Razer control interface</code></td>
+              <td>Synapse is running, or another program holds the device. Close it.</td></tr>
+          <tr><td>Device shown as <code>NOT IN DATABASE</code></td>
+              <td>Newer than the bundled data.
+                  <a href="https://github.com/Ar4ikov/openrazer-win/issues">Open an issue</a>
+                  with the product id.</td></tr>
+          <tr><td><code>device replied not supported</code></td>
+              <td>The firmware refused that command; the device genuinely lacks the feature.</td></tr>
+          <tr><td>Effects reset after sleep</td>
+              <td>Windows cuts USB power. The daemon replays stored state on reconnect.</td></tr>
+          <tr><td>Nothing listed at all</td>
+              <td>Only Razer devices (vendor <code>1532</code>) are handled.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Not ported</h3>
+    <ul class="plain">
+      <li><strong>Macro recording and playback</strong> — upstream reads Linux input events for this.</li>
+      <li><strong>The Kraken headset family's separate protocol</strong> — a different command set entirely.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>
+      All protocol knowledge here is <a href="https://github.com/openrazer/openrazer">OpenRazer</a>'s
+      work — years of reverse engineering by Terri Cain, Tim Theede and many contributors. This
+      project adds a Windows transport and a translation layer; it adds no new protocol research.
+    </p>
+    <p>
+      Licensed GPL-2.0-or-later, the same as upstream, because the device database and the
+      transpiled recipes are derived from OpenRazer's GPL sources.
+    </p>
+    <p>
+      Not affiliated with or endorsed by Razer Inc. Razer, Chroma and Synapse are trademarks of
+      Razer Inc.
+    </p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- tabs ----
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      tabs.forEach(function (other) {
+        var selected = other === tab;
+        other.setAttribute('aria-selected', String(selected));
+        document.getElementById(other.dataset.panel).hidden = !selected;
+      });
+    });
+  });
+
+  // ---- device browser ----
+  var TYPE_LABEL = {
+    keyboard: 'Keyboard', mouse: 'Mouse', mousemat: 'Mousepad', keypad: 'Keypad',
+    headset: 'Headset', accessory: 'Accessory', core: 'eGPU'
+  };
+  var devices = [];
+  var activeType = '';
+  var rowsEl = document.getElementById('device-rows');
+  var countEl = document.getElementById('device-count');
+  var searchEl = document.getElementById('device-search');
+
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"]/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch];
+    });
+  }
+
+  function render() {
+    var needle = searchEl.value.trim().toLowerCase();
+    var shown = devices.filter(function (device) {
+      if (activeType && device.t !== activeType) { return false; }
+      if (!needle) { return true; }
+      return device.n.toLowerCase().indexOf(needle) !== -1 ||
+             device.p.indexOf(needle.replace(/^0x/, '')) !== -1;
+    });
+
+    if (!shown.length) {
+      rowsEl.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim)">' +
+        'No device matches that search.</td></tr>';
+      countEl.textContent = '0 of ' + devices.length + ' devices';
+      return;
+    }
+
+    rowsEl.innerHTML = shown.map(function (device) {
+      return '<tr>' +
+        '<td>' + escapeHtml(device.n) + '</td>' +
+        '<td>' + (TYPE_LABEL[device.t] || device.t) + '</td>' +
+        '<td class="num-cell">' + device.p + '</td>' +
+        '<td class="num-cell">' + (device.m ? device.m[0] + '&times;' + device.m[1]
+                                            : '<span class="dash">&mdash;</span>') + '</td>' +
+        '<td class="num-cell">' + (device.d ? device.d.toLocaleString()
+                                            : '<span class="dash">&mdash;</span>') + '</td>' +
+        '<td>' + (device.b ? '<span class="tick">&#10003;</span>'
+                           : '<span class="dash">&mdash;</span>') + '</td>' +
+        '</tr>';
+    }).join('');
+    countEl.textContent = shown.length === devices.length
+      ? devices.length + ' devices'
+      : shown.length + ' of ' + devices.length + ' devices';
+  }
+
+  searchEl.addEventListener('input', render);
+  Array.prototype.forEach.call(document.querySelectorAll('.chip'), function (chip) {
+    chip.addEventListener('click', function () {
+      activeType = chip.dataset.type;
+      Array.prototype.forEach.call(document.querySelectorAll('.chip'), function (other) {
+        other.setAttribute('aria-pressed', String(other === chip));
+      });
+      render();
+    });
+  });
+
+  fetch('devices.json')
+    .then(function (response) { return response.json(); })
+    .then(function (payload) {
+      devices = payload.devices;
+      searchEl.placeholder = 'Search ' + devices.length +
+        ' devices — try “BlackWidow”, “Viper”, “0203”…';
+      render();
+    })
+    .catch(function () {
+      rowsEl.innerHTML = '<tr><td colspan="6" style="color:var(--text-dim)">' +
+        'Could not load the device list. See ' +
+        '<a href="https://github.com/Ar4ikov/openrazer-win">the repository</a>.</td></tr>';
+    });
+})();
+</script>
+</body>
+</html>

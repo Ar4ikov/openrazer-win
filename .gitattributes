@@ -1,0 +1,9 @@
+* text=auto eol=lf
+
+# Generated from the upstream OpenRazer sources -- do not hand-edit, and keep
+# them out of GitHub's language statistics and diff views.
+openrazer_win/devices/data/*.json linguist-generated=true -diff
+docs/devices.json                 linguist-generated=true -diff
+
+LICENSE      linguist-vendored=true
+LICENSES/*   linguist-vendored=true

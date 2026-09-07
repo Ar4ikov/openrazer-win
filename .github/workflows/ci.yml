@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Windows, Python ${{ matrix.python-version }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Test
+        run: pytest -q
+
+      - name: Simulate every supported device
+        run: python tools/simulate_devices.py
+
+      - name: Check the console entry points start
+        run: |
+          openrazer-win --version
+          openrazer-win supported viper
+          openrazer-win doctor
+
+  linux-import:
+    name: Import check (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -e ".[dev]"
+      # The Windows HID backend is ctypes-only and must still import elsewhere,
+      # so the emulator-backed tests can run on any CI runner.
+      - run: pytest -q
+      - run: python tools/simulate_devices.py
+
+  build:
+    name: Build distributions
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install build
+      - run: python -m build
+      - name: Verify the wheel installs cleanly
+        run: |
+          python -m venv fresh
+          fresh\Scripts\pip install --no-deps (Get-ChildItem dist\*.whl).FullName
+          fresh\Scripts\openrazer-win --version
+          fresh\Scripts\python -c "from openrazer_win.devices import get_database; assert len(get_database()) > 250"
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/*

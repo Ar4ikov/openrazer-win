@@ -1,0 +1,276 @@
+<div align="center">
+
+# OpenRazer for Windows
+
+**Control your Razer keyboard, mouse and mousepad on Windows 10 / 11 — without Synapse, without a kernel driver, without a single third-party package.**
+
+[![CI](https://github.com/Ar4ikov/openrazer-win/actions/workflows/ci.yml/badge.svg)](https://github.com/Ar4ikov/openrazer-win/actions/workflows/ci.yml)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
+[![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-green)](LICENSE)
+[![Devices: 267](https://img.shields.io/badge/devices-267-orange)](https://ar4ikov.github.io/openrazer-win/#devices)
+
+[Documentation](https://ar4ikov.github.io/openrazer-win/) ·
+[Supported devices](https://ar4ikov.github.io/openrazer-win/#devices) ·
+[Upstream OpenRazer](https://github.com/openrazer/openrazer)
+
+</div>
+
+---
+
+[OpenRazer](https://github.com/openrazer/openrazer) is the free Razer driver for Linux: a kernel
+module that speaks Razer's vendor USB protocol, plus a D-Bus daemon on top of it. Neither half runs
+on Windows.
+
+This is a full port. The protocol layer moves into user space on top of the Windows HID class driver,
+D-Bus is replaced by a loopback JSON-RPC daemon, and **every device quirk is transpiled directly from
+the upstream C sources** — so all 267 devices OpenRazer knows about behave the same way here as they
+do on Linux.
+
+```console
+$ openrazer-win list
+Razer BlackWidow Chroma  keyboard   PM1523E01801234     v1.10
+Razer Viper              mouse      PM1948H09500666     v1.3
+
+$ openrazer-win effect breath_dual "#ff0080" --colour2 cyan
+Razer BlackWidow Chroma: breath_dual on backlight
+
+$ openrazer-win dpi 3200
+Razer Viper: dpi (3200, 3200)
+```
+
+## Why this exists
+
+| | Synapse | openrazer-win |
+|---|---|---|
+| Account required | Yes | No |
+| Runs in the background | ~200 MB, several services | ~25 MB, one process you start |
+| Telemetry | Yes | None — no network access at all |
+| Scriptable | No | CLI + Python API + JSON-RPC |
+| Works offline / on a locked-down machine | Partially | Fully |
+| Source available | No | GPL-2.0-or-later |
+
+## Install
+
+```bash
+pip install openrazer-win
+```
+
+That is the whole dependency list — the port runs on the Python standard library alone. No compiler,
+no `hidapi` wheel, no driver signing, no administrator rights, no reboot.
+
+Prefer a single file? Grab `openrazer-win.exe` from the
+[latest release](https://github.com/Ar4ikov/openrazer-win/releases/latest) and run it directly.
+
+> **Close Razer Synapse before using this.** Synapse holds the device open and will fight you for
+> control of the LEDs. `openrazer-win doctor` tells you if that is happening.
+
+## Quick start
+
+### Command line
+
+```bash
+openrazer-win daemon start          # start the background service
+openrazer-win list                  # what is plugged in
+openrazer-win info                  # everything about it
+
+openrazer-win effect static red
+openrazer-win effect spectrum
+openrazer-win effect wave --direction 2
+openrazer-win effect breath_dual "#ff0080" --colour2 "#00ffff"
+openrazer-win effect ripple green   # host-rendered, follows your typing
+
+openrazer-win brightness 60
+openrazer-win dpi 1800
+openrazer-win poll-rate 1000
+openrazer-win battery
+```
+
+Every command takes `--device` (serial, product id or a fragment of the name), `--zone`
+(`backlight`, `logo`, `scroll`, `left`, `right`, …) and `--json`.
+
+### Python
+
+The API mirrors upstream's `openrazer.client`, so scripts written for Linux usually port by changing
+one import:
+
+```python
+from openrazer_win.client import DeviceManager
+
+for device in DeviceManager().devices:
+    print(device.name, device.serial, device.firmware_version)
+
+    device.fx.static(0, 255, 0)
+    device.brightness = 75
+
+    if device.has('dpi'):
+        device.dpi = (1800, 1800)
+```
+
+Per-key lighting works the same way as upstream's `fx.advanced`:
+
+```python
+keyboard = DeviceManager().by_name('BlackWidow')[0]
+matrix = keyboard.fx.advanced
+for row in range(matrix.rows):
+    for column in range(matrix.columns):
+        matrix[row, column] = (255, 0, 128)
+matrix.draw()
+```
+
+No daemon running? Pass `direct=True` and the library opens the HID handles itself:
+
+```python
+DeviceManager(direct=True)
+```
+
+### Graphical control panel
+
+```bash
+openrazer-win-gui
+```
+
+A small Tk window — device list, zone and effect pickers, colour swatches, brightness, DPI and
+polling rate. Tk ships with Python on Windows, so this needs no extra install either.
+
+## How it works
+
+The Linux stack is a kernel module plus a D-Bus daemon. Neither is available on Windows, so each
+layer has a direct replacement:
+
+```
+                Linux                                   Windows
+    ┌────────────────────────────┐        ┌────────────────────────────────┐
+    │ openrazer.client (D-Bus)   │        │ openrazer_win.client (JSON-RPC)│
+    ├────────────────────────────┤        ├────────────────────────────────┤
+    │ openrazer-daemon           │        │ openrazer_win.daemon           │
+    │   D-Bus session bus        │        │   loopback TCP + bearer token  │
+    ├────────────────────────────┤        ├────────────────────────────────┤
+    │ razer*.ko  (kernel module) │        │ openrazer_win.devices          │
+    │   sysfs attributes         │        │   recipes transpiled from the  │
+    │   usb_control_msg()        │        │   same C sources               │
+    ├────────────────────────────┤        ├────────────────────────────────┤
+    │ usbhid / usbcore           │        │ hid.dll + setupapi.dll (ctypes)│
+    └────────────────────────────┘        └────────────────────────────────┘
+```
+
+**The protocol.** Every Razer peripheral speaks the same vendor protocol: a fixed 90-byte structure
+delivered as HID feature report `0x00`, with an XOR checksum over bytes 2–87.
+`openrazer_win/protocol/` is a line-by-line port of `razercommon.c` and `razerchromacommon.c`.
+
+**Reaching the device.** The kernel driver sends `usb_control_msg` to a specific USB interface.
+Windows exposes each interface as its own HID collection, so the port opens the one whose path
+carries the matching `&mi_XX` *and* whose report descriptor declares a 90-byte feature report. When
+Windows denies read/write access to a keyboard or mouse collection, the port falls back to a
+zero-access handle — feature-report IOCTLs are `FILE_ANY_ACCESS`, so they still work.
+
+**The device quirks — the interesting part.** OpenRazer's drivers encode ~20 000 lines of
+per-device behaviour as `switch (device->usb_pid)` statements: which report builder to call, which
+LED id, which transaction id. Hand-porting that would be a guaranteed source of drift.
+
+Instead, [`tools/transpile_recipes.py`](tools/transpile_recipes.py) parses the C, folds each switch
+against every known product id, and emits a small program per (attribute, device):
+
+```json
+[{"op": "build", "fn": "razer_chroma_extended_matrix_effect_static",
+  "args": [{"k": "const", "value": 1}, {"k": "var", "name": "led_id"},
+           {"k": "rgb", "offset": 0}]},
+ {"op": "txid", "value": {"k": "const", "value": 63}},
+ {"op": "send"}]
+```
+
+565 distinct recipes cover all 267 devices. `openrazer_win/devices/recipes.py` interprets them at
+runtime. Tracking a new upstream release means re-running the transpiler, not rewriting Python.
+
+**The device database** comes from the same place: `tools/extract_device_db.py` imports upstream's
+`openrazer_daemon.hardware` package with the Linux-only dependencies stubbed out, and dumps every
+device class to JSON — names, matrix dimensions, DPI limits, and the exact method list each device
+advertises. Capability reporting intersects that list with the recipe table, so a mouse never claims
+to have a backlight it does not have.
+
+## What is supported
+
+| Category | Devices |
+|---|---:|
+| Mice | 113 |
+| Keyboards & laptops | 112 |
+| Accessories (docks, stands, ARGB controllers) | 17 |
+| Headsets | 8 |
+| Mousepads | 8 |
+| Keypads | 7 |
+| eGPU enclosures | 2 |
+| **Total** | **267** |
+
+165 have addressable matrices; 76 report battery level. The full searchable list is
+[on the documentation site](https://ar4ikov.github.io/openrazer-win/#devices), or run
+`openrazer-win supported`.
+
+**Features:** all hardware effects (static, spectrum, wave, wheel, reactive, blinking, breathing ×3,
+starlight ×3), per-key custom frames, per-zone brightness, DPI and DPI stages, polling rate up to
+8000 Hz, battery level and charging state, idle timeout, low-battery threshold, game mode, macro LED,
+scroll mode and acceleration, keyboard layout, addressable-RGB channels, and a host-rendered ripple
+effect driven by a low-level keyboard hook.
+
+**Not ported:** macro recording and playback (upstream reads Linux input events for this), and the
+Kraken headset family's separate protocol.
+
+## Troubleshooting
+
+Start with:
+
+```bash
+openrazer-win doctor
+```
+
+It lists every Razer HID collection Windows can see, marks the control interface, and says whether
+each product id is in the database.
+
+| Symptom | Cause |
+|---|---|
+| `no Razer control interface` | Synapse is running, or another program holds the device. Close it. |
+| Device listed as `NOT IN DATABASE` | Newer than the bundled data. [Open an issue](https://github.com/Ar4ikov/openrazer-win/issues) with the product id. |
+| `device replied not supported` | The firmware refused that command; the device genuinely lacks the feature. |
+| Effects reset after sleep | Windows cuts USB power. The daemon replays the stored state when the device reappears. |
+| Nothing at all listed | Only Razer devices (vendor `1532`) are handled. |
+
+## Development
+
+```bash
+git clone https://github.com/Ar4ikov/openrazer-win
+cd openrazer-win
+pip install -e ".[dev]"
+
+pytest                              # 148 tests, no hardware needed
+ruff check .
+python tools/simulate_devices.py    # every capability of all 267 devices
+```
+
+The test suite runs against a built-in device emulator that validates CRCs and answers the protocol,
+so the whole stack — transport, recipes, daemon, client, CLI — is exercised without plugging anything
+in. `--emulate` does the same for the daemon:
+
+```bash
+openrazer-win-daemon --emulate
+```
+
+### Re-syncing with upstream
+
+```bash
+git clone --depth 1 https://github.com/openrazer/openrazer /tmp/openrazer
+python tools/extract_device_db.py  /tmp/openrazer openrazer_win/devices/data/devices.json
+python tools/transpile_recipes.py  /tmp/openrazer openrazer_win/devices/data/recipes.json
+pytest && python tools/simulate_devices.py
+```
+
+New devices and changed quirks are picked up automatically.
+
+## Credits
+
+All protocol knowledge here is [OpenRazer](https://github.com/openrazer/openrazer)'s work —
+years of reverse engineering by Terri Cain, Tim Theede and a long list of contributors. This project
+adds a Windows transport and a translation layer; it does not add a single byte of new protocol
+research.
+
+Licensed **GPL-2.0-or-later**, the same as upstream, because the device database and the transpiled
+recipes are derived from OpenRazer's GPL sources.
+
+Not affiliated with or endorsed by Razer Inc. Razer, Chroma and Synapse are trademarks of Razer Inc.

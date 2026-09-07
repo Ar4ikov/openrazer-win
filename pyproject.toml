@@ -1,0 +1,91 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openrazer-win"
+version = "1.0.0"
+description = "OpenRazer for Windows: Razer device control in user space, no kernel driver required"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "GPL-2.0-or-later" }
+authors = [{ name = "Nikita Davidchuk" }]
+maintainers = [{ name = "Nikita Davidchuk" }]
+keywords = ["razer", "chroma", "rgb", "hid", "windows", "openrazer", "keyboard", "mouse"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: End Users/Desktop",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
+    "Operating System :: Microsoft :: Windows :: Windows 10",
+    "Operating System :: Microsoft :: Windows :: Windows 11",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Hardware :: Hardware Drivers",
+    "Topic :: System :: Hardware :: Universal Serial Bus (USB) :: Human Interface Device (HID)",
+]
+
+# Deliberately empty: the whole port runs on the standard library, so a plain
+# `pip install openrazer-win` needs no wheels, no compiler and no admin rights.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.5",
+]
+build = [
+    "pyinstaller>=6.0",
+]
+
+[project.urls]
+Homepage = "https://ar4ikov.github.io/openrazer-win/"
+Documentation = "https://ar4ikov.github.io/openrazer-win/"
+Source = "https://github.com/Ar4ikov/openrazer-win"
+Issues = "https://github.com/Ar4ikov/openrazer-win/issues"
+Upstream = "https://github.com/openrazer/openrazer"
+
+[project.scripts]
+openrazer-win = "openrazer_win.cli:main"
+openrazer-win-daemon = "openrazer_win.daemon.main:main"
+
+[project.gui-scripts]
+openrazer-win-gui = "openrazer_win.tray.gui:main"
+
+[tool.setuptools.packages.find]
+include = ["openrazer_win*"]
+
+[tool.setuptools.package-data]
+openrazer_win = ["devices/data/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "slow: exercises every supported device against the emulator",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "C4"]
+ignore = [
+    "E501",   # long lines are a formatting matter, not a lint failure
+    # The codebase targets Python 3.9 and reads as such on purpose: explicit
+    # str.format indices, typing.Optional, and typing.Sequence.
+    "UP006", "UP007", "UP008", "UP030", "UP032", "UP035", "UP037",
+    "B008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+"tools/*" = ["E402"]

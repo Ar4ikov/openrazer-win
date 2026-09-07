@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.artifact }}
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - artifact: wheel
+          - artifact: exe
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Build wheel and sdist
+        if: matrix.artifact == 'wheel'
+        run: |
+          pip install build
+          python -m build
+
+      - name: Build standalone executables
+        if: matrix.artifact == 'exe'
+        run: |
+          pip install -e ".[build]"
+          pyinstaller --clean --noconfirm packaging/openrazer-win.spec
+
+      - name: Smoke-test the executable
+        if: matrix.artifact == 'exe'
+        run: |
+          .\dist\openrazer-win.exe --version
+          .\dist\openrazer-win.exe supported viper
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.exe
+          if-no-files-found: error
+
+  release:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List what will be published
+        run: ls -la artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: artifacts/*
+          generate_release_notes: true
+          body: |
+            Install with pip:
+
+            ```
+            pip install openrazer-win==${{ github.event.inputs.tag || github.ref_name }}
+            ```
+
+            Or download `openrazer-win.exe` below and run it directly — no Python needed.
+
+            Device data generated from upstream OpenRazer. See the
+            [documentation](https://ar4ikov.github.io/openrazer-win/) for details.
