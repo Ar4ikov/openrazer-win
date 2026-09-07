@@ -21,6 +21,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from openrazer_win.core.device import RazerDevice  # noqa: E402
+from openrazer_win.core.kraken import KrakenDevice  # noqa: E402
 from openrazer_win.core.persistence import Persistence  # noqa: E402
 from openrazer_win.core.transport import Transport  # noqa: E402
 from openrazer_win.devices import get_database, get_recipes  # noqa: E402
@@ -53,6 +54,14 @@ EFFECT_ARGS = {
 
 def build_device(meta, persistence, recipes) -> RazerDevice:
     backend = FakeHidBackend()
+    if meta.pid in recipes.kraken_pids:
+        # Krakens take output reports on their own collection instead.
+        fake = FakeRazerDevice(meta.pid, meta.name, interface=3, kraken=True)
+        backend.add(fake)
+        transport = Transport(backend, fake.kraken_info, wait_us=0,
+                              kraken_info=fake.kraken_info)
+        return KrakenDevice(meta, transport, persistence, recipes)
+
     params = recipes.transport_params(meta.driver, meta.pid)
     fake = FakeRazerDevice(meta.pid, meta.name, interface=params.get('index') or 0,
                            argb=meta.driver == 'accessory')
@@ -64,10 +73,10 @@ def build_device(meta, persistence, recipes) -> RazerDevice:
 def checks_for(device: RazerDevice) -> list:
     """Build the list of ``(label, callable)`` probes for one device."""
     caps = device.capabilities()
-    checks = [
-        ('serial', lambda: device.serial),
-        ('firmware', lambda: device.firmware_version),
-    ]
+    checks = [('serial', lambda: device.serial)]
+    # Krakens report firmware over input reports the port does not read.
+    if caps.get('readback', True):
+        checks.append(('firmware', lambda: device.firmware_version))
     for zone, zone_caps in caps['zones'].items():
         for effect in zone_caps['effects']:
             args = EFFECT_ARGS[effect]
@@ -75,6 +84,7 @@ def checks_for(device: RazerDevice) -> list:
                 '{0}@{1}'.format(effect, zone),
                 lambda e=effect, a=args, z=zone: getattr(device, 'set_' + e)(*a, zone=z),
             ))
+        checks.append(('restore@{0}'.format(zone), device.restore))
         if zone_caps['brightness']:
             checks.append((
                 'brightness@{0}'.format(zone),

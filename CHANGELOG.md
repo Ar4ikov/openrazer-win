@@ -4,6 +4,29 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [semantic versioning](https://semver.org/).
 
+## [1.1.0] - 2026-09-08
+
+### Added
+
+- **Kraken headsets.** The eight Kraken models speak a different protocol from
+  the rest of the range: rather than the 90-byte control report, they expose
+  the lighting controller's RAM over 37-byte HID output reports on interface 3.
+  Colours are written to fixed addresses and a one-byte selector picks the
+  effect. Ported from `razerkraken_driver.c` by hand -- unlike the other three
+  drivers it has no product-id switch tables to transpile -- covering off,
+  static, spectrum, custom and one-, two- and three-colour breathing, with the
+  RAM layout and the available effects following the controller generation.
+
+  Reading state back from a Kraken is not supported: the kernel collects it
+  from unsolicited HID input reports, so the daemon serves those values from
+  its persistence file instead.
+
+### Changed
+
+- Host-rendered effects are offered only where they can be seen. A mouse with a
+  single addressable LED reports a 1x1 matrix, and the CLI and GUI were both
+  listing ripple for it.
+
 ## [1.0.1] - 2026-09-08
 
 Fixes for the shipped executables. Neither problem could happen when running
@@ -59,7 +82,7 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
 - **Host-rendered ripple** driven by a `WH_KEYBOARD_LL` hook that observes key presses without
   swallowing or synthesising input.
 - **Device emulator** that validates CRCs and answers the protocol, so the entire stack is testable
-  without hardware. 160 tests plus a fleet simulation covering every capability of all 267 devices.
+  without hardware. 193 tests plus a fleet simulation covering every capability of all 267 devices.
 - **Autostart** via the per-user `Run` key (`openrazer-win autostart enable`), so the daemon comes
   up at logon without administrator rights or a Windows service.
 - Standalone `openrazer-win.exe` and `openrazer-win-gui.exe` builds.
@@ -70,5 +93,6 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
 - The Kraken headset family uses a separate protocol that is not covered.
 - Razer Synapse must be closed: it holds the device open and competes for the LEDs.
 
+[1.1.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.1.0
 [1.0.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.0.0

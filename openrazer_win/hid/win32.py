@@ -126,6 +126,9 @@ def _configure_prototypes() -> None:
     _hid.HidD_GetFeature.argtypes = [HANDLE, ctypes.c_void_p, ctypes.c_ulong]
     _hid.HidD_GetFeature.restype = BOOLEAN
 
+    _hid.HidD_SetOutputReport.argtypes = [HANDLE, ctypes.c_void_p, ctypes.c_ulong]
+    _hid.HidD_SetOutputReport.restype = BOOLEAN
+
     _hid.HidD_SetNumInputBuffers.argtypes = [HANDLE, ctypes.c_ulong]
     _hid.HidD_SetNumInputBuffers.restype = BOOLEAN
 
@@ -209,6 +212,17 @@ class Win32HidHandle:
             raise HidError('HidD_GetFeature failed: WinError {0}'.format(
                 ctypes.get_last_error()))
         return bytes(buffer.raw[:length])
+
+    def send_output_report(self, data: bytes) -> None:
+        """Send an output report.  ``data[0]`` must be the report id.
+
+        The Kraken family is addressed this way rather than through feature
+        reports: the kernel sends it as SET_REPORT with report type Output.
+        """
+        buffer = ctypes.create_string_buffer(bytes(data), len(data))
+        if not _hid.HidD_SetOutputReport(self._handle, buffer, len(data)):
+            raise HidError('HidD_SetOutputReport failed: WinError {0}'.format(
+                ctypes.get_last_error()))
 
     def close(self) -> None:
         if self._handle:

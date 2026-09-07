@@ -207,7 +207,7 @@ to have a backlight it does not have.
 | Mice | 113 |
 | Keyboards & laptops | 112 |
 | Accessories (docks, stands, ARGB controllers) | 17 |
-| Headsets | 8 |
+| Headsets (Kraken protocol) | 8 |
 | Mousepads | 8 |
 | Keypads | 7 |
 | eGPU enclosures | 2 |
@@ -223,8 +223,13 @@ starlight ×3), per-key custom frames, per-zone brightness, DPI and DPI stages, 
 scroll mode and acceleration, keyboard layout, addressable-RGB channels, a host-rendered ripple
 effect driven by a low-level keyboard hook, and autostart at logon.
 
-**Not ported:** macro recording and playback (upstream reads Linux input events for this), and the
-Kraken headset family's separate protocol.
+The Kraken headsets are covered too, through their own protocol: rather than the 90-byte control
+report, they expose the lighting controller's RAM, so colours are written to fixed addresses and a
+one-byte selector picks the effect. Reading state back from a Kraken is not supported -- the kernel
+collects that from unsolicited HID input reports -- so the daemon serves those values from its
+persistence file, as upstream's daemon does for devices that cannot report.
+
+**Not ported:** macro recording and playback, which upstream implements on Linux input events.
 
 ## Troubleshooting
 
@@ -252,7 +257,7 @@ git clone https://github.com/Ar4ikov/openrazer-win
 cd openrazer-win
 pip install -e ".[dev]"
 
-pytest                              # 160 tests, no hardware needed
+pytest                              # 193 tests, no hardware needed
 ruff check .
 python tools/simulate_devices.py    # every capability of all 267 devices
 ```

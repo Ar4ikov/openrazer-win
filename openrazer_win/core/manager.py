@@ -10,8 +10,9 @@ from ..devices.recipes import RecipeTable, get_recipes
 from ..hid import get_backend
 from ..protocol.report import VENDOR_ID
 from .device import RazerDevice
+from .kraken import KrakenDevice
 from .persistence import Persistence
-from .transport import Transport, select_control_interface
+from .transport import Transport, select_control_interface, select_kraken_interface
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,9 @@ class DeviceManager:
         return '{0:04x}:{1:04x}'.format(meta.vid, meta.pid)
 
     def _build(self, meta: DeviceInfo, infos: list) -> Optional[RazerDevice]:
+        if meta.pid in self.recipes.kraken_pids:
+            return self._build_kraken(meta, infos)
+
         params = self.recipes.transport_params(meta.driver, meta.pid)
         control = select_control_interface(infos, params.get('index'))
         if control is None:
@@ -84,6 +88,17 @@ class DeviceManager:
         transport = Transport(self.backend, control,
                               wait_us=params.get('wait_us', 600), argb_info=argb)
         return RazerDevice(meta, transport, self.persistence, self.recipes)
+
+    def _build_kraken(self, meta: DeviceInfo, infos: list) -> Optional[RazerDevice]:
+        """Krakens write output reports instead of the 90-byte control report."""
+        control = select_kraken_interface(infos)
+        if control is None:
+            logger.warning(
+                '%s is attached but exposes no 37-byte output report; '
+                'another program may hold it exclusively', meta.name)
+            return None
+        transport = Transport(self.backend, control, kraken_info=control)
+        return KrakenDevice(meta, transport, self.persistence, self.recipes)
 
     # -- accessors ---------------------------------------------------------
     @property

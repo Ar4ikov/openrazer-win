@@ -25,6 +25,11 @@ FEATURE_BUFFER_SIZE = REPORT_SIZE + 1
 ARGB_REPORT_SIZE = 320
 ARGB_BUFFER_SIZE = ARGB_REPORT_SIZE + 1
 
+#: The Kraken family writes 37-byte output reports rather than feature reports,
+#: on interface 3.
+KRAKEN_REPORT_SIZE = 37
+KRAKEN_INTERFACE = 3
+
 #: ``razer_send_payload`` retries five times, 10 ms apart.
 MAX_ATTEMPTS = 5
 RETRY_DELAY = 0.010
@@ -45,6 +50,26 @@ def is_control_interface(info: HidDeviceInfo) -> bool:
 
 def is_argb_interface(info: HidDeviceInfo) -> bool:
     return info.feature_length == ARGB_BUFFER_SIZE
+
+
+def is_kraken_interface(info: HidDeviceInfo) -> bool:
+    """The collection that accepts the Kraken's 37-byte output report."""
+    return info.output_length == KRAKEN_REPORT_SIZE
+
+
+def select_kraken_interface(candidates: list):
+    """Pick the collection to write Kraken RAM through.
+
+    The kernel addresses interface 3 explicitly, so prefer it, but fall back to
+    any collection declaring an output report of the right size -- collection
+    numbering varies between the Kraken generations.
+    """
+    usable = [info for info in candidates if is_kraken_interface(info)]
+    if not usable:
+        return None
+    exact = [info for info in usable if info.interface == KRAKEN_INTERFACE]
+    pool = exact or usable
+    return sorted(pool, key=lambda i: (i.interface or 0, i.collection or 0))[0]
 
 
 def select_control_interface(candidates: list, preferred_index: Optional[int] = None):
@@ -68,14 +93,17 @@ class Transport:
     """A serialised request/response channel to one device."""
 
     def __init__(self, backend, info: HidDeviceInfo, wait_us: int = 600,
-                 argb_info: Optional[HidDeviceInfo] = None):
+                 argb_info: Optional[HidDeviceInfo] = None,
+                 kraken_info: Optional[HidDeviceInfo] = None):
         self._backend = backend
         self.info = info
         self.argb_info = argb_info
+        self.kraken_info = kraken_info
         self.wait = max(wait_us / 1_000_000.0, MIN_WAIT)
         self._lock = threading.RLock()
         self._handle = None
         self._argb_handle = None
+        self._kraken_handle = None
 
     # -- lifecycle ---------------------------------------------------------
     def open(self) -> None:
@@ -85,7 +113,7 @@ class Transport:
 
     def close(self) -> None:
         with self._lock:
-            for attribute in ('_handle', '_argb_handle'):
+            for attribute in ('_handle', '_argb_handle', '_kraken_handle'):
                 handle = getattr(self, attribute)
                 if handle is not None:
                     try:
@@ -148,6 +176,22 @@ class Transport:
                 raise last_error
             raise RazerReportError(
                 'no usable response from device: {0}'.format(last_error))
+
+    def send_kraken(self, reports, settle: float = 0.0) -> None:
+        """Write a sequence of Kraken RAM reports, in order.
+
+        The controller commits each write slowly, so the caller supplies the
+        settle time the driver uses -- 15 ms per byte written.
+        """
+        if self.kraken_info is None:
+            raise DeviceNotFound('device has no Kraken control interface')
+        with self._lock:
+            if self._kraken_handle is None:
+                self._kraken_handle = self._backend.open(self.kraken_info)
+            for report in reports:
+                self._kraken_handle.send_output_report(bytes(report))
+                if settle:
+                    time.sleep(settle)
 
     def send_argb(self, channel: int, colours: bytes) -> None:
         """Send an addressable-RGB frame (``razer_send_argb_msg``)."""

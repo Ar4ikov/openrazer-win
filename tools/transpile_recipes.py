@@ -824,6 +824,19 @@ def transpile(upstream: str, out_path: str) -> int:
                 'default': default_ref, 'pids': per_pid}
         result['drivers'][driver] = attrs
 
+    # The Kraken family speaks a different protocol entirely (address writes to
+    # RAM rather than the 90-byte control report), so it has no recipes.  Record
+    # which product ids belong to it so the port routes them to its own device
+    # class instead of the accessory tables.
+    kraken_src = strip_comments(
+        open(os.path.join(driver_dir, 'razerkraken_driver.c'), encoding='utf-8').read())
+    kraken_table = re.search(r'razer_devices\[\]\s*=\s*\{(.*?)\};', kraken_src, re.S)
+    kraken_pids = sorted({
+        consts[name] for name in re.findall(
+            r'USB_DEVICE_ID_\w+', kraken_table.group(1) if kraken_table else kraken_src)
+        if name in consts})
+    result['kraken_pids'] = ['{0:04x}'.format(pid) for pid in kraken_pids]
+
     result['transport'] = extract_transport(driver_dir, consts)
     result['pool'] = pool
     result['blade_pids'] = sorted('{0:04x}'.format(p) for p in blade_pids)

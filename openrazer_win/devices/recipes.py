@@ -438,6 +438,8 @@ class RecipeTable:
         self._drivers: dict = payload['drivers']
         self._transport: dict = payload.get('transport', {})
         self.blade_pids = {int(p, 16) for p in payload.get('blade_pids', [])}
+        #: Handled by the separate razerkraken driver, which has no recipes.
+        self.kraken_pids = {int(p, 16) for p in payload.get('kraken_pids', [])}
         self.constants: dict = payload.get('constants', {})
 
     def attributes(self, driver: str) -> list:

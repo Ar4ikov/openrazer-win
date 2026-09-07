@@ -413,7 +413,7 @@ matrix.draw()</code></pre>
       <div class="card">
         <span class="ico">🧪</span>
         <h4>Tested without hardware</h4>
-        <p>A built-in emulator validates CRCs and answers the protocol. 160 tests plus a fleet
+        <p>A built-in emulator validates CRCs and answers the protocol. 193 tests plus a fleet
           simulation exercise every capability of all 267 devices on every commit.</p>
       </div>
       <div class="card">
@@ -428,6 +428,13 @@ matrix.draw()</code></pre>
         <h4>State that survives sleep</h4>
         <p>Windows cuts USB power on suspend. The daemon records what was applied per serial and
           replays it when the device reappears.</p>
+      </div>
+      <div class="card">
+        <span class="ico">🎧</span>
+        <h4>A second protocol</h4>
+        <p>Kraken headsets predate the control report: they expose the lighting controller's RAM.
+          Colours go to fixed addresses, then one byte says what to do with them — ported from
+          <code>razerkraken_driver.c</code> by hand, since it has no switch tables to transpile.</p>
       </div>
       <div class="card">
         <span class="ico">🔐</span>
@@ -503,8 +510,10 @@ matrix.draw()</code></pre>
 
     <h3>Not ported</h3>
     <ul class="plain">
-      <li><strong>Macro recording and playback</strong> — upstream reads Linux input events for this.</li>
-      <li><strong>The Kraken headset family's separate protocol</strong> — a different command set entirely.</li>
+      <li><strong>Macro recording and playback</strong> — upstream implements this on Linux input events.</li>
+      <li><strong>Reading state back from a Kraken headset</strong> — the kernel collects it from
+        unsolicited HID input reports; the daemon serves those values from its persistence file
+        instead. Setting effects works.</li>
     </ul>
   </div>
 </section>

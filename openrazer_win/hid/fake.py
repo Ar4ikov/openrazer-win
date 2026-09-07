@@ -55,6 +55,11 @@ class FakeHidHandle:
             return
         self._device.handle_set_feature(bytes(data))
 
+    def send_output_report(self, data: bytes) -> None:
+        if self._closed:
+            raise HidError('handle is closed')
+        self._device.handle_output_report(bytes(data))
+
     def get_feature_report(self, length: int, report_id: int = 0x00) -> bytes:
         if self._closed:
             raise HidError('handle is closed')
@@ -76,9 +81,13 @@ class FakeRazerDevice:
     #: Length of the addressable-RGB feature report, including the report id.
     ARGB_BUFFER_SIZE = 321
 
+    #: The Kraken family's output report, including the report id.
+    KRAKEN_REPORT_SIZE = 37
+
     def __init__(self, product_id: int, name: str = 'Fake Razer Device',
                  interface: int = 1, serial: Optional[str] = None,
-                 vendor_id: int = 0x1532, argb: bool = False):
+                 vendor_id: int = 0x1532, argb: bool = False,
+                 kraken: bool = False):
         self.info = HidDeviceInfo(
             path='\\\\?\\hid#vid_{0:04x}&pid_{1:04x}&mi_{2:02x}#fake'.format(
                 vendor_id, product_id, interface),
@@ -101,7 +110,22 @@ class FakeRazerDevice:
             feature_length=self.ARGB_BUFFER_SIZE,
             product=name,
         ) if argb else None
+        #: Krakens are reached through an output report on their own
+        #: collection, not the shared feature report.
+        self.kraken_info = HidDeviceInfo(
+            path=self.info.path + '&kraken',
+            vendor_id=vendor_id,
+            product_id=product_id,
+            interface=3,
+            usage_page=0xFF00,
+            usage=0x0002,
+            output_length=self.KRAKEN_REPORT_SIZE,
+            product=name,
+        ) if kraken else None
         self.argb_frames: list = []
+        #: Address -> bytes written, plus the raw report stream.
+        self.kraken_ram: dict = {}
+        self.kraken_writes: list = []
         self.state = FakeDeviceState(
             serial or 'FAKE{0:010d}'.format(next(_SERIAL_COUNTER)))
         self._response = self._blank_response()
@@ -132,6 +156,21 @@ class FakeRazerDevice:
 
     def handle_get_feature(self, length: int, report_id: int = 0x00) -> bytes:
         return self._response[:length].ljust(length, b'\x00')
+
+    def handle_output_report(self, data: bytes) -> None:
+        """Record a Kraken RAM write."""
+        if len(data) != self.KRAKEN_REPORT_SIZE:
+            raise HidError('Kraken report must be {0} bytes, got {1}'.format(
+                self.KRAKEN_REPORT_SIZE, len(data)))
+        if data[0] != 0x04:
+            raise HidError('unexpected Kraken report id 0x{0:02x}'.format(data[0]))
+        destination, length = data[1], data[2]
+        address = (data[3] << 8) | data[4]
+        payload = bytes(data[5:5 + length])
+        self.kraken_writes.append(
+            {'destination': destination, 'address': address, 'data': payload})
+        if destination == 0x40:
+            self.kraken_ram[address] = payload
 
     # -- protocol ----------------------------------------------------------
     def _respond(self, request: RazerReport) -> RazerReport:
@@ -266,6 +305,8 @@ class FakeHidBackend:
             result.append(device.info)
             if device.argb_info is not None:
                 result.append(device.argb_info)
+            if device.kraken_info is not None:
+                result.append(device.kraken_info)
         return result
 
     def open(self, info: HidDeviceInfo) -> FakeHidHandle:
@@ -274,6 +315,8 @@ class FakeHidBackend:
                 return FakeHidHandle(device)
             if device.argb_info is not None and device.argb_info.path == info.path:
                 return FakeHidHandle(device, device.argb_info)
+            if device.kraken_info is not None and device.kraken_info.path == info.path:
+                return FakeHidHandle(device, device.kraken_info)
         raise HidError('no such fake device: {0}'.format(info.path))
 
     def device_for(self, info: HidDeviceInfo) -> Optional[FakeRazerDevice]:
