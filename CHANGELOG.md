@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [semantic versioning](https://semver.org/).
 
+## [1.2.2] - 2026-09-08
+
+### Fixed
+
+- **"device ... has no characteristic" on a device that plainly has it.** A
+  write failed three times running against a headset that was advertising and
+  whose GATT carries that characteristic -- enumerating it by hand a moment
+  later listed all three services.
+
+  Windows' service cache can answer both successfully and *empty* for a device
+  that is not currently connected, and an empty service list is
+  indistinguishable from a device that lacks the characteristic, so a working
+  headset was reported as the wrong hardware. The cache is still consulted
+  first, because warm it answers in milliseconds against about three seconds
+  uncached, but a fruitless answer is retried uncached rather than believed.
+  The two failures are also reported differently now: no services came back,
+  versus the services are there and the characteristic is not among them.
+
 ## [1.2.1] - 2026-09-08
 
 ### Fixed
@@ -40,15 +58,6 @@ uses [semantic versioning](https://semver.org/).
 
   If a daemon is stuck in this state after 1.2.0, `openrazer-win daemon stop`
   releases the device; 1.2.1 does not get into it.
-
-- **"device ... has no characteristic" on a device that plainly has it.** Seen
-  while testing the above. Windows' GATT service cache can answer both
-  successfully and empty for a device that is not currently connected, and an
-  empty service list is indistinguishable from a device that lacks the
-  characteristic -- so a working headset was reported as the wrong hardware.
-  The cache is still tried first, because it answers in milliseconds when warm,
-  but a fruitless answer is now retried uncached rather than believed, and the
-  two cases are reported differently.
 
 ## [1.2.0] - 2026-09-08
 
