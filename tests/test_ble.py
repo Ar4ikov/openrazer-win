@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Optional
 
 import pytest
 
@@ -17,69 +16,14 @@ from openrazer_win.core.device import DeviceError
 from openrazer_win.core.manager import DeviceManager
 from openrazer_win.devices import get_database
 from openrazer_win.devices.recipes import NotSupported
-from openrazer_win.ble import Advertiser
+from openrazer_win.ble import Advertiser, BleUnavailable  # noqa: F401
 from openrazer_win.hid.fake import FakeHidBackend
 from openrazer_win.protocol import razer_ble
 
-KITTY_V2_BT = 0x0562
-
-#: The advertised LE address of the headset this was developed against, and
-#: the classic address it advertises alongside it -- one byte apart.
-ADDRESS = 0x445ECD583460
-CLASSIC_ADDRESS = 0x445ECD573460
-
-#: Razer's manufacturer data, exactly as captured from the headset.
-MANUFACTURER_DATA = bytes.fromhex('05620060345 7cd5e4400'.replace(' ', ''))
-
-#: What a sweep hears from it.
-ADVERT = Advertiser(ADDRESS, 'Razer Stereo', -55, KITTY_V2_BT, CLASSIC_ADDRESS)
-
-RED = (255, 0, 0)
-BLUE = (0, 0, 255)
-
-
-class FakeBleTransport:
-    """Records what would have gone out over the air."""
-
-    def __init__(self, address: int = ADDRESS):
-        self.address = address
-        self.writes: list = []
-        self.closed = False
-        #: A real device stops advertising while a link is up, so discovery
-        #: asks the transport instead of trusting silence.
-        self.connected = False
-        #: The colour the transport has been asked to keep asserting.
-        self.held: Optional[bytes] = None
-
-    def write(self, payload: bytes, hold: bool = False) -> None:
-        self.writes.append(bytes(payload))
-        if hold:
-            self.held = bytes(payload)
-
-    def release(self) -> None:
-        self.held = None
-
-    def close(self) -> None:
-        self.closed = True
-        self.connected = False
-        self.held = None
-
-    def is_connected(self) -> bool:
-        return self.connected
-
-    @property
-    def last(self) -> bytes:
-        assert self.writes, 'nothing was written'
-        return self.writes[-1]
-
-
-@pytest.fixture
-def headset(persistence):
-    meta = get_database().get(0x1532, KITTY_V2_BT)
-    assert meta is not None, 'the Bluetooth headset is missing from the database'
-    transport = FakeBleTransport()
-    return BleDevice(meta, transport, persistence), transport
-
+from .conftest import (
+    ADDRESS, ADVERT, BLUE, CLASSIC_ADDRESS, KITTY_V2_BT, MANUFACTURER_DATA, RED,
+    FakeBleTransport,
+)
 
 @pytest.fixture
 def fake_radio(monkeypatch, no_bluetooth_radio):
@@ -257,14 +201,59 @@ def test_restore_replays_the_last_colours(headset):
     assert transport.last == razer_ble.colour_command([RED, BLUE])
 
 
-def test_the_headset_reports_no_firmware_or_brightness(headset):
+def test_the_headset_reports_no_firmware_and_has_no_recipes(headset):
     device, _ = headset
     for call in (lambda: device.firmware_version,
-                 lambda: device.get_brightness(),
-                 lambda: device.set_brightness(50),
                  lambda: device.run('set_static_effect')):
         with pytest.raises(NotSupported):
             call()
+
+
+def test_brightness_is_a_percentage_over_a_byte(headset):
+    device, transport = headset
+    device.set_brightness(50)
+    # Synapse's slider sent 0x7f at 50, and 50% of 255 rounds to 0x80.
+    assert transport.last == razer_ble.brightness_command(0x80)
+    assert device.get_brightness() == 100.0     # what the fake answers
+
+
+def test_brightness_is_clamped_to_the_slider_range(headset):
+    device, transport = headset
+    device.set_brightness(400)
+    assert transport.last == razer_ble.brightness_command(0xFF)
+    device.set_brightness(-5)
+    assert transport.last == razer_ble.brightness_command(0x00)
+
+
+def test_brightness_does_not_disturb_the_held_colour(headset):
+    device, transport = headset
+    device.set_zone_colours([RED, BLUE])
+    device.set_brightness(50)
+    assert transport.held == razer_ble.colour_command([RED, BLUE])
+
+
+def test_the_battery_level_is_read_from_the_device(headset):
+    device, transport = headset
+    assert device.get_battery_level() == 87
+    assert razer_ble.OP_BATTERY in transport.reads
+    assert device.is_charging() is False
+
+
+def test_a_device_that_will_not_answer_is_reported_as_such(headset):
+    device, transport = headset
+    transport.answers.clear()
+    with pytest.raises(DeviceError):
+        device.get_battery_level()
+
+
+def test_brightness_and_battery_are_advertised_as_capabilities(headset):
+    device, _ = headset
+    capabilities = device.capabilities()
+    assert capabilities['battery'] is True
+    assert capabilities['readback'] is True
+    assert capabilities['zones']['backlight']['brightness'] is True
+    # Brightness is device-wide, so an ear must not claim its own.
+    assert capabilities['zones']['left']['brightness'] is False
 
 
 def test_only_the_effects_the_hardware_has_are_claimed(headset):
@@ -440,11 +429,13 @@ def headset_daemon_with_effects(tmp_path, monkeypatch, fake_radio):
 
 def _serve(tmp_path, monkeypatch, fake_radio, effects: bool):
     from openrazer_win.core.persistence import Persistence
+    from openrazer_win.core.profiles import ProfileStore
     from openrazer_win.daemon.server import DaemonServer, DaemonService
 
     service = DaemonService(backend=FakeHidBackend(),
                             persistence=Persistence(str(tmp_path / 'p.json')),
-                            enable_effects=effects)
+                            enable_effects=effects,
+                            profiles=ProfileStore(str(tmp_path / 'profiles.json')))
     service.start()
     server = DaemonServer(service, port=0)
     path = str(tmp_path / 'daemon.json')
@@ -478,7 +469,7 @@ def test_the_client_sends_both_ears_in_one_write(headset_daemon):
     with ClientManager() as manager:
         manager.devices[0].set_colour_zones([RED, BLUE])
     # Two writes would light one ear before the other, visibly.
-    assert len(headset_daemon.writes) == 1
+    assert len(headset_daemon.colour_writes) == 1
 
 
 def test_zones_command_paints_each_ear(headset_daemon, capsys):
@@ -565,13 +556,13 @@ def test_the_host_renderer_actually_writes_frames(headset_daemon_with_effects):
     assert main(['effect', 'spectrum']) == 0
     try:
         deadline = time.monotonic() + 3.0
-        while len(transport.writes) < 3 and time.monotonic() < deadline:
+        while len(transport.colour_writes) < 3 and time.monotonic() < deadline:
             time.sleep(0.05)
-        assert len(transport.writes) >= 3, 'no frames reached the device'
+        frames = transport.colour_writes
+        assert len(frames) >= 3, 'no frames reached the device'
         # Each frame is a full colour command, and the colour moves.
-        assert all(frame[:3] == bytes((0xC4, 0x00, 0x06))
-                   for frame in transport.writes)
-        assert len(set(transport.writes)) > 1
+        assert all(frame[:3] == bytes((0xC4, 0x00, 0x06)) for frame in frames)
+        assert len(set(frames)) > 1
     finally:
         main(['effect', 'none'])
 
@@ -838,3 +829,134 @@ def test_a_held_colour_is_re_asserted_and_keeps_the_link(monkeypatch):
     while transport.is_connected() and time.monotonic() < deadline:
         time.sleep(0.05)
     assert not transport.is_connected(), 'a released link should be given up'
+
+
+def test_taking_over_the_lighting_is_announced(headset):
+    """Synapse sends this before every effect, so this port does too."""
+    device, transport = headset
+    device.enter_driver_mode()
+    assert transport.last == razer_ble.takeover_command()
+    assert transport.last == bytes((0xC0, 0x00, 0x01, 0x05))
+
+
+def test_a_device_that_refuses_the_takeover_still_works(headset, monkeypatch):
+    device, transport = headset
+
+    def refuse(payload, hold=False):
+        raise BleUnavailable('nope')
+
+    monkeypatch.setattr(transport, 'write', refuse)
+    device.enter_driver_mode()          # must not raise
+
+
+def test_a_lost_request_is_asked_again(monkeypatch):
+    """Requests are Write Commands: unacknowledged, so one can vanish."""
+    import asyncio
+
+    import openrazer_win.ble.transport as transport_module
+
+    monkeypatch.setattr(transport_module, 'require_available', lambda: None)
+    monkeypatch.setattr(transport_module, 'REPLY_TIMEOUT', 0.05)
+
+    transport = transport_module.BleTransport(ADDRESS)
+    attempts = []
+
+    async def flaky(opcode, payload):
+        attempts.append(opcode)
+        if len(attempts) < 3:
+            raise asyncio.TimeoutError()
+        return bytes((0xFF,))
+
+    monkeypatch.setattr(transport, '_request_once', flaky)
+    assert transport_module._loop().submit(
+        transport._request(0x41, b'')) == bytes((0xFF,))
+    assert len(attempts) == 3
+
+
+def test_a_device_that_never_answers_is_reported_once(monkeypatch):
+    import asyncio
+
+    import openrazer_win.ble.transport as transport_module
+
+    monkeypatch.setattr(transport_module, 'require_available', lambda: None)
+    transport = transport_module.BleTransport(ADDRESS)
+    attempts = []
+
+    async def silent(opcode, payload):
+        attempts.append(opcode)
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(transport, '_request_once', silent)
+    with pytest.raises(transport_module.BleUnavailable, match='did not answer'):
+        transport_module._loop().submit(transport._request(0x41, b''))
+    assert len(attempts) == transport_module.REQUEST_ATTEMPTS
+
+
+def test_brightness_is_remembered_by_the_device_not_by_us(headset, persistence):
+    """Brightness survives a disconnect; the live colour does not.
+
+    Confirmed on the hardware by reading it back over a fresh connection. The
+    device is therefore the authority on brightness, and restoring lighting
+    must not fight it.
+    """
+    device, transport = headset
+    device.set_brightness(30)
+    transport.answers[razer_ble.read_opcode_for(razer_ble.OP_BRIGHTNESS)] = \
+        bytes((razer_ble.percentage_to_level(30),))
+    device.set_zone_colours([RED, BLUE])
+    transport.writes.clear()
+
+    device.restore()
+    # Only the colour is replayed: the device kept the brightness itself.
+    assert transport.colour_writes
+    assert not any(w[:1] == bytes((razer_ble.OP_BRIGHTNESS,))
+                   for w in transport.writes)
+
+
+def test_profiles_round_trip_through_the_daemon(headset_daemon, capsys, tmp_path,
+                                                monkeypatch):
+    from openrazer_win.cli import main
+
+    assert main(['profile']) == 0
+    assert 'no saved profiles' in capsys.readouterr().out
+
+    assert main(['zones', 'red', 'blue']) == 0
+    assert main(['profile', 'save', 'evening']) == 0
+    assert "'evening' saved" in capsys.readouterr().out
+
+    assert main(['zones', 'green', 'green']) == 0
+    capsys.readouterr()
+
+    assert main(['profile', 'load', 'evening']) == 0
+    assert "'evening' applied" in capsys.readouterr().out
+    assert headset_daemon.colour_writes[-1] == razer_ble.colour_command(
+        [RED, BLUE])
+
+    assert main(['profile']) == 0
+    assert 'evening' in capsys.readouterr().out
+
+    assert main(['profile', 'delete', 'evening']) == 0
+    assert main(['profile']) == 0
+    assert 'no saved profiles' in capsys.readouterr().out
+
+
+def test_loading_a_profile_that_is_not_there_fails_cleanly(headset_daemon, capsys):
+    from openrazer_win.cli import main
+
+    assert main(['profile', 'load', 'nope']) == 1
+    assert 'nope' in capsys.readouterr().err
+
+
+def test_save_without_a_name_is_refused(headset_daemon, capsys):
+    from openrazer_win.cli import main
+
+    assert main(['profile', 'save']) == 2
+    assert 'needs a profile name' in capsys.readouterr().err
+
+
+def test_the_stored_colour_reads_as_what_it_is(headset, persistence):
+    """A saved profile should not show the default palette for a lit device."""
+    device, _ = headset
+    device.set_zone_colours([RED, BLUE])
+    assert persistence.get(device.serial, AGGREGATE_ZONE, 'colors')[:6] == [
+        255, 0, 0, 0, 0, 255]

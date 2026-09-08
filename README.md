@@ -93,6 +93,10 @@ openrazer-win effect ripple green   # host-rendered, follows your typing
 openrazer-win zones                  # list a device's zones
 openrazer-win zones red blue        # one colour each: left ear red, right ear blue
 
+openrazer-win profile save night    # remember what is showing now
+openrazer-win profile               # list saved profiles
+openrazer-win profile load night    # put it back
+
 openrazer-win brightness 60
 openrazer-win dpi 1800
 openrazer-win poll-rate 1000
@@ -150,6 +154,15 @@ headset = DeviceManager().by_name('Kraken Kitty V2 BT')[0]
 headset.colour_zones()                          # ['left', 'right']
 headset.set_colour_zones([(255, 0, 0), (0, 0, 255)])
 headset.fx_for('left').static(0, 255, 0)        # or one ear at a time
+```
+
+Profiles are named snapshots of a device's lighting, kept on the PC — up to ten per device, in
+`%LOCALAPPDATA%\openrazer-win\profiles.json`:
+
+```python
+device.save_profile('night')
+device.profiles                     # [{'name': 'night', 'saved': ..., 'zones': [...]}]
+device.load_profile('night')
 ```
 
 No daemon running? Pass `direct=True` and the library opens the HID handles itself:
@@ -240,6 +253,9 @@ to have a backlight it does not have.
 [on the documentation site](https://ar4ikov.github.io/openrazer-win/#devices), or run
 `openrazer-win supported`.
 
+**Profiles:** up to ten named lighting snapshots per device, saved on the PC and re-applied on
+demand — `openrazer-win profile save night`, `profile load night`.
+
 **Features:** all hardware effects (static, spectrum, wave, wheel, reactive, blinking, breathing ×3,
 starlight ×3), per-key custom frames, per-zone brightness, DPI and DPI stages, polling rate up to
 8000 Hz, battery level and charging state, idle timeout, low-battery threshold, game mode, macro LED,
@@ -265,13 +281,19 @@ the traffic dead — so this port renders them the same way, through its own eff
 `effect spectrum` and `effect wave` fall back to the frame-by-frame renderer on any device whose
 firmware has no such mode, and say so when they do.
 
+Brightness, battery level and charging state work over Bluetooth too: the vendor service answers
+requests on a notify characteristic, since nothing in it can be read directly. Brightness the device
+*does* keep across a power cycle — unlike the colour.
+
 **The headset does not store the colour you set.** It shows what it was last told for as long as
 the Bluetooth link is up, and reverts to the colour saved in it — whatever Synapse last wrote — the
 moment that link goes. So a colour set here is *held*: re-asserted every couple of seconds for as
-long as the daemon runs, which is the same thing Synapse does. Writing the colour into the device's
-own memory is not implemented: that is a different command on a different characteristic, and it was
-not part of what was captured. (Guessing opcodes at a flash write is how firmware gets bricked, so
-it is not guessed.)
+long as the daemon runs, which is the same thing Synapse does. A command that writes the *stored* colour does exist — this
+headset shipped showing white and has shown Razer green ever since Synapse first set it up — but it
+appeared in none of the traffic captured here, which points at the one-off setup Synapse performs on
+install. It is not implemented and not guessed at: the device answers an unknown opcode with silence
+rather than an error, so guessing would be blind, on the channel where firmware pushes live. Profiles
+are the practical answer instead.
 
 Three facts about the link, all confirmed on the hardware, decide how it is managed. Resolving the
 characteristic costs about 90 ms, most of that service discovery, which no amount of frame streaming
@@ -323,7 +345,7 @@ git clone https://github.com/Ar4ikov/openrazer-win
 cd openrazer-win
 pip install -e ".[dev]"
 
-pytest                              # 279 tests, no hardware needed
+pytest                              # 315 tests, no hardware needed
 ruff check .
 python tools/simulate_devices.py    # every capability of all 267 devices
 ```

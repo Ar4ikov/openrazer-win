@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openrazer-win"
-version = "1.2.3"
+version = "1.3.0"
 description = "OpenRazer for Windows: Razer device control in user space, no kernel driver required"
 readme = "README.md"
 requires-python = ">=3.9"

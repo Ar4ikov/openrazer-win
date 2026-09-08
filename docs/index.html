@@ -261,6 +261,10 @@ footer p { margin: 0 0 8px; }
 <span class="c-cmd">openrazer-win</span> zones
 <span class="c-cmd">openrazer-win</span> zones red blue
 
+<span class="c-com"># named lighting profiles, kept on this PC</span>
+<span class="c-cmd">openrazer-win</span> profile save night
+<span class="c-cmd">openrazer-win</span> profile load night
+
 <span class="c-com"># settings</span>
 <span class="c-cmd">openrazer-win</span> brightness 60
 <span class="c-cmd">openrazer-win</span> dpi 1800
@@ -425,7 +429,7 @@ headset.set_colour_zones([(<span class="c-str">255</span>, <span class="c-str">0
       <div class="card">
         <span class="ico">🧪</span>
         <h4>Tested without hardware</h4>
-        <p>A built-in emulator validates CRCs and answers the protocol. 279 tests plus a fleet
+        <p>A built-in emulator validates CRCs and answers the protocol. 315 tests plus a fleet
           simulation exercise every capability of all 267 devices on every commit.</p>
       </div>
       <div class="card">
@@ -455,7 +459,8 @@ headset.set_colour_zones([(<span class="c-str">255</span>, <span class="c-str">0
           lighting was recovered here from a Bluetooth HCI capture: a vendor GATT service whose UUID
           spells <code>Amel-RazerBLE</code>, taking <code>c4 00 06</code> and one RGB triple per
           ear. Each ear can be given its own colour, in a single write. It stores none of it, so
-          the colour is held for as long as the daemon runs.</p>
+          the colour is held for as long as the daemon runs, and named profiles keep as many of
+          those as you like.</p>
       </div>
       <div class="card">
         <span class="ico">🔐</span>

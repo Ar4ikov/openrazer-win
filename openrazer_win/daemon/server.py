@@ -18,6 +18,7 @@ from .._version import __version__
 from ..core.device import DeviceError, RazerDevice
 from ..core.manager import DeviceManager
 from ..core.persistence import Persistence
+from ..core.profiles import ProfileError, ProfileStore, apply_profile, snapshot
 from ..devices.recipes import NotSupported, RecipeError
 from ..effects.engine import EffectEngine
 from . import protocol
@@ -80,8 +81,10 @@ class DaemonService:
     """Everything the RPC layer is allowed to touch."""
 
     def __init__(self, backend=None, persistence: Optional[Persistence] = None,
-                 enable_effects: bool = True):
+                 enable_effects: bool = True,
+                 profiles: Optional[ProfileStore] = None):
         self.persistence = persistence or Persistence()
+        self.profiles = profiles if profiles is not None else ProfileStore()
         self.manager = DeviceManager(backend=backend, persistence=self.persistence)
         self.effects = EffectEngine(self.manager) if enable_effects else None
         self.started_at = time.time()
@@ -192,6 +195,42 @@ class DaemonService:
     def rpc_persistence(self) -> dict:
         return self.persistence.as_dict()
 
+    # -- profiles ----------------------------------------------------------
+    def rpc_profile_list(self, serial: str) -> list:
+        return self.profiles.summaries(self._device(serial).serial)
+
+    def rpc_profile_save(self, serial: str, name: str) -> dict:
+        device = self._device(serial)
+        try:
+            entry = self.profiles.put(
+                device.serial, name, snapshot(device, self.persistence))
+        except ProfileError as error:
+            raise RpcError(INVALID_PARAMS, str(error)) from error
+        return {'name': entry['name'], 'saved': entry['saved']}
+
+    def rpc_profile_load(self, serial: str, name: str) -> dict:
+        device = self._device(serial)
+        try:
+            profile = self.profiles.get(device.serial, name)
+        except ProfileError as error:
+            raise RpcError(INVALID_PARAMS, str(error)) from error
+        try:
+            apply_profile(device, self.persistence, profile)
+        except NotSupported as error:
+            raise RpcError(NOT_SUPPORTED, str(error)) from error
+        except (DeviceError, RecipeError) as error:
+            raise RpcError(DEVICE_ERROR, str(error)) from error
+        self.persistence.save()
+        return {'name': profile['name']}
+
+    def rpc_profile_delete(self, serial: str, name: str) -> dict:
+        device = self._device(serial)
+        try:
+            self.profiles.delete(device.serial, name)
+        except ProfileError as error:
+            raise RpcError(INVALID_PARAMS, str(error)) from error
+        return {'name': name}
+
 
 class RpcHandler(socketserver.StreamRequestHandler):
     """One client connection: authenticate once, then serve requests."""
@@ -296,6 +335,10 @@ class DaemonServer(socketserver.ThreadingTCPServer):
             'device.call': service.rpc_call,
             'effect.set': service.rpc_effect,
             'effect.status': service.rpc_effect_status,
+            'profile.list': service.rpc_profile_list,
+            'profile.save': service.rpc_profile_save,
+            'profile.load': service.rpc_profile_load,
+            'profile.delete': service.rpc_profile_delete,
         }
         self._shutdown_requested = threading.Event()
 

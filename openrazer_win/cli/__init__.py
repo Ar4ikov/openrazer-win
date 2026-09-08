@@ -42,6 +42,16 @@ HOST_RENDERED_FALLBACK = {
     'wave': 'wave_soft',
 }
 
+PROFILE_HELP = """A profile is a named snapshot of what a device is showing: per-zone effect,
+colours and brightness. Devices do not store colours themselves -- the daemon
+holds them -- so a profile is kept here and re-applied on demand.
+
+Examples:
+  openrazer-win profile                list saved profiles
+  openrazer-win profile save night     record what is showing now
+  openrazer-win profile load night     put it back
+  openrazer-win profile delete night"""
+
 ZONES_HELP = """\
 Examples:
   openrazer-win zones                  list the zones
@@ -301,6 +311,49 @@ def cmd_zones(args) -> int:
                     '{0}=#{1:02x}{2:02x}{3:02x}'.format(zone, *colour)
                     for zone, colour in zip(names, wanted))))
     return 1 if failures else 0
+
+
+def cmd_profile(args) -> int:
+    """Save, re-apply and remove named lighting profiles."""
+    action = args.action
+    if action in ('save', 'load', 'delete') and not args.name:
+        raise CliError('"{0}" needs a profile name'.format(action))
+
+    with open_manager(args) as manager:
+        failures = 0
+        for device in pick_devices(manager, args.device):
+            try:
+                if action == 'list':
+                    _print_profiles(device, args)
+                    continue
+                result = getattr(device, action + '_profile')(args.name)
+            except (RpcError, NotSupported, DaemonUnavailable) as error:
+                print('{0}: {1}'.format(device.name, error), file=sys.stderr)
+                failures += 1
+                continue
+            if not args.quiet:
+                verb = {'save': 'saved', 'load': 'applied',
+                        'delete': 'deleted'}[action]
+                print('{0}: profile {1!r} {2}'.format(
+                    device.name, result.get('name', args.name), verb))
+    return 1 if failures else 0
+
+
+def _print_profiles(device, args) -> None:
+    profiles = device.profiles
+    if args.json:
+        print(json.dumps({'device': device.name, 'profiles': profiles}, indent=2))
+        return
+    if not profiles:
+        print('{0}: no saved profiles'.format(device.name))
+        print('  save one with:  openrazer-win profile save <name>')
+        return
+    print('{0}:'.format(device.name))
+    width = max(len(entry['name']) for entry in profiles)
+    for entry in profiles:
+        print('  {0:<{1}}  {2}  ({3})'.format(
+            entry['name'], width, entry.get('saved') or '',
+            ', '.join(entry.get('zones') or []) or 'no zones'))
 
 
 def cmd_brightness(args) -> int:
@@ -737,6 +790,15 @@ def build_parser() -> argparse.ArgumentParser:
     zones.add_argument('colours', nargs='*',
                        help='one colour per zone, in the order "zones" lists them')
     zones.add_argument('--device', '-d')
+
+    profile = add('profile', cmd_profile,
+                  'save and re-apply named lighting profiles',
+                  formatter_class=argparse.RawDescriptionHelpFormatter,
+                  epilog=PROFILE_HELP)
+    profile.add_argument('action', nargs='?', default='list',
+                         choices=('list', 'save', 'load', 'delete'))
+    profile.add_argument('name', nargs='?')
+    profile.add_argument('--device', '-d')
 
     brightness = add('brightness', cmd_brightness, 'get or set brightness')
     brightness.add_argument('value', nargs='?', type=float)

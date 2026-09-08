@@ -94,7 +94,9 @@ class BleDevice:
                 'image': self.info.image,
                 'protocol': 'razer-ble',
                 'zones': {
-                    zone: {'effects': list(NATIVE_EFFECTS), 'brightness': False}
+                    # Brightness is device-wide: one command, no zone in it.
+                    zone: {'effects': list(NATIVE_EFFECTS),
+                           'brightness': zone == AGGREGATE_ZONE}
                     for zone in (AGGREGATE_ZONE,) + tuple(ZONE_NAMES)
                 },
                 #: The zones a colour can be written to individually, in the
@@ -106,12 +108,14 @@ class BleDevice:
                 'dedicated_macro_keys': False,
                 'dpi': False, 'dpi_stages': False, 'max_dpi': None,
                 'poll_rate': False, 'supported_poll_rates': [],
-                'battery': False, 'idle_time': False,
+                'battery': True, 'idle_time': False,
                 'game_mode': False, 'macro_mode': False,
                 'keyboard_layout': False, 'scroll_mode': False,
                 'custom_frame': True,
                 'software_effects': True,
-                'readback': False,
+                # The vendor service answers requests on its notify
+                # characteristic, so state can be read back after all.
+                'readback': True,
                 'transport': {
                     'path': '{0:012X}'.format(self.transport.address),
                     'interface': None,
@@ -169,11 +173,15 @@ class BleDevice:
         for colour in colours:
             flat.extend(colour)
         self.persistence.set(self.serial, AGGREGATE_ZONE, 'effect', 'static')
-        #: Stored per device rather than in the zone state: a zone's default
-        #: ``colors`` is the green/cyan/blue triple every other device starts
-        #: from, and inheriting that would make an ear that was never written
-        #: read back as cyan.
+        #: What is read back comes from here, stored per device rather than in
+        #: the zone state: a zone's default ``colors`` is the green/cyan/blue
+        #: triple every other device starts from, and inheriting that would
+        #: make an ear that was never written read back as cyan.
         self.persistence.set_device_value(self.serial, 'zone_colours', flat)
+        #: Mirrored into the zone's own ``colors`` as well, so that a saved
+        #: profile reads as what it actually is rather than as the default.
+        self.persistence.set(self.serial, AGGREGATE_ZONE, 'colors',
+                             (list(flat) + [0] * 9)[:9])
 
     def _current_colours(self) -> list:
         """What each ear is showing, black for one never written to."""
@@ -211,6 +219,38 @@ class BleDevice:
     def matrix_dimensions(self) -> tuple:
         return (1, len(ZONE_NAMES))
 
+    def _read(self, opcode: int) -> bytes:
+        """Ask the device for a value.  Nothing here is readable over GATT."""
+        read = getattr(self.transport, 'read', None)
+        if read is None:
+            raise NotSupported(
+                '{0}: this transport cannot read'.format(self.name))
+        try:
+            return bytes(read(opcode))
+        except BleUnavailable as error:
+            raise DeviceError('{0}: {1}'.format(self.name, error)) from error
+
+    def get_battery_level(self) -> int:
+        """Charge percentage.  Matched what Synapse displayed, to the point."""
+        answer = self._read(razer_ble.OP_BATTERY)
+        if not answer:
+            raise NotSupported(
+                '{0} did not report its battery level'.format(self.name))
+        return int(answer[0])
+
+    def is_charging(self) -> bool:
+        """Whether it is on external power.
+
+        The opcode answered 0 throughout a capture taken on battery, which is
+        the only state that has been observed -- so this is the honest reading
+        of one data point, not a confirmed mapping.
+        """
+        answer = self._read(razer_ble.OP_CHARGING)
+        if not answer:
+            raise NotSupported(
+                '{0} did not report its charging state'.format(self.name))
+        return bool(answer[0])
+
     def _release(self) -> None:
         release = getattr(self.transport, 'release', None)
         if release is not None:
@@ -237,13 +277,30 @@ class BleDevice:
 
     # -- everything a Bluetooth headset cannot do --------------------------
     def get_brightness(self, zone: str = AGGREGATE_ZONE) -> float:
-        raise NotSupported('{0} has no brightness control'.format(self.name))
+        level = self._read(razer_ble.read_opcode_for(razer_ble.OP_BRIGHTNESS))
+        if not level:
+            raise NotSupported(
+                '{0} did not report its brightness'.format(self.name))
+        return razer_ble.level_to_percentage(level[0])
 
     def set_brightness(self, percent: float, zone: str = AGGREGATE_ZONE) -> None:
-        raise NotSupported('{0} has no brightness control'.format(self.name))
+        level = razer_ble.percentage_to_level(percent)
+        self._send(razer_ble.brightness_command(level))
+        self.persistence.set(self.serial, AGGREGATE_ZONE, 'brightness',
+                             razer_ble.level_to_percentage(level))
 
     def enter_driver_mode(self) -> None:
-        """Bluetooth devices have no driver mode."""
+        """Tell the device the host is taking the lighting over.
+
+        Synapse sends this before applying any effect.  What it means beyond
+        that is not known, so it is sent the same way and its answer is not
+        acted on -- and a device that ignores it must not stop us.
+        """
+        try:
+            self._send(razer_ble.takeover_command())
+        except DeviceError:
+            logger.debug('%s refused the takeover command', self.name,
+                         exc_info=True)
 
     def restore(self) -> None:
         state = self.persistence.zone(self.serial, AGGREGATE_ZONE)

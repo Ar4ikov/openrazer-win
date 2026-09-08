@@ -51,6 +51,12 @@ class _Backend:
     def software_effect(self, serial: str, effect: str, options: dict) -> dict:
         raise NotImplementedError
 
+    def profiles(self, serial: str) -> list:
+        raise NotImplementedError
+
+    def profile(self, action: str, serial: str, name: str) -> dict:
+        raise NotImplementedError
+
     def close(self) -> None:
         pass
 
@@ -73,6 +79,12 @@ class _RpcBackend(_Backend):
         return self.client.call('effect.set', serial=serial, effect=effect,
                                 options=options)
 
+    def profiles(self, serial: str) -> list:
+        return self.client.call('profile.list', serial=serial)
+
+    def profile(self, action: str, serial: str, name: str) -> dict:
+        return self.client.call('profile.' + action, serial=serial, name=name)
+
     def close(self) -> None:
         self.client.close()
 
@@ -82,6 +94,7 @@ class _DirectBackend(_Backend):
         from ..core.manager import DeviceManager as _CoreManager
         self.manager = _CoreManager(backend=hid_backend)
         self.manager.scan()
+        self._profile_store = None
 
     def _device(self, serial: str):
         device = self.manager.by_serial(serial)
@@ -113,6 +126,35 @@ class _DirectBackend(_Backend):
 
     def software_effect(self, serial: str, effect: str, options: dict) -> dict:
         raise NotSupported('software effects need the daemon; start it first')
+
+    @property
+    def _profiles(self):
+        from ..core.profiles import ProfileStore
+        if self._profile_store is None:
+            self._profile_store = ProfileStore()
+        return self._profile_store
+
+    def profiles(self, serial: str) -> list:
+        return self._profiles.summaries(self._device(serial).serial)
+
+    def profile(self, action: str, serial: str, name: str) -> dict:
+        from ..core.profiles import apply_profile, snapshot
+
+        device = self._device(serial)
+        persistence = self.manager.persistence
+        if action == 'save':
+            entry = self._profiles.put(
+                device.serial, name, snapshot(device, persistence))
+            return {'name': entry['name'], 'saved': entry['saved']}
+        if action == 'load':
+            profile = self._profiles.get(device.serial, name)
+            apply_profile(device, persistence, profile)
+            persistence.save()
+            return {'name': profile['name']}
+        if action == 'delete':
+            self._profiles.delete(device.serial, name)
+            return {'name': name}
+        raise ValueError('unknown profile action: {0}'.format(action))
 
     def close(self) -> None:
         self.manager.close()
@@ -334,6 +376,23 @@ class RazerDevice:
     @property
     def zones(self) -> list:
         return list(self.capabilities.get('zones', {}))
+
+    # -- profiles ----------------------------------------------------------
+    @property
+    def profiles(self) -> list:
+        """Saved lighting profiles for this device, newest last."""
+        return self._backend.profiles(self.serial)
+
+    def save_profile(self, name: str) -> dict:
+        """Record what this device is showing now, under `name`."""
+        return self._backend.profile('save', self.serial, name)
+
+    def load_profile(self, name: str) -> dict:
+        """Re-apply a saved profile."""
+        return self._backend.profile('load', self.serial, name)
+
+    def delete_profile(self, name: str) -> dict:
+        return self._backend.profile('delete', self.serial, name)
 
     def colour_zones(self) -> list:
         """The zones a colour can be written to one at a time, in device order.

@@ -25,8 +25,20 @@ logger = logging.getLogger(__name__)
 #: How long to listen for advertisements before giving up.
 DEFAULT_SCAN_SECONDS = 6.0
 
-#: GattCommunicationStatus.SUCCESS
+#: GattCommunicationStatus.SUCCESS, and .ACCESS_DENIED -- which is what
+#: Windows answers while another program holds the service open.
 STATUS_SUCCESS = 0
+STATUS_ACCESS_DENIED = 3
+
+#: How long to wait for the device to answer a request.  It replies in about
+#: 150 ms when it is going to reply at all.
+REPLY_TIMEOUT = 1.5
+
+#: How many times to ask.  Requests travel as ATT Write Commands, which carry
+#: no acknowledgement of any kind, so one can be lost on the air and no answer
+#: will ever come -- observed once in ordinary use.  Asking again is the only
+#: remedy the protocol allows.
+REQUEST_ATTEMPTS = 3
 
 
 #: How long to wait for one WinRT call before deciding the radio has hung.
@@ -212,11 +224,13 @@ class BleTransport:
 
     def __init__(self, address: int,
                  characteristic_uuid: str = razer_ble.WRITE_CHARACTERISTIC,
+                 notify_uuid: str = razer_ble.NOTIFY_CHARACTERISTIC,
                  idle_disconnect: float = IDLE_DISCONNECT,
                  keepalive: float = KEEPALIVE_INTERVAL):
         require_available()
         self.address = address
         self.characteristic_uuid = characteristic_uuid.lower()
+        self.notify_uuid = notify_uuid.lower()
         self.idle_disconnect = idle_disconnect
         self.keepalive = keepalive
         self._lock = threading.RLock()
@@ -225,6 +239,9 @@ class BleTransport:
         self._last_write = 0.0
         self._held_payload: Optional[bytes] = None
         self._watchdog: Optional[threading.Thread] = None
+        self._notify = None
+        self._subscribed = False
+        self._replies: dict = {}
 
     # -- plumbing ----------------------------------------------------------
     async def _resolve_once(self, uncached: bool):
@@ -258,14 +275,33 @@ class BleTransport:
                 'Windows returned no GATT services for {0:012X}; the link is '
                 'not up yet'.format(self.address))
 
+        wanted = {self.characteristic_uuid, self.notify_uuid}
+        resolved = {}
+        refused = False
         for service in discovered:
             characteristics = await service.get_characteristics_async()
+            if characteristics.status == STATUS_ACCESS_DENIED:
+                refused = True
+                continue
             if characteristics.status != STATUS_SUCCESS:
                 continue
             for characteristic in characteristics.characteristics:
-                if str(characteristic.uuid).lower() == self.characteristic_uuid:
-                    return device, characteristic
+                uuid = str(characteristic.uuid).lower()
+                if uuid in wanted:
+                    resolved[uuid] = characteristic
+
+        write = resolved.get(self.characteristic_uuid)
+        if write is not None:
+            return device, write, resolved.get(self.notify_uuid)
+
         device.close()
+        if refused:
+            # Exactly what Razer Synapse does to this device: it holds the
+            # vendor service open and Windows refuses everyone else.  Saying so
+            # beats reporting the hardware as the wrong model.
+            raise BleUnavailable(
+                'another program holds {0:012X} exclusively -- Razer Synapse '
+                'does this; close it and retry'.format(self.address))
         raise BleUnavailable(
             'device {0:012X} advertises {1} GATT service(s) but not {2}'.format(
                 self.address, len(discovered), self.characteristic_uuid))
@@ -292,13 +328,88 @@ class BleTransport:
 
     async def _characteristic(self):
         if self._characteristic_cache is None:
-            self._device, self._characteristic_cache = await self._resolve()
+            (self._device, self._characteristic_cache,
+             self._notify) = await self._resolve()
+            self._subscribed = False
         return self._device, self._characteristic_cache
+
+    async def _subscribe(self) -> None:
+        """Start listening for answers, once per connection.
+
+        Nothing in the vendor service can be read directly, so a value is
+        obtained by writing a request and waiting for the device to notify the
+        answer back.  That means the subscription has to be in place before the
+        first request, not after it.
+        """
+        if self._subscribed:
+            return
+        await self._characteristic()
+        if self._notify is None:
+            raise BleUnavailable(
+                'device {0:012X} exposes no notify characteristic, so it '
+                'cannot be asked anything'.format(self.address))
+
+        from winrt.windows.devices.bluetooth.genericattributeprofile import (
+            GattClientCharacteristicConfigurationDescriptorValue as Descriptor,
+        )
+
+        loop = asyncio.get_running_loop()
+
+        def on_value(_sender, args):
+            try:
+                payload = _read_buffer(args.characteristic_value)
+                opcode, kind, body = razer_ble.parse_response(payload)
+            except Exception:  # noqa: BLE001 - a stray notification is not fatal
+                return
+            loop.call_soon_threadsafe(self._deliver, opcode, kind, body)
+
+        self._notify.add_value_changed(on_value)
+        status = await self._notify.write_client_characteristic_configuration_descriptor_async(
+            Descriptor.NOTIFY)
+        if status != STATUS_SUCCESS:
+            raise BleUnavailable(
+                'could not subscribe to notifications (status {0})'.format(status))
+        self._subscribed = True
+
+    def _deliver(self, opcode: int, kind: int, body: bytes) -> None:
+        """Hand a notification to whoever is waiting for that opcode."""
+        if kind == razer_ble.PUSH:
+            logger.debug('%012X pushed 0x%02x = %s', self.address, opcode,
+                         body.hex(' '))
+        waiter = self._replies.get(opcode)
+        if waiter is not None and not waiter.done():
+            waiter.set_result((kind, body))
+
+    async def _request_once(self, opcode: int, payload: bytes) -> bytes:
+        await self._subscribe()
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future = loop.create_future()
+        self._replies[opcode] = waiter
+        try:
+            await self._write_once(razer_ble.message(opcode, payload))
+            _kind, body = await asyncio.wait_for(waiter, REPLY_TIMEOUT)
+            return body
+        finally:
+            self._replies.pop(opcode, None)
+
+    async def _request(self, opcode: int, payload: bytes) -> bytes:
+        for attempt in range(REQUEST_ATTEMPTS):
+            try:
+                return await self._request_once(opcode, payload)
+            except asyncio.TimeoutError:
+                logger.debug('%012X ignored 0x%02x (attempt %d)',
+                             self.address, opcode, attempt + 1)
+        raise BleUnavailable(
+            'device {0:012X} did not answer 0x{1:02x} in {2} attempts'.format(
+                self.address, opcode, REQUEST_ATTEMPTS))
 
     def _forget(self) -> None:
         """Drop the cached connection so the next call resolves it again."""
         device, self._device = self._device, None
         self._characteristic_cache = None
+        self._notify = None
+        self._subscribed = False
+        self._replies.clear()
         if device is not None:
             try:
                 device.close()
@@ -410,6 +521,17 @@ class BleTransport:
         """Stop holding a colour, letting the link go once it falls idle."""
         with self._lock:
             self._held_payload = None
+
+    def request(self, opcode: int, payload: bytes = b'') -> bytes:
+        """Ask the device something and return the payload of its answer."""
+        with self._lock:
+            body = _loop().submit(self._request(opcode, bytes(payload)))
+            self._touch()
+            return body
+
+    def read(self, opcode: int) -> bytes:
+        """Read a value: a request with no payload."""
+        return self.request(opcode)
 
     async def _describe(self) -> dict:
         device, characteristic = await self._characteristic()

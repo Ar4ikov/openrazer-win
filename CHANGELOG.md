@@ -4,6 +4,66 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [semantic versioning](https://semver.org/).
 
+## [1.3.0] - 2026-09-08
+
+### Added
+
+- **Named lighting profiles, for every device.** `openrazer-win profile save
+  night` records what a device is showing -- per-zone effect, colours and
+  brightness -- and `profile load night` puts it back. Up to ten per device,
+  kept on the PC in `%LOCALAPPDATA%\openrazer-win\profiles.json`, which is
+  plain readable JSON. Also `device.profiles`, `save_profile()`,
+  `load_profile()` and `delete_profile()` in the Python API.
+
+  This is the practical answer to a Bluetooth device not storing its colour:
+  the daemon holds the colour, and a profile is how you keep more than one and
+  switch between them. Nothing about it is Bluetooth-specific, so it works on
+  keyboards and mice too.
+
+- **Brightness on the Bluetooth headset.** Opcode `0xC1`, captured from
+  Synapse's slider. It can also be read back, and unlike the colour the device
+  keeps it across a power cycle. Loading a profile applies brightness too;
+  reconnecting does not, because the device already knows it.
+
+- **Battery level over Bluetooth.** `openrazer-win battery` now works on the
+  headset: opcode `0x21` answered 0x57 while Synapse displayed 87%. The device
+  also pushes the value unprompted when it changes. Charging state is read the
+  same way, with the caveat that only the discharging value has been observed.
+
+- **A request/response layer for Bluetooth devices.** The vendor service turns
+  out to answer requests on its notify characteristic, which is how anything is
+  read at all -- nothing in it is readable by a plain GATT read. Requests are
+  retried, because they travel as unacknowledged Write Commands and one can be
+  lost on the air.
+
+### Changed
+
+- **The Bluetooth protocol is now documented as a command set, not one
+  command.** Everything is `<opcode> <kind> <length> <payload>`, and reads and
+  writes of a setting differ by bit 0x80 -- a rule pinned down by seeing the
+  auto-shutoff timer both ways as `0x27`/`0xA7`, then confirmed by predicting
+  `0x41` for reading brightness and finding it works.
+
+- Three more captures established that the device has **no effects of its
+  own**: breathing and spectrum in Synapse produced 737 colour writes with 495
+  distinct values in 105 seconds, and the fades between colours are drawn the
+  same way. The lighting off-timers write nothing to the device at all.
+
+- **A Bluetooth device held by another program is now named as such.** Windows
+  answers GATT enumeration with AccessDenied while Razer Synapse holds the
+  service, which used to surface as "device has no characteristic" -- reporting
+  a working headset as the wrong hardware.
+
+### Fixed
+
+- A correction to 1.2.3's changelog: it said no command exists to store a
+  colour in the device. That was more than the evidence supported. This headset
+  shipped showing white and has shown green since Synapse first configured it,
+  so something does write a stored colour; it simply was not in any traffic
+  captured here, which points at the one-off setup Synapse performs on install.
+  It remains unimplemented and, on a channel where the device answers unknown
+  opcodes with silence, not worth guessing at.
+
 ## [1.2.3] - 2026-09-08
 
 ### Fixed
