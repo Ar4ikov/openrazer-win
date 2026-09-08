@@ -41,6 +41,15 @@ uses [semantic versioning](https://semver.org/).
   If a daemon is stuck in this state after 1.2.0, `openrazer-win daemon stop`
   releases the device; 1.2.1 does not get into it.
 
+- **"device ... has no characteristic" on a device that plainly has it.** Seen
+  while testing the above. Windows' GATT service cache can answer both
+  successfully and empty for a device that is not currently connected, and an
+  empty service list is indistinguishable from a device that lacks the
+  characteristic -- so a working headset was reported as the wrong hardware.
+  The cache is still tried first, because it answers in milliseconds when warm,
+  but a fruitless answer is now retried uncached rather than believed, and the
+  two cases are reported differently.
+
 ## [1.2.0] - 2026-09-08
 
 ### Added

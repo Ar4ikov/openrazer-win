@@ -38,6 +38,11 @@ CALL_TIMEOUT = 30.0
 #: because a connected device does not advertise at all.
 IDLE_DISCONNECT = 5.0
 
+#: How many times to try resolving the characteristic before giving up, and
+#: how long to wait between tries.  A cold link commonly needs a second go.
+RESOLVE_ATTEMPTS = 3
+RESOLVE_BACKOFF = 0.4
+
 
 class BleUnavailable(RuntimeError):
     """The Bluetooth support is not installed, or Windows refused it."""
@@ -208,8 +213,10 @@ class BleTransport:
         self._idle_thread: Optional[threading.Thread] = None
 
     # -- plumbing ----------------------------------------------------------
-    async def _resolve(self):
-        from winrt.windows.devices.bluetooth import BluetoothLEDevice
+    async def _resolve_once(self, uncached: bool):
+        from winrt.windows.devices.bluetooth import (
+            BluetoothCacheMode, BluetoothLEDevice,
+        )
 
         device = await BluetoothLEDevice.from_bluetooth_address_async(self.address)
         if device is None:
@@ -217,13 +224,27 @@ class BleTransport:
                 'no Bluetooth LE device at {0:012X}; is it powered on?'.format(
                     self.address))
 
-        services = await device.get_gatt_services_async()
+        # Windows' service cache answers in milliseconds when it is warm, but
+        # for a device that is not currently connected it can come back
+        # successful and *empty* -- and an empty service list is
+        # indistinguishable from a device that lacks the characteristic. So the
+        # cache is tried first for speed, and a fruitless answer is retried
+        # uncached rather than believed.
+        services = await device.get_gatt_services_with_cache_mode_async(
+            BluetoothCacheMode.UNCACHED if uncached else BluetoothCacheMode.CACHED)
         if services.status != STATUS_SUCCESS:
             device.close()
             raise BleUnavailable(
                 'GATT service discovery failed (status {0})'.format(services.status))
 
-        for service in services.services:
+        discovered = list(services.services)
+        if not discovered:
+            device.close()
+            raise BleUnavailable(
+                'Windows returned no GATT services for {0:012X}; the link is '
+                'not up yet'.format(self.address))
+
+        for service in discovered:
             characteristics = await service.get_characteristics_async()
             if characteristics.status != STATUS_SUCCESS:
                 continue
@@ -232,8 +253,28 @@ class BleTransport:
                     return device, characteristic
         device.close()
         raise BleUnavailable(
-            'device {0:012X} has no characteristic {1}'.format(
-                self.address, self.characteristic_uuid))
+            'device {0:012X} advertises {1} GATT service(s) but not {2}'.format(
+                self.address, len(discovered), self.characteristic_uuid))
+
+    async def _resolve(self):
+        """Resolve the characteristic, retrying a cold link a few times.
+
+        The first attempt against a device that has been idle often comes back
+        with nothing -- Windows answers from an empty cache, or the link is
+        still being brought up -- so failing on it would report a working
+        device as broken.  Only the first attempt trusts the cache.
+        """
+        last = None
+        for attempt in range(RESOLVE_ATTEMPTS):
+            try:
+                return await self._resolve_once(uncached=attempt > 0)
+            except BleUnavailable as error:
+                last = error
+                logger.debug('resolve attempt %d for %012X failed: %s',
+                             attempt + 1, self.address, error)
+                if attempt + 1 < RESOLVE_ATTEMPTS:
+                    await asyncio.sleep(RESOLVE_BACKOFF)
+        raise last
 
     async def _characteristic(self):
         if self._characteristic_cache is None:

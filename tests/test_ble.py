@@ -145,7 +145,7 @@ def test_the_classic_address_is_read_out_of_the_manufacturer_data():
         MANUFACTURER_DATA) == CLASSIC_ADDRESS
 
 
-@pytest.mark.parametrize('data', [b'', b'', None])
+@pytest.mark.parametrize('data', [b'', bytes((0x05,)), None])
 def test_a_short_advertisement_yields_nothing_rather_than_raising(data):
     assert razer_ble.product_id_from_advertisement(data) is None
     assert razer_ble.classic_address_from_advertisement(data) is None
@@ -722,3 +722,49 @@ def test_nothing_is_reported_connected_before_a_write(monkeypatch):
 
     monkeypatch.setattr(transport_module, 'require_available', lambda: None)
     assert transport_module.BleTransport(ADDRESS).is_connected() is False
+
+
+def test_a_cold_resolve_is_retried_before_giving_up(monkeypatch):
+    """The first GATT enumeration of an idle device often comes back empty.
+
+    Windows answers from a cache that can be both successful and empty, which
+    is indistinguishable from a device that lacks the characteristic -- so the
+    first answer is not taken as final, and the retry does not trust the cache.
+    """
+    import openrazer_win.ble.transport as transport_module
+
+    monkeypatch.setattr(transport_module, 'require_available', lambda: None)
+    monkeypatch.setattr(transport_module, 'RESOLVE_BACKOFF', 0.01)
+
+    transport = transport_module.BleTransport(ADDRESS)
+    asked = []
+    sentinel = (object(), object())
+
+    async def fake_resolve_once(uncached):
+        asked.append(uncached)
+        if len(asked) < 2:
+            raise transport_module.BleUnavailable('no GATT services yet')
+        return sentinel
+
+    monkeypatch.setattr(transport, '_resolve_once', fake_resolve_once)
+    assert transport_module._loop().submit(transport._resolve()) == sentinel
+    assert asked == [False, True], 'the retry must not trust the cache'
+
+
+def test_a_resolve_that_never_works_reports_the_last_reason(monkeypatch):
+    import openrazer_win.ble.transport as transport_module
+
+    monkeypatch.setattr(transport_module, 'require_available', lambda: None)
+    monkeypatch.setattr(transport_module, 'RESOLVE_BACKOFF', 0.01)
+
+    transport = transport_module.BleTransport(ADDRESS)
+    attempts = []
+
+    async def fake_resolve_once(uncached):
+        attempts.append(uncached)
+        raise transport_module.BleUnavailable('the radio is off')
+
+    monkeypatch.setattr(transport, '_resolve_once', fake_resolve_once)
+    with pytest.raises(transport_module.BleUnavailable, match='the radio is off'):
+        transport_module._loop().submit(transport._resolve())
+    assert len(attempts) == transport_module.RESOLVE_ATTEMPTS

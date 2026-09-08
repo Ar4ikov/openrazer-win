@@ -314,7 +314,7 @@ git clone https://github.com/Ar4ikov/openrazer-win
 cd openrazer-win
 pip install -e ".[dev]"
 
-pytest                              # 273 tests, no hardware needed
+pytest                              # 275 tests, no hardware needed
 ruff check .
 python tools/simulate_devices.py    # every capability of all 267 devices
 ```
