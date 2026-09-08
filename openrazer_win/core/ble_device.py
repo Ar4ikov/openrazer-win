@@ -135,13 +135,20 @@ class BleDevice:
             '{0} is a Bluetooth device and has no sysfs recipes'.format(self.name))
 
     # -- lighting ----------------------------------------------------------
-    def _send(self, payload: bytes) -> None:
+    def _send(self, payload: bytes, hold: bool = False) -> None:
+        """Write to the device; with `hold`, keep the colour asserted.
+
+        The headset does not store what it is told: it reverts to the colour
+        saved in it the moment the link drops, so a colour meant to stay put
+        has to be held rather than written once.  A frame of an animation is
+        not held -- the next frame is along in a moment.
+        """
         try:
-            self.transport.write(payload)
+            self.transport.write(payload, hold=hold)
         except BleUnavailable as error:
             raise DeviceError('{0}: {1}'.format(self.name, error)) from error
 
-    def set_zone_colours(self, colours) -> None:
+    def set_zone_colours(self, colours, hold: bool = True) -> None:
         """Set every zone at once; `colours` is one ``(r, g, b)`` per zone.
 
         One write lights both ears, so the two never disagree even for an
@@ -157,7 +164,7 @@ class BleDevice:
             payload = razer_ble.colour_command(colours)
         except (TypeError, ValueError) as error:
             raise DeviceError('{0}: {1}'.format(self.name, error)) from error
-        self._send(payload)
+        self._send(payload, hold=hold)
         flat: list = []
         for colour in colours:
             flat.extend(colour)
@@ -191,7 +198,10 @@ class BleDevice:
         if zone in ZONE_NAMES:
             self.set_static(0, 0, 0, zone)
             return
+        # Nothing to hold once it is dark, so the link can go and the device
+        # can start advertising again.
         self._send(razer_ble.off_command())
+        self._release()
         self.persistence.set(self.serial, AGGREGATE_ZONE, 'effect', 'none')
         self.persistence.set_device_value(
             self.serial, 'zone_colours', [0] * (3 * len(ZONE_NAMES)))
@@ -200,6 +210,11 @@ class BleDevice:
     @property
     def matrix_dimensions(self) -> tuple:
         return (1, len(ZONE_NAMES))
+
+    def _release(self) -> None:
+        release = getattr(self.transport, 'release', None)
+        if release is not None:
+            release()
 
     def set_key_row(self, payload: bytes) -> None:
         """Accept a matrix frame: ``row, start_col, stop_col, r, g, b, ...``."""
@@ -213,7 +228,9 @@ class BleDevice:
             chunk = body[offset * 3:offset * 3 + 3]
             if len(chunk) == 3 and 0 <= column < len(ZONE_NAMES):
                 colours[column] = tuple(chunk)
-        self.set_zone_colours(colours)
+        # Not held: the next frame is along in a moment, and holding one would
+        # leave it lit after the animation stops.
+        self.set_zone_colours(colours, hold=False)
 
     def set_custom(self, zone: str = AGGREGATE_ZONE) -> None:
         """The frame is applied as it is written, so this is a no-op."""

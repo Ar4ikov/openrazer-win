@@ -265,12 +265,21 @@ the traffic dead — so this port renders them the same way, through its own eff
 `effect spectrum` and `effect wave` fall back to the frame-by-frame renderer on any device whose
 firmware has no such mode, and say so when they do.
 
-The GATT connection is held open between writes and given up once idle. Both halves matter:
-resolving it costs about 90 ms, most of that service discovery, which no amount of frame streaming
-survives, while a *connected* BLE device stops advertising altogether — so holding an idle link
-would make the headset invisible to discovery and to every other program on the machine. Held open,
-a write costs about 1 ms; after five seconds idle the link is dropped and the device advertises
-again. Discovery knows this, and keeps a device it is connected to even when a sweep hears nothing.
+**The headset does not store the colour you set.** It shows what it was last told for as long as
+the Bluetooth link is up, and reverts to the colour saved in it — whatever Synapse last wrote — the
+moment that link goes. So a colour set here is *held*: re-asserted every couple of seconds for as
+long as the daemon runs, which is the same thing Synapse does. Writing the colour into the device's
+own memory is not implemented: that is a different command on a different characteristic, and it was
+not part of what was captured. (Guessing opcodes at a flash write is how firmware gets bricked, so
+it is not guessed.)
+
+Three facts about the link, all confirmed on the hardware, decide how it is managed. Resolving the
+characteristic costs about 90 ms, most of that service discovery, which no amount of frame streaming
+survives — held open, a write costs about 1 ms. A *connected* BLE device stops advertising
+altogether, so discovery keeps a device it is connected to even when a sweep hears nothing, and a
+link with nothing left to hold is given up after five seconds so the device becomes visible again.
+One consequence worth knowing: while the daemon is holding a device, a `--direct` client will not
+find it, because there is no advertisement to find.
 
 Devices are found by listening for advertisements rather than by pairing: a dual-mode headset need
 not use its classic Bluetooth address on the LE side (this one advertises one byte away from it),
@@ -314,7 +323,7 @@ git clone https://github.com/Ar4ikov/openrazer-win
 cd openrazer-win
 pip install -e ".[dev]"
 
-pytest                              # 275 tests, no hardware needed
+pytest                              # 279 tests, no hardware needed
 ruff check .
 python tools/simulate_devices.py    # every capability of all 267 devices
 ```

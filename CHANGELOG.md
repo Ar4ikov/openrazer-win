@@ -4,6 +4,34 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [semantic versioning](https://semver.org/).
 
+## [1.2.3] - 2026-09-08
+
+### Fixed
+
+- **A colour set on the Bluetooth headset reverted after about five seconds.**
+  Reported against 1.2.2, and traced to 1.2.2's own idle disconnect.
+
+  The headset does not store the colour it is told. It shows it for as long as
+  the link is up and reverts to the colour saved in it -- whatever Synapse last
+  wrote, which is why it went back to a green nobody here had set -- the moment
+  the link drops. 1.2.2 released an idle link after five seconds, so the colour
+  went with it.
+
+  A colour is now *held*: re-asserted every couple of seconds for as long as
+  the daemon runs, the same thing Synapse does. An animation frame is not held,
+  since the next frame is along in a moment, and switching the lighting off
+  stops holding it -- so a device with nothing to show still releases its link
+  and goes back to advertising.
+
+### Known limitation
+
+- Writing a colour into the headset's own memory, so that it survives with
+  nothing connected, is not implemented. The vendor service has two more
+  characteristics than the one this port drives -- one of them write-with-
+  response, which is where a save would plausibly live -- but no capture of
+  that exchange exists, and unknown opcodes are not worth guessing at against
+  a device's flash.
+
 ## [1.2.2] - 2026-09-08
 
 ### Fixed

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import Optional
 
 import pytest
 
@@ -47,13 +48,21 @@ class FakeBleTransport:
         #: A real device stops advertising while a link is up, so discovery
         #: asks the transport instead of trusting silence.
         self.connected = False
+        #: The colour the transport has been asked to keep asserting.
+        self.held: Optional[bytes] = None
 
-    def write(self, payload: bytes) -> None:
+    def write(self, payload: bytes, hold: bool = False) -> None:
         self.writes.append(bytes(payload))
+        if hold:
+            self.held = bytes(payload)
+
+    def release(self) -> None:
+        self.held = None
 
     def close(self) -> None:
         self.closed = True
         self.connected = False
+        self.held = None
 
     def is_connected(self) -> bool:
         return self.connected
@@ -768,3 +777,64 @@ def test_a_resolve_that_never_works_reports_the_last_reason(monkeypatch):
     with pytest.raises(transport_module.BleUnavailable, match='the radio is off'):
         transport_module._loop().submit(transport._resolve())
     assert len(attempts) == transport_module.RESOLVE_ATTEMPTS
+
+
+def test_a_static_colour_is_held_not_just_written(headset):
+    """The device reverts to its saved colour the moment the link drops."""
+    device, transport = headset
+    device.set_zone_colours([RED, BLUE])
+    assert transport.held == razer_ble.colour_command([RED, BLUE])
+
+
+def test_switching_the_lighting_off_stops_holding_it(headset):
+    device, transport = headset
+    device.set_zone_colours([RED, BLUE])
+    device.set_none()
+    assert transport.held is None, 'nothing to hold once it is dark'
+
+
+def test_an_animation_frame_is_not_held(headset):
+    """The next frame is along in a moment; holding one would fight it."""
+    device, transport = headset
+    device.set_key_row(bytes((0, 0, 1)) + bytes(RED) + bytes(BLUE))
+    assert transport.held is None
+
+
+def test_a_held_colour_is_re_asserted_and_keeps_the_link(monkeypatch):
+    import openrazer_win.ble.transport as transport_module
+
+    monkeypatch.setattr(transport_module, 'require_available', lambda: None)
+
+    class FakeGattDevice:
+        connection_status = 1
+
+        def close(self):
+            pass
+
+    transport = transport_module.BleTransport(
+        ADDRESS, idle_disconnect=0.1, keepalive=0.1)
+    sent = []
+
+    async def fake_write_once(payload):
+        sent.append(bytes(payload))
+
+    monkeypatch.setattr(transport, '_write_once', fake_write_once)
+    transport._device = FakeGattDevice()
+    transport._characteristic_cache = object()
+
+    payload = razer_ble.colour_command([RED, BLUE])
+    transport.write(payload, hold=True)
+
+    deadline = time.monotonic() + 3.0
+    while len(sent) < 4 and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert len(sent) >= 4, 'the colour was not re-asserted'
+    assert set(sent) == {payload}, 'the held colour must be what goes out'
+    # Idle disconnect must not fire while a colour is being held.
+    assert transport.is_connected()
+
+    transport.release()
+    deadline = time.monotonic() + 3.0
+    while transport.is_connected() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not transport.is_connected(), 'a released link should be given up'

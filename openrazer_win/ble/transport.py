@@ -32,11 +32,16 @@ STATUS_SUCCESS = 0
 #: How long to wait for one WinRT call before deciding the radio has hung.
 CALL_TIMEOUT = 30.0
 
-#: How long a connection may sit unused before it is given up.  It has to be
-#: long enough to span the gap between frames of a host-rendered effect, and
-#: short enough that a device at rest goes back to advertising promptly --
-#: because a connected device does not advertise at all.
+#: How long a connection with nothing to hold may sit unused before it is
+#: given up.  A connected device does not advertise at all, so a link that is
+#: not being used for anything is worth releasing.
 IDLE_DISCONNECT = 5.0
+
+#: How often a held colour is re-asserted.  The device reverts to the colour
+#: stored in it -- whatever vendor software last saved -- as soon as the link
+#: drops, so the colour this port sets lasts exactly as long as the link does.
+#: Re-sending also keeps Windows from tearing the link down as idle.
+KEEPALIVE_INTERVAL = 2.0
 
 #: How many times to try resolving the characteristic before giving up, and
 #: how long to wait between tries.  A cold link commonly needs a second go.
@@ -188,29 +193,38 @@ def scan(seconds: float = DEFAULT_SCAN_SECONDS,
 class BleTransport:
     """A GATT connection to one device's lighting characteristic.
 
-    The connection is held open between writes, then dropped once it has been
-    idle for :data:`IDLE_DISCONNECT`.  Both halves of that matter:
+    The link is held open while there is a reason to hold it, and released
+    when there is not.  Three facts, all confirmed on the hardware, decide
+    that:
 
-    * Re-resolving it costs about 90 ms -- most of it GATT service discovery --
-      which no host-rendered effect survives.  Held open, a write without
-      response costs about 1 ms, so streaming frames works.
-    * A connected device stops advertising, verified on the hardware.  Holding
-      an idle link therefore makes the device invisible to discovery and to
-      every other program on the machine, so an idle link is given up.
+    * Re-resolving the characteristic costs about 90 ms -- most of it GATT
+      service discovery -- which no host-rendered effect survives.  Held open,
+      a write without response costs about 1 ms.
+    * The device does not keep the colour it is told.  It shows it while the
+      link is up and reverts to the colour stored in it -- whatever vendor
+      software last saved -- as soon as the link goes.  So a colour set through
+      this port lasts exactly as long as the link, which is why a held colour
+      is re-asserted at :data:`KEEPALIVE_INTERVAL` rather than written once.
+    * A connected device stops advertising altogether.  A link with nothing to
+      hold therefore makes the device needlessly invisible to discovery and to
+      every other program on the machine, so that one is given up.
     """
 
     def __init__(self, address: int,
                  characteristic_uuid: str = razer_ble.WRITE_CHARACTERISTIC,
-                 idle_disconnect: float = IDLE_DISCONNECT):
+                 idle_disconnect: float = IDLE_DISCONNECT,
+                 keepalive: float = KEEPALIVE_INTERVAL):
         require_available()
         self.address = address
         self.characteristic_uuid = characteristic_uuid.lower()
         self.idle_disconnect = idle_disconnect
+        self.keepalive = keepalive
         self._lock = threading.RLock()
         self._device = None
         self._characteristic_cache = None
         self._last_write = 0.0
-        self._idle_thread: Optional[threading.Thread] = None
+        self._held_payload: Optional[bytes] = None
+        self._watchdog: Optional[threading.Thread] = None
 
     # -- plumbing ----------------------------------------------------------
     async def _resolve_once(self, uncached: bool):
@@ -314,27 +328,51 @@ class BleTransport:
             self._forget()
             await self._write_once(payload)
 
-    # -- keeping the link no longer than needed ----------------------------
+    # -- holding the colour, or letting the link go ------------------------
     def _touch(self) -> None:
-        """Note that the link was just used, and watch for it going idle."""
+        """Note that the link was just used, and start watching over it."""
         self._last_write = time.monotonic()
-        if self._idle_thread is None or not self._idle_thread.is_alive():
-            self._idle_thread = threading.Thread(
-                target=self._watch_idle, daemon=True,
-                name='openrazer-win-ble-idle-{0:012x}'.format(self.address))
-            self._idle_thread.start()
+        if self._watchdog is None or not self._watchdog.is_alive():
+            self._watchdog = threading.Thread(
+                target=self._watch, daemon=True,
+                name='openrazer-win-ble-{0:012x}'.format(self.address))
+            self._watchdog.start()
 
-    def _watch_idle(self) -> None:
+    def _watch(self) -> None:
+        """Keep a held colour alive, or give up a link with nothing to hold.
+
+        The device does not store a colour: it shows what it was last told for
+        as long as the link is up, and reverts to its own default the moment
+        that goes -- which is what made a colour vanish seconds after being
+        set.  So while there is a colour to hold, it is re-asserted at
+        :data:`KEEPALIVE_INTERVAL`, which both refreshes it and keeps Windows
+        from tearing down a link it considers idle.  With nothing to hold, the
+        link is dropped instead, so the device goes back to advertising.
+        """
         while True:
             with self._lock:
                 if self._characteristic_cache is None:
                     return              # somebody else dropped it already
                 idle = time.monotonic() - self._last_write
-                if idle >= self.idle_disconnect:
+                if self._held_payload is not None:
+                    if idle < self.keepalive:
+                        wait = self.keepalive - idle
+                    else:
+                        try:
+                            _loop().submit(self._write(self._held_payload))
+                        except Exception:  # noqa: BLE001 - reported by the next write
+                            logger.debug('could not refresh %012X', self.address,
+                                         exc_info=True)
+                            return
+                        self._last_write = time.monotonic()
+                        wait = self.keepalive
+                elif idle >= self.idle_disconnect:
                     logger.debug('dropping idle link to %012X', self.address)
                     self._forget()
                     return
-            time.sleep(max(self.idle_disconnect - idle, 0.1))
+                else:
+                    wait = self.idle_disconnect - idle
+            time.sleep(max(wait, 0.05))
 
     def is_connected(self) -> bool:
         """Whether a usable link is being held right now.
@@ -355,10 +393,23 @@ class BleTransport:
             return False
 
     # -- public ------------------------------------------------------------
-    def write(self, payload: bytes) -> None:
+    def write(self, payload: bytes, hold: bool = False) -> None:
+        """Send `payload`; with `hold`, keep re-sending it until told otherwise.
+
+        Holding is what makes a colour stay put on hardware that does not
+        store one.  A frame of an animation is not held -- the next frame is
+        along in a moment anyway.
+        """
         with self._lock:
             _loop().submit(self._write(payload))
+            if hold:
+                self._held_payload = bytes(payload)
             self._touch()
+
+    def release(self) -> None:
+        """Stop holding a colour, letting the link go once it falls idle."""
+        with self._lock:
+            self._held_payload = None
 
     async def _describe(self) -> dict:
         device, characteristic = await self._characteristic()
@@ -375,4 +426,5 @@ class BleTransport:
 
     def close(self) -> None:
         with self._lock:
+            self._held_payload = None
             self._forget()
