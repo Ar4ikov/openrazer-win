@@ -107,6 +107,7 @@ class DaemonService:
     def poll_hotplug(self) -> None:
         known = {device.serial for device in self.manager.devices}
         self.manager.scan()
+        present = {device.serial for device in self.manager.devices}
         for device in self.manager.devices:
             if device.serial not in known:
                 try:
@@ -114,6 +115,12 @@ class DaemonService:
                     device.restore()
                 except (DeviceError, RecipeError):
                     logger.debug('could not initialise %s', device.name, exc_info=True)
+        if self.effects is not None:
+            # A host-rendered effect outlives its device otherwise: the thread
+            # keeps writing to hardware that is no longer listed, which cannot
+            # then be reached to stop it.
+            for serial in known - present:
+                self.effects.clear_serial(serial)
 
     # -- lookups -----------------------------------------------------------
     def _device(self, serial: str) -> RazerDevice:

@@ -29,6 +29,15 @@ RIPPLE_DURATION = 0.6
 
 SOFTWARE_EFFECTS = ('ripple', 'ripple_random', 'wave_soft', 'spectrum_soft')
 
+#: The effects driven by key presses rather than by a clock.
+KEY_REACTIVE = ('ripple', 'ripple_random')
+
+#: How many addressable cells a ripple needs before it means anything.  It
+#: spreads outward from the key that was pressed, so on a two-cell device every
+#: press covers the whole thing at once -- a blink, not a ripple.  A keypad,
+#: the smallest thing upstream ripples on, has twenty.
+MIN_RIPPLE_CELLS = 8
+
 
 def can_render(device) -> bool:
     """Whether host-rendered effects are meaningful on this device.
@@ -43,6 +52,16 @@ def can_render(device) -> bool:
         return False
     dimensions = capabilities.get('matrix_dimensions') or (1, 1)
     return dimensions[0] * dimensions[1] > 1
+
+
+def _cells(device) -> int:
+    rows, columns = device.capabilities().get('matrix_dimensions') or (1, 1)
+    return rows * columns
+
+
+def can_render_keys(device) -> bool:
+    """Whether a key-reactive effect is meaningful on this device."""
+    return can_render(device) and _cells(device) >= MIN_RIPPLE_CELLS
 
 
 class EffectThread(threading.Thread):
@@ -241,11 +260,27 @@ class EffectEngine:
         self.keys.stop()
 
     def clear(self, device: RazerDevice) -> None:
+        self.clear_serial(device.serial)
+
+    def clear_serial(self, serial: str) -> None:
+        """Stop the effect on one device, by serial.
+
+        By serial rather than by device because the caller that most needs
+        this -- hot-plug, noticing something has gone -- no longer has the
+        device to hand.  A thread left running on a device the manager has
+        dropped keeps writing to it forever, and on Bluetooth that also keeps
+        the link up and so keeps the device from ever being rediscovered.
+        """
         with self._lock:
-            thread = self._threads.pop(device.serial, None)
+            thread = self._threads.pop(serial, None)
         if thread is not None:
+            logger.info('stopping %s on %s', thread.effect, serial)
             thread.stop()
             thread.join(timeout=1.0)
+
+    def active_serials(self) -> list:
+        with self._lock:
+            return list(self._threads)
 
     def set_effect(self, device: RazerDevice, effect: str, options: dict) -> dict:
         if effect in ('none', 'off', ''):
@@ -257,6 +292,10 @@ class EffectEngine:
             raise NotSupported(
                 '{0} has no addressable matrix big enough to render {1}'.format(
                     device.name, effect))
+        if effect in KEY_REACTIVE and not can_render_keys(device):
+            raise NotSupported(
+                '{0} has {1} addressable cells; a ripple needs somewhere to '
+                'spread'.format(device.name, _cells(device)))
 
         self.clear(device)
         thread = EffectThread(device, effect, options, self.keys)

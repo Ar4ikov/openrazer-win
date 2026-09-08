@@ -7,6 +7,7 @@ so a change that stops matching the hardware fails here.
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -43,12 +44,19 @@ class FakeBleTransport:
         self.address = address
         self.writes: list = []
         self.closed = False
+        #: A real device stops advertising while a link is up, so discovery
+        #: asks the transport instead of trusting silence.
+        self.connected = False
 
     def write(self, payload: bytes) -> None:
         self.writes.append(bytes(payload))
 
     def close(self) -> None:
         self.closed = True
+        self.connected = False
+
+    def is_connected(self) -> bool:
+        return self.connected
 
     @property
     def last(self) -> bytes:
@@ -557,3 +565,160 @@ def test_the_host_renderer_actually_writes_frames(headset_daemon_with_effects):
         assert len(set(transport.writes)) > 1
     finally:
         main(['effect', 'none'])
+
+
+# -- the traps that broke 1.2.0 ---------------------------------------------
+
+def test_a_connected_device_survives_a_silent_sweep(persistence, monkeypatch,
+                                                    fake_radio):
+    """A connected BLE device stops advertising, so silence proves nothing.
+
+    Dropping it on silence was self-perpetuating: whatever held the link kept
+    it up, so the device never advertised again and was never rediscovered,
+    while its lighting was still being written to.
+    """
+    import openrazer_win.ble as ble
+
+    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence,
+                            bluetooth_interval=0)
+    assert len(manager.scan()) == 1
+    fake_radio[0].connected = True
+    monkeypatch.setattr(ble, 'scan', lambda *a, **k: [])
+    assert len(manager.scan()) == 1, 'a connected device must not be dropped'
+    manager.close()
+
+
+def test_a_disconnected_silent_device_is_still_dropped(persistence, monkeypatch,
+                                                       fake_radio):
+    import openrazer_win.ble as ble
+
+    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence,
+                            bluetooth_interval=0)
+    assert len(manager.scan()) == 1
+    fake_radio[0].connected = False
+    monkeypatch.setattr(ble, 'scan', lambda *a, **k: [])
+    assert manager.scan() == []
+    manager.close()
+
+
+def test_a_ripple_is_refused_where_it_cannot_spread(headset):
+    """Two ears is a blink, not a ripple -- and it cost the user their lighting."""
+    from openrazer_win.effects.engine import EffectEngine
+
+    device, _ = headset
+    engine = EffectEngine(manager=None)
+    for effect in ('ripple', 'ripple_random'):
+        with pytest.raises(NotSupported):
+            engine.set_effect(device, effect, {})
+    engine.stop()
+
+
+def test_a_clock_driven_effect_is_still_allowed_on_two_zones(headset):
+    from openrazer_win.effects.engine import EffectEngine
+
+    device, transport = headset
+    engine = EffectEngine(manager=None)
+    try:
+        started = engine.set_effect(device, 'spectrum_soft', {})
+        assert started['effect'] == 'spectrum_soft'
+        deadline = time.monotonic() + 3.0
+        while not transport.writes and time.monotonic() < deadline:
+            time.sleep(0.02)
+    finally:
+        engine.stop()
+    assert transport.writes, 'the renderer should have written a frame'
+
+
+def test_a_vanished_device_loses_its_effect(tmp_path, monkeypatch, fake_radio):
+    """An effect thread must not outlive the device it is writing to."""
+    import openrazer_win.ble as ble
+    from openrazer_win.core.persistence import Persistence
+    from openrazer_win.daemon.server import DaemonService
+
+    service = DaemonService(backend=FakeHidBackend(),
+                            persistence=Persistence(str(tmp_path / 'p.json')),
+                            enable_effects=True)
+    service.manager.bluetooth_interval = 0
+    service.start()
+    device = service.manager.devices[0]
+    service.effects.set_effect(device, 'spectrum_soft', {})
+    assert service.effects.active_serials() == [device.serial]
+
+    fake_radio[0].connected = False
+    monkeypatch.setattr(ble, 'scan', lambda *a, **k: [])
+    service.poll_hotplug()
+
+    assert service.manager.devices == []
+    assert service.effects.active_serials() == [], \
+        'the effect kept running on a device that is gone'
+    service.stop()
+
+
+def test_an_idle_link_is_given_up(monkeypatch):
+    """Holding an idle link would keep the device from ever advertising."""
+    import openrazer_win.ble.transport as transport_module
+
+    monkeypatch.setattr(transport_module, 'require_available', lambda: None)
+
+    closed = []
+
+    class FakeGattDevice:
+        connection_status = 1
+
+        def close(self):
+            closed.append(True)
+
+    transport = transport_module.BleTransport(ADDRESS, idle_disconnect=0.15)
+    sent = []
+
+    async def fake_write_once(payload):
+        sent.append(bytes(payload))
+
+    monkeypatch.setattr(transport, '_write_once', fake_write_once)
+    transport._device = FakeGattDevice()
+    transport._characteristic_cache = object()
+
+    transport.write(b'\xc4\x00\x06' + bytes(6))
+    assert sent, 'the write should have gone out'
+    assert transport.is_connected()
+
+    deadline = time.monotonic() + 3.0
+    while transport.is_connected() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not transport.is_connected(), 'the idle link was never dropped'
+    assert closed == [True]
+
+
+def test_a_link_that_is_being_used_is_not_given_up(monkeypatch):
+    import openrazer_win.ble.transport as transport_module
+
+    monkeypatch.setattr(transport_module, 'require_available', lambda: None)
+
+    class FakeGattDevice:
+        connection_status = 1
+
+        def close(self):
+            pass
+
+    transport = transport_module.BleTransport(ADDRESS, idle_disconnect=0.3)
+
+    async def fake_write_once(payload):
+        pass
+
+    monkeypatch.setattr(transport, '_write_once', fake_write_once)
+    transport._device = FakeGattDevice()
+    transport._characteristic_cache = object()
+
+    # Frames at 20 fps, the way a host-rendered effect writes.
+    for _ in range(12):
+        transport.write(b'\xc4\x00\x06' + bytes(6))
+        time.sleep(0.05)
+    assert transport.is_connected(), 'a link in active use must be kept'
+    transport.close()
+
+
+def test_nothing_is_reported_connected_before_a_write(monkeypatch):
+    import openrazer_win.ble.transport as transport_module
+
+    monkeypatch.setattr(transport_module, 'require_available', lambda: None)
+    assert transport_module.BleTransport(ADDRESS).is_connected() is False

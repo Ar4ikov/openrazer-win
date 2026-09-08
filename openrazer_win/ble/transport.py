@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from typing import NamedTuple, Optional
 
 from ..protocol import razer_ble
@@ -30,6 +31,12 @@ STATUS_SUCCESS = 0
 
 #: How long to wait for one WinRT call before deciding the radio has hung.
 CALL_TIMEOUT = 30.0
+
+#: How long a connection may sit unused before it is given up.  It has to be
+#: long enough to span the gap between frames of a host-rendered effect, and
+#: short enough that a device at rest goes back to advertising promptly --
+#: because a connected device does not advertise at all.
+IDLE_DISCONNECT = 5.0
 
 
 class BleUnavailable(RuntimeError):
@@ -176,21 +183,29 @@ def scan(seconds: float = DEFAULT_SCAN_SECONDS,
 class BleTransport:
     """A GATT connection to one device's lighting characteristic.
 
-    The connection is held open.  Re-resolving it costs about 90 ms -- most of
-    it GATT service discovery -- which is far too slow for host-rendered
-    effects, where a frame goes out several times a second.  Held open, a write
-    without response costs a couple of milliseconds.  It is re-resolved once,
-    transparently, if the device drops the link.
+    The connection is held open between writes, then dropped once it has been
+    idle for :data:`IDLE_DISCONNECT`.  Both halves of that matter:
+
+    * Re-resolving it costs about 90 ms -- most of it GATT service discovery --
+      which no host-rendered effect survives.  Held open, a write without
+      response costs about 1 ms, so streaming frames works.
+    * A connected device stops advertising, verified on the hardware.  Holding
+      an idle link therefore makes the device invisible to discovery and to
+      every other program on the machine, so an idle link is given up.
     """
 
     def __init__(self, address: int,
-                 characteristic_uuid: str = razer_ble.WRITE_CHARACTERISTIC):
+                 characteristic_uuid: str = razer_ble.WRITE_CHARACTERISTIC,
+                 idle_disconnect: float = IDLE_DISCONNECT):
         require_available()
         self.address = address
         self.characteristic_uuid = characteristic_uuid.lower()
+        self.idle_disconnect = idle_disconnect
         self._lock = threading.RLock()
         self._device = None
         self._characteristic_cache = None
+        self._last_write = 0.0
+        self._idle_thread: Optional[threading.Thread] = None
 
     # -- plumbing ----------------------------------------------------------
     async def _resolve(self):
@@ -258,10 +273,51 @@ class BleTransport:
             self._forget()
             await self._write_once(payload)
 
+    # -- keeping the link no longer than needed ----------------------------
+    def _touch(self) -> None:
+        """Note that the link was just used, and watch for it going idle."""
+        self._last_write = time.monotonic()
+        if self._idle_thread is None or not self._idle_thread.is_alive():
+            self._idle_thread = threading.Thread(
+                target=self._watch_idle, daemon=True,
+                name='openrazer-win-ble-idle-{0:012x}'.format(self.address))
+            self._idle_thread.start()
+
+    def _watch_idle(self) -> None:
+        while True:
+            with self._lock:
+                if self._characteristic_cache is None:
+                    return              # somebody else dropped it already
+                idle = time.monotonic() - self._last_write
+                if idle >= self.idle_disconnect:
+                    logger.debug('dropping idle link to %012X', self.address)
+                    self._forget()
+                    return
+            time.sleep(max(self.idle_disconnect - idle, 0.1))
+
+    def is_connected(self) -> bool:
+        """Whether a usable link is being held right now.
+
+        Discovery needs this: a connected device stops advertising, so a sweep
+        that hears nothing must not conclude the device has gone away.
+        """
+        with self._lock:
+            if self._characteristic_cache is None:
+                return False
+            device = self._device
+        if device is None:
+            return False
+        try:
+            # BluetoothConnectionStatus.CONNECTED
+            return int(device.connection_status) == 1
+        except Exception:  # noqa: BLE001 - a dead object is not connected
+            return False
+
     # -- public ------------------------------------------------------------
     def write(self, payload: bytes) -> None:
         with self._lock:
             _loop().submit(self._write(payload))
+            self._touch()
 
     async def _describe(self) -> dict:
         device, characteristic = await self._characteristic()

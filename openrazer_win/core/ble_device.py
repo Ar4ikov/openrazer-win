@@ -236,5 +236,16 @@ class BleDevice:
             except DeviceError:
                 logger.debug('could not restore %s', self.name, exc_info=True)
 
+    def is_connected(self) -> bool:
+        """Whether the link is up, which is not the same as advertising.
+
+        A connected device stops advertising, so discovery has to ask this
+        rather than conclude from silence that the device has gone.
+        """
+        try:
+            return bool(self.transport.is_connected())
+        except Exception:  # noqa: BLE001 - unknown means not connected
+            return False
+
     def close(self) -> None:
         self.transport.close()

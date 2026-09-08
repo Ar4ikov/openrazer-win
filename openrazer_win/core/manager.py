@@ -85,15 +85,34 @@ class DeviceManager:
             for key in list(self._devices):
                 if key in seen:
                     continue
-                if key.startswith(BLE_PREFIX) and not swept:
-                    # The radio was not swept this time round, and an
-                    # advertisement missed is not a device unplugged.
+                if key.startswith(BLE_PREFIX) and self._keep_bluetooth(
+                        self._devices[key], swept):
                     continue
                 logger.info('device removed: %s', self._devices[key].name)
                 self._devices.pop(key).close()
 
             self._unsupported = unsupported
             return self.devices
+
+    @staticmethod
+    def _keep_bluetooth(device, swept: bool) -> bool:
+        """Whether to hold on to a Bluetooth device the sweep did not hear.
+
+        Two reasons it might not have been heard, neither of them "it is
+        gone".  The radio may not have been swept at all this time round.  Or
+        -- and this one is not obvious -- the device may be *connected*: a BLE
+        peripheral stops advertising while it has a link up, verified on the
+        hardware.  Dropping it then was a trap of its own making: whatever held
+        the link kept it alive, so the device never advertised again and was
+        never rediscovered, while its lighting was still being driven.
+        """
+        if not swept:
+            # An advertisement missed is not a device unplugged.
+            return True
+        if getattr(device, 'is_connected', None) is not None and device.is_connected():
+            logger.debug('%s is silent but connected; keeping it', device.name)
+            return True
+        return False
 
     def _scan_bluetooth(self, seen: set) -> bool:
         """Add Razer devices that are only reachable over Bluetooth LE.

@@ -4,6 +4,43 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [semantic versioning](https://semver.org/).
 
+## [1.2.1] - 2026-09-08
+
+### Fixed
+
+- **A Bluetooth device disappeared from the device list shortly after being
+  used, and its lighting was then left being driven by something unreachable.**
+  Reported from 1.2.0 as colours resetting and then the lighting going dark,
+  flickering occasionally.
+
+  The cause: a BLE peripheral stops advertising while it has a link up --
+  verified on the hardware, a scan during a live connection hears nothing at
+  all. 1.2.0 held the link open after every write, for the sake of frame
+  streaming, so the device went silent; the next sweep concluded it had gone
+  and dropped it. That was self-perpetuating, because whatever held the link
+  kept it up, so the device never advertised again and was never rediscovered.
+  Four separate faults came out of it, all fixed:
+
+  - An idle link is now given up after five seconds, so a device at rest goes
+    back to advertising and stays visible both to this port and to everything
+    else on the machine. A link in active use is kept, so effects still stream
+    at about 1 ms a frame.
+  - Discovery no longer takes silence as proof of absence: a device it is
+    connected to is kept in the list even when a sweep hears nothing.
+  - A host-rendered effect no longer outlives its device. It used to keep
+    writing to hardware that was no longer listed -- and because it was not
+    listed, `effect none` answered "no supported Razer devices found", so there
+    was no way to stop it short of killing the daemon.
+  - `ripple` and `ripple_random` are refused on a device with fewer than eight
+    addressable cells. A ripple spreads outward from the key that was pressed,
+    so on the headset's two ears every press covered the whole thing at once --
+    a blink, not a ripple -- and that is what was driving the lighting dark and
+    flickering. Clock-driven effects like `spectrum` and `wave`, which do work
+    across two zones, are unaffected.
+
+  If a daemon is stuck in this state after 1.2.0, `openrazer-win daemon stop`
+  releases the device; 1.2.1 does not get into it.
+
 ## [1.2.0] - 2026-09-08
 
 ### Added
