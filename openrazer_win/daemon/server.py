@@ -40,6 +40,7 @@ DEVICE_METHODS = {
     'set_breath_random', 'set_breath_single', 'set_breath_dual', 'set_breath_triple',
     'set_starlight_random', 'set_starlight_single', 'set_starlight_dual',
     'set_brightness', 'get_brightness', 'set_key_row', 'set_custom_frame',
+    'set_zone_colours',
     # mouse
     'get_dpi', 'set_dpi', 'get_dpi_stages', 'set_dpi_stages',
     'get_poll_rate', 'set_poll_rate', 'supported_poll_rates',

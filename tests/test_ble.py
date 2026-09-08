@@ -1,0 +1,559 @@
+"""The Bluetooth LE path: protocol, device class, discovery and the CLI.
+
+Nothing here touches a radio.  The protocol expectations are the bytes Razer
+Synapse was captured sending -- see ``openrazer_win/protocol/razer_ble.py`` --
+so a change that stops matching the hardware fails here.
+"""
+from __future__ import annotations
+
+import threading
+
+import pytest
+
+from openrazer_win.core.ble_device import AGGREGATE_ZONE, ZONE_NAMES, BleDevice
+from openrazer_win.core.device import DeviceError
+from openrazer_win.core.manager import DeviceManager
+from openrazer_win.devices import get_database
+from openrazer_win.devices.recipes import NotSupported
+from openrazer_win.ble import Advertiser
+from openrazer_win.hid.fake import FakeHidBackend
+from openrazer_win.protocol import razer_ble
+
+KITTY_V2_BT = 0x0562
+
+#: The advertised LE address of the headset this was developed against, and
+#: the classic address it advertises alongside it -- one byte apart.
+ADDRESS = 0x445ECD583460
+CLASSIC_ADDRESS = 0x445ECD573460
+
+#: Razer's manufacturer data, exactly as captured from the headset.
+MANUFACTURER_DATA = bytes.fromhex('05620060345 7cd5e4400'.replace(' ', ''))
+
+#: What a sweep hears from it.
+ADVERT = Advertiser(ADDRESS, 'Razer Stereo', -55, KITTY_V2_BT, CLASSIC_ADDRESS)
+
+RED = (255, 0, 0)
+BLUE = (0, 0, 255)
+
+
+class FakeBleTransport:
+    """Records what would have gone out over the air."""
+
+    def __init__(self, address: int = ADDRESS):
+        self.address = address
+        self.writes: list = []
+        self.closed = False
+
+    def write(self, payload: bytes) -> None:
+        self.writes.append(bytes(payload))
+
+    def close(self) -> None:
+        self.closed = True
+
+    @property
+    def last(self) -> bytes:
+        assert self.writes, 'nothing was written'
+        return self.writes[-1]
+
+
+@pytest.fixture
+def headset(persistence):
+    meta = get_database().get(0x1532, KITTY_V2_BT)
+    assert meta is not None, 'the Bluetooth headset is missing from the database'
+    transport = FakeBleTransport()
+    return BleDevice(meta, transport, persistence), transport
+
+
+@pytest.fixture
+def fake_radio(monkeypatch, no_bluetooth_radio):
+    """Make discovery see one advertising headset, without a radio."""
+    ble = no_bluetooth_radio
+    built: list = []
+
+    def build(address, *args, **kwargs):
+        transport = FakeBleTransport(address)
+        built.append(transport)
+        return transport
+
+    monkeypatch.setattr(ble, 'is_available', lambda: True)
+    monkeypatch.setattr(ble, 'scan', lambda *a, **k: [ADVERT])
+    monkeypatch.setattr(ble, 'BleTransport', build)
+    return built
+
+
+# -- protocol ---------------------------------------------------------------
+
+def test_the_colour_command_is_a_header_and_one_triple_per_zone():
+    assert razer_ble.colour_command([RED, BLUE]) == bytes(
+        (0xC4, 0x00, 0x06, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFF))
+
+
+def test_the_first_triple_is_the_left_ear():
+    # Verified on the hardware: red then blue lit the left ear red.
+    assert ZONE_NAMES == ('left', 'right')
+    payload = razer_ble.colour_command([RED, BLUE])
+    left = payload[3:6]
+    assert left == bytes(RED)
+
+
+@pytest.mark.parametrize('colour, expected', [
+    (RED, bytes((0xFF, 0x00, 0x00))),
+    ((0, 255, 0), bytes((0x00, 0xFF, 0x00))),
+    (BLUE, bytes((0x00, 0x00, 0xFF))),
+])
+def test_one_colour_is_repeated_across_both_zones(colour, expected):
+    """Exactly what Synapse sent when a single colour was picked."""
+    payload = razer_ble.colour_command([colour])
+    assert payload == bytes((0xC4, 0x00, 0x06)) + expected * 2
+
+
+def test_channels_are_clamped():
+    assert razer_ble.colour_command([(300, -5, 12)]) == bytes(
+        (0xC4, 0x00, 0x06, 0xFF, 0x00, 0x0C, 0xFF, 0x00, 0x0C))
+
+
+def test_off_is_every_zone_black():
+    assert razer_ble.off_command() == bytes((0xC4, 0x00, 0x06)) + bytes(6)
+
+
+@pytest.mark.parametrize('colours', [[], [RED, BLUE, RED]])
+def test_a_wrong_number_of_colours_is_rejected(colours):
+    with pytest.raises(ValueError):
+        razer_ble.colour_command(colours)
+
+
+def test_the_headset_advertises_a_name_we_recognise():
+    assert razer_ble.ADVERTISED_NAMES['Razer Stereo'] == (KITTY_V2_BT,)
+
+
+def test_the_product_id_is_read_out_of_the_manufacturer_data():
+    """Razer puts the product id in the advertisement, first two bytes."""
+    assert razer_ble.product_id_from_advertisement(
+        MANUFACTURER_DATA) == KITTY_V2_BT
+
+
+def test_the_classic_address_is_read_out_of_the_manufacturer_data():
+    assert razer_ble.classic_address_from_advertisement(
+        MANUFACTURER_DATA) == CLASSIC_ADDRESS
+
+
+@pytest.mark.parametrize('data', [b'', b'', None])
+def test_a_short_advertisement_yields_nothing_rather_than_raising(data):
+    assert razer_ble.product_id_from_advertisement(data) is None
+    assert razer_ble.classic_address_from_advertisement(data) is None
+
+
+# -- the device class -------------------------------------------------------
+
+def test_a_static_colour_lights_both_ears(headset):
+    device, transport = headset
+    device.set_static(*RED)
+    assert transport.last == razer_ble.colour_command([RED, RED])
+
+
+def test_each_ear_can_hold_its_own_colour(headset):
+    device, transport = headset
+    device.set_static(*RED, zone='left')
+    device.set_static(*BLUE, zone='right')
+    assert transport.last == razer_ble.colour_command([RED, BLUE])
+
+
+def test_writing_one_ear_leaves_the_other_alone(headset):
+    device, transport = headset
+    device.set_zone_colours([RED, BLUE])
+    device.set_static(0, 255, 0, zone='right')
+    assert transport.last == razer_ble.colour_command([RED, (0, 255, 0)])
+
+
+def test_both_ears_can_be_set_in_a_single_write(headset):
+    device, transport = headset
+    device.set_zone_colours([RED, BLUE])
+    assert len(transport.writes) == 1
+    assert transport.last == razer_ble.colour_command([RED, BLUE])
+
+
+def test_one_colour_through_set_zone_colours_covers_both_ears(headset):
+    device, transport = headset
+    device.set_zone_colours([RED])
+    assert transport.last == razer_ble.colour_command([RED, RED])
+    # ... and the stored state has to agree, or the next per-ear write would
+    # read back a black ear that is actually red.
+    device.set_static(*BLUE, zone='right')
+    assert transport.last == razer_ble.colour_command([RED, BLUE])
+
+
+def test_too_many_colours_is_a_device_error_not_a_traceback(headset):
+    device, _ = headset
+    with pytest.raises(DeviceError):
+        device.set_zone_colours([RED, BLUE, RED])
+
+
+def test_off_clears_both_ears_and_the_stored_colours(headset, persistence):
+    device, transport = headset
+    device.set_zone_colours([RED, BLUE])
+    device.set_none()
+    assert transport.last == razer_ble.off_command()
+    assert persistence.get(device.serial, AGGREGATE_ZONE, 'effect') == 'none'
+
+
+def test_one_ear_can_be_switched_off_on_its_own(headset):
+    device, transport = headset
+    device.set_zone_colours([RED, BLUE])
+    device.set_none(zone='left')
+    assert transport.last == razer_ble.colour_command([(0, 0, 0), BLUE])
+
+
+def test_the_zones_are_the_two_ears_plus_the_whole_headset(headset):
+    device, _ = headset
+    capabilities = device.capabilities()
+    assert set(capabilities['zones']) == {AGGREGATE_ZONE, 'left', 'right'}
+    assert capabilities['zone_order'] == ['left', 'right']
+    assert capabilities['zone_colours'] is True
+    assert capabilities['matrix_dimensions'] == [1, 2]
+    assert capabilities['protocol'] == 'razer-ble'
+
+
+def test_the_address_stands_in_for_a_serial(headset):
+    device, _ = headset
+    assert device.serial == 'BLE445ECD583460'
+
+
+def test_a_matrix_frame_paints_the_ears(headset):
+    device, transport = headset
+    device.set_key_row(bytes((0, 0, 1)) + bytes(RED) + bytes(BLUE))
+    device.set_custom()
+    assert transport.last == razer_ble.colour_command([RED, BLUE])
+
+
+def test_a_frame_can_paint_a_single_ear(headset):
+    device, transport = headset
+    device.set_zone_colours([RED, BLUE])
+    device.set_key_row(bytes((0, 1, 1)) + bytes((0, 255, 0)))
+    assert transport.last == razer_ble.colour_command([RED, (0, 255, 0)])
+
+
+def test_restore_replays_the_last_colours(headset):
+    device, transport = headset
+    device.set_zone_colours([RED, BLUE])
+    transport.writes.clear()
+    device.restore()
+    assert transport.last == razer_ble.colour_command([RED, BLUE])
+
+
+def test_the_headset_reports_no_firmware_or_brightness(headset):
+    device, _ = headset
+    for call in (lambda: device.firmware_version,
+                 lambda: device.get_brightness(),
+                 lambda: device.set_brightness(50),
+                 lambda: device.run('set_static_effect')):
+        with pytest.raises(NotSupported):
+            call()
+
+
+def test_only_the_effects_the_hardware_has_are_claimed(headset):
+    device, _ = headset
+    assert device.available_effects() == ['none', 'static']
+    assert not device.has_effect('spectrum')
+
+
+# -- discovery --------------------------------------------------------------
+
+def test_the_headset_is_marked_as_a_bluetooth_device():
+    meta = get_database().get(0x1532, KITTY_V2_BT)
+    assert meta.is_bluetooth
+    assert meta.transport == 'ble'
+
+
+def test_every_other_device_is_reached_over_hid():
+    bluetooth = [entry.name for entry in get_database() if entry.is_bluetooth]
+    assert bluetooth == ['Razer Kraken Kitty V2 BT']
+
+
+def test_the_manager_finds_the_headset_by_advertisement(persistence, fake_radio):
+    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence)
+    devices = manager.scan()
+    assert len(devices) == 1
+    assert isinstance(devices[0], BleDevice)
+    assert devices[0].serial == 'BLE445ECD583460'
+    devices[0].set_static(*RED)
+    assert fake_radio[0].last == razer_ble.colour_command([RED, RED])
+    manager.close()
+
+
+def test_a_nameless_advertisement_is_still_matched(persistence, monkeypatch, fake_radio):
+    """The name and the manufacturer data arrive in separate packets.
+
+    A sweep that hears only the second one still knows what the device is.
+    """
+    import openrazer_win.ble as ble
+    monkeypatch.setattr(ble, 'scan', lambda *a, **k: [
+        Advertiser(ADDRESS, '', -55, KITTY_V2_BT, CLASSIC_ADDRESS)])
+    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence)
+    devices = manager.scan()
+    assert len(devices) == 1
+    assert isinstance(devices[0], BleDevice)
+    manager.close()
+
+
+def test_a_nameless_advertisement_with_no_product_id_is_ignored(
+        persistence, monkeypatch, fake_radio):
+    import openrazer_win.ble as ble
+    monkeypatch.setattr(ble, 'scan', lambda *a, **k: [Advertiser(ADDRESS, '', -55)])
+    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence)
+    assert manager.scan() == []
+    manager.close()
+
+
+def test_a_usb_product_id_advertised_over_bluetooth_is_ignored(
+        persistence, monkeypatch, fake_radio):
+    """Only devices the database marks Bluetooth-only are built this way."""
+    import openrazer_win.ble as ble
+    monkeypatch.setattr(ble, 'scan',
+                        lambda *a, **k: [Advertiser(ADDRESS, '', -55, 0x0078)])
+    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence)
+    assert manager.scan() == []
+    manager.close()
+
+
+def test_the_name_alone_is_enough_to_match(persistence, monkeypatch, fake_radio):
+    import openrazer_win.ble as ble
+    monkeypatch.setattr(ble, 'scan',
+                        lambda *a, **k: [Advertiser(ADDRESS, 'Razer Stereo', -55)])
+    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence)
+    assert len(manager.scan()) == 1
+    manager.close()
+
+
+def test_an_unknown_advertiser_is_ignored(persistence, monkeypatch, fake_radio):
+    import openrazer_win.ble as ble
+    monkeypatch.setattr(ble, 'scan',
+                        lambda *a, **k: [Advertiser(1, 'Some Speaker', -40, 0x9999)])
+    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence)
+    assert manager.scan() == []
+    manager.close()
+
+
+def test_the_radio_is_not_swept_on_every_rescan(persistence, fake_radio):
+    sweeps = []
+
+    import openrazer_win.ble as ble
+
+    def counting_scan(*args, **kwargs):
+        sweeps.append(1)
+        return [ADVERT]
+
+    ble.scan = counting_scan
+    try:
+        manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence,
+                                bluetooth_interval=3600)
+        manager.scan()
+        manager.scan()
+        manager.scan()
+        # A sweep takes seconds; the hot-plug poll runs every few seconds.
+        assert len(sweeps) == 1
+        assert len(manager.devices) == 1
+        manager.close()
+    finally:
+        del ble.scan
+
+
+def test_a_missed_advertisement_does_not_drop_the_device(persistence, fake_radio):
+    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence,
+                            bluetooth_interval=3600)
+    assert len(manager.scan()) == 1
+    # The radio is not swept again, so the headset must survive the rescan.
+    assert len(manager.scan()) == 1
+    manager.close()
+
+
+def test_a_silent_radio_drops_the_device(persistence, monkeypatch, fake_radio):
+    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence,
+                            bluetooth_interval=0)
+    assert len(manager.scan()) == 1
+    import openrazer_win.ble as ble
+    monkeypatch.setattr(ble, 'scan', lambda *a, **k: [])
+    assert manager.scan() == []
+    manager.close()
+
+
+def test_a_broken_radio_does_not_break_scanning(persistence, monkeypatch, fake_radio):
+    import openrazer_win.ble as ble
+
+    def explode(*args, **kwargs):
+        raise OSError('the radio is off')
+
+    monkeypatch.setattr(ble, 'scan', explode)
+    fake = FakeHidBackend()
+    manager = DeviceManager(backend=fake, persistence=persistence)
+    assert manager.scan() == []
+    manager.close()
+
+
+def test_bluetooth_discovery_can_be_switched_off(persistence, fake_radio):
+    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence,
+                            bluetooth=False)
+    assert manager.scan() == []
+    manager.close()
+
+
+def test_the_hid_scan_never_builds_a_bluetooth_device(persistence):
+    """The headset has no USB data interface, so a HID match would be bogus."""
+    from openrazer_win.hid.fake import FakeRazerDevice
+
+    fake = FakeRazerDevice(KITTY_V2_BT, 'Razer Kraken Kitty V2 BT', interface=3,
+                           kraken=True)
+    manager = DeviceManager(backend=FakeHidBackend([fake]), persistence=persistence,
+                            bluetooth=False)
+    assert manager.scan() == []
+    assert manager.unsupported == []
+    manager.close()
+
+
+# -- the client and the CLI -------------------------------------------------
+
+@pytest.fixture
+def headset_daemon(tmp_path, monkeypatch, fake_radio):
+    yield from _serve(tmp_path, monkeypatch, fake_radio, effects=False)
+
+
+@pytest.fixture
+def headset_daemon_with_effects(tmp_path, monkeypatch, fake_radio):
+    yield from _serve(tmp_path, monkeypatch, fake_radio, effects=True)
+
+
+def _serve(tmp_path, monkeypatch, fake_radio, effects: bool):
+    from openrazer_win.core.persistence import Persistence
+    from openrazer_win.daemon.server import DaemonServer, DaemonService
+
+    service = DaemonService(backend=FakeHidBackend(),
+                            persistence=Persistence(str(tmp_path / 'p.json')),
+                            enable_effects=effects)
+    service.start()
+    server = DaemonServer(service, port=0)
+    path = str(tmp_path / 'daemon.json')
+    server.endpoint.write(path)
+    monkeypatch.setattr('openrazer_win.daemon.protocol.endpoint_path', lambda: path)
+    thread = threading.Thread(target=server.serve_forever,
+                              kwargs={'poll_interval': 0.05}, daemon=True)
+    thread.start()
+    try:
+        yield fake_radio[0]
+    finally:
+        server.shutdown()
+        server.server_close()
+        service.stop()
+        thread.join(timeout=2)
+
+
+def test_the_client_lists_the_ears_as_colour_zones(headset_daemon):
+    from openrazer_win.client import DeviceManager as ClientManager
+
+    with ClientManager() as manager:
+        device = manager.devices[0]
+        assert device.colour_zones() == ['left', 'right']
+        device.set_colour_zones([RED, BLUE])
+    assert headset_daemon.last == razer_ble.colour_command([RED, BLUE])
+
+
+def test_the_client_sends_both_ears_in_one_write(headset_daemon):
+    from openrazer_win.client import DeviceManager as ClientManager
+
+    with ClientManager() as manager:
+        manager.devices[0].set_colour_zones([RED, BLUE])
+    # Two writes would light one ear before the other, visibly.
+    assert len(headset_daemon.writes) == 1
+
+
+def test_zones_command_paints_each_ear(headset_daemon, capsys):
+    from openrazer_win.cli import main
+
+    assert main(['zones', 'red', 'blue']) == 0
+    assert headset_daemon.last == razer_ble.colour_command([RED, BLUE])
+    output = capsys.readouterr().out
+    assert 'left=#ff0000' in output
+    assert 'right=#0000ff' in output
+
+
+def test_zones_command_with_one_colour_covers_both(headset_daemon):
+    from openrazer_win.cli import main
+
+    assert main(['zones', '#ff8800']) == 0
+    assert headset_daemon.last == razer_ble.colour_command([(255, 136, 0)] * 2)
+
+
+def test_zones_command_with_no_colours_lists_them(headset_daemon, capsys):
+    from openrazer_win.cli import main
+
+    assert main(['zones']) == 0
+    assert 'left, right' in capsys.readouterr().out
+
+
+def test_zones_command_rejects_the_wrong_count(headset_daemon, capsys):
+    from openrazer_win.cli import main
+
+    assert main(['zones', 'red', 'blue', 'green']) == 1
+    assert '2 zones' in capsys.readouterr().err
+
+
+def test_the_effect_command_defaults_to_both_ears(headset_daemon, capsys):
+    from openrazer_win.cli import main
+
+    assert main(['effect', 'static', 'red']) == 0
+    assert headset_daemon.last == razer_ble.colour_command([RED, RED])
+    assert 'static on backlight' in capsys.readouterr().out
+
+
+def test_info_names_the_bluetooth_address_not_a_hid_interface(headset_daemon, capsys):
+    from openrazer_win.cli import main
+
+    assert main(['info']) == 0
+    output = capsys.readouterr().out
+    assert 'bluetooth   445ECD583460' in output
+    assert 'interface' not in output
+
+
+def test_the_effect_command_can_name_one_ear(headset_daemon, capsys):
+    from openrazer_win.cli import main
+
+    assert main(['effect', 'static', 'red', '--zone', 'left']) == 0
+    assert headset_daemon.last == razer_ble.colour_command([RED, (0, 0, 0)])
+    assert 'static on left' in capsys.readouterr().out
+
+
+def test_spectrum_falls_back_to_the_host_renderer(headset_daemon_with_effects, capsys):
+    """The headset only knows a static colour; Synapse fakes the rest too."""
+    from openrazer_win.cli import main
+    from openrazer_win.client.rpc import RpcClient
+
+    assert main(['effect', 'spectrum']) == 0
+    output = capsys.readouterr().out
+    assert 'spectrum' in output
+    assert 'host-rendered' in output
+
+    client = RpcClient()
+    try:
+        active = client.call('effect.status')['active']
+        assert active == {'BLE445ECD583460': 'spectrum_soft'}
+    finally:
+        main(['effect', 'none'])
+        client.close()
+
+
+def test_the_host_renderer_actually_writes_frames(headset_daemon_with_effects):
+    import time
+
+    from openrazer_win.cli import main
+
+    transport = headset_daemon_with_effects
+    assert main(['effect', 'spectrum']) == 0
+    try:
+        deadline = time.monotonic() + 3.0
+        while len(transport.writes) < 3 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert len(transport.writes) >= 3, 'no frames reached the device'
+        # Each frame is a full colour command, and the colour moves.
+        assert all(frame[:3] == bytes((0xC4, 0x00, 0x06))
+                   for frame in transport.writes)
+        assert len(set(transport.writes)) > 1
+    finally:
+        main(['effect', 'none'])

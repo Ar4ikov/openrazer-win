@@ -104,29 +104,42 @@ def test_doctor_explains_a_bluetooth_only_headset(capsys, monkeypatch):
     cli._report_devices_beyond_hid([], get_database())
     output = capsys.readouterr().out
     assert 'Razer Kraken Kitty V2 BT' in output
-    assert 'Paired over Bluetooth' in output
-    assert 'USB *data* cable' in output
+    # It has no USB data mode at all, so telling the user to find a better
+    # cable would send them chasing a fault that is not there.
+    assert 'only charges it' in output
+    assert 'Bluetooth LE' in output
+    assert 'USB *data* cable' not in output
 
 
-def test_doctor_mentions_the_bluetooth_serial_channel(capsys, monkeypatch):
-    """Some headsets expose SPP, which is how vendor software reaches them.
+def test_doctor_says_how_to_install_the_bluetooth_support(capsys, monkeypatch):
+    from openrazer_win import cli
+    from openrazer_win.devices import get_database
 
-    Saying "Bluetooth carries audio only" would be wrong for those, and would
-    send the user looking for a fault that is not there.
+    monkeypatch.setattr('openrazer_win.ble.is_available', lambda: False)
+    monkeypatch.setattr('openrazer_win.hid.devices.list_attached', lambda vendor_id=None: [
+        node(r'BTHENUM\{110B}_VID&00011532_PID&0562',
+             'Razer Kraken Kitty V2 BT', 'MEDIA', product=0x0562),
+    ])
+    cli._report_devices_beyond_hid([], get_database())
+    assert 'openrazer-win[ble]' in capsys.readouterr().out
+
+
+def test_doctor_still_asks_for_a_data_cable_on_a_usb_device(capsys, monkeypatch):
+    """A wireless mouse paired over Bluetooth is still driven over USB.
+
+    Only devices the database marks as Bluetooth-only get the other advice.
     """
     from openrazer_win import cli
     from openrazer_win.devices import get_database
 
     monkeypatch.setattr('openrazer_win.hid.devices.list_attached', lambda vendor_id=None: [
-        node(r'BTHENUM\{110B}_VID&00011532_PID&0562',
-             'Razer Kraken Kitty V2 BT', 'MEDIA', product=0x0562),
-        node(r'BTHENUM\{1101}_VID&00011532_PID&0562',
-             'Standard Serial over Bluetooth link (COM4)', 'Ports', product=0x0562),
+        node(r'BTHENUM\{110B}_VID&00011532_PID&0078',
+             'Razer Viper', 'MEDIA', product=0x0078),
     ])
     cli._report_devices_beyond_hid([], get_database())
     output = capsys.readouterr().out
-    assert 'Bluetooth serial port' in output
-    assert 'proprietary channel' in output
+    assert 'Paired over Bluetooth' in output
+    assert 'USB *data* cable' in output
 
 
 def test_doctor_does_not_ask_users_to_report_a_webcam(capsys, monkeypatch):

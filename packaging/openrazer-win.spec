@@ -30,6 +30,26 @@ if not datas:  # e.g. an editable install PyInstaller cannot introspect
 # openrazer_win.cli at all.
 hidden_imports = collect_submodules('openrazer_win')
 
+# The Bluetooth path reaches WinRT through PyWinRT, whose namespace packages are
+# imported lazily by name and so never appear in the import graph.  They are
+# optional: a build without the [ble] extra installed still produces a working
+# binary, minus Bluetooth.
+WINRT_MODULES = [
+    'winrt.system',
+    'winrt.windows.devices.bluetooth',
+    'winrt.windows.devices.bluetooth.advertisement',
+    'winrt.windows.devices.bluetooth.genericattributeprofile',
+    'winrt.windows.foundation',
+    'winrt.windows.foundation.collections',
+    'winrt.windows.storage.streams',
+]
+for module in WINRT_MODULES:
+    try:
+        __import__(module)
+    except ImportError:
+        continue
+    hidden_imports.append(module)
+
 EXCLUDES = [
     'numpy', 'PIL', 'matplotlib', 'pandas', 'scipy', 'pytest', 'setuptools',
     'pip', 'IPython', 'sqlite3', 'test', 'unittest', 'pydoc_data',

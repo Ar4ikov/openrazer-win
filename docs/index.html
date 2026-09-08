@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OpenRazer for Windows</title>
-<meta name="description" content="Control Razer keyboards, mice and mousepads on Windows 10 and 11 without Synapse and without a kernel driver. A user-space port of OpenRazer covering 267 devices.">
+<meta name="description" content="Control Razer keyboards, mice and mousepads on Windows 10 and 11 without Synapse and without a kernel driver. A user-space port of OpenRazer covering 268 devices.">
 <meta property="og:title" content="OpenRazer for Windows">
-<meta property="og:description" content="Razer device control on Windows 10/11 — no Synapse, no kernel driver, no dependencies. 267 devices.">
+<meta property="og:description" content="Razer device control on Windows 10/11 — no Synapse, no kernel driver, no dependencies. 268 devices.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://ar4ikov.github.io/openrazer-win/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%90%8D%3C/text%3E%3C/svg%3E">
@@ -195,7 +195,7 @@ footer p { margin: 0 0 8px; }
       daemon, and every per-device quirk is transpiled straight from the upstream C sources.
     </p>
     <div class="badges">
-      <span class="badge on">267 devices</span>
+      <span class="badge on">268 devices</span>
       <span class="badge">Zero dependencies</span>
       <span class="badge">No kernel driver</span>
       <span class="badge">No admin rights</span>
@@ -215,7 +215,10 @@ footer p { margin: 0 0 8px; }
   <div class="wrap">
     <h2><span class="num">01</span>Install</h2>
     <p class="sub">Python 3.9 or newer on Windows 10 / 11 (amd64). Nothing else.</p>
-<pre><code><span class="c-cmd">pip install</span> openrazer-win</code></pre>
+<pre><code><span class="c-cmd">pip install</span> openrazer-win
+
+<span class="c-com"># optional, for Bluetooth-only devices such as the Kraken Kitty V2 BT</span>
+<span class="c-cmd">pip install</span> <span class="c-str">"openrazer-win[ble]"</span></code></pre>
     <p class="sub" style="margin-bottom:14px">
       The entire port runs on the standard library — no compiler, no <code>hidapi</code> wheel,
       no driver signing, no reboot. Prefer a single file? Download
@@ -254,6 +257,10 @@ footer p { margin: 0 0 8px; }
 <span class="c-cmd">openrazer-win</span> effect breath_dual <span class="c-str">"#ff0080"</span> --colour2 cyan
 <span class="c-cmd">openrazer-win</span> effect ripple green   <span class="c-com"># follows your typing</span>
 
+<span class="c-com"># one colour per zone -- on the Bluetooth headset, one per ear</span>
+<span class="c-cmd">openrazer-win</span> zones
+<span class="c-cmd">openrazer-win</span> zones red blue
+
 <span class="c-com"># settings</span>
 <span class="c-cmd">openrazer-win</span> brightness 60
 <span class="c-cmd">openrazer-win</span> dpi 1800
@@ -287,7 +294,12 @@ matrix = keyboard.fx.advanced
 <span class="c-kw">for</span> row <span class="c-kw">in</span> range(matrix.rows):
     <span class="c-kw">for</span> column <span class="c-kw">in</span> range(matrix.columns):
         matrix[row, column] = (<span class="c-str">255</span>, <span class="c-str">0</span>, <span class="c-str">128</span>)
-matrix.draw()</code></pre>
+matrix.draw()
+
+<span class="c-com"># one colour per zone, sent as a single write where the device allows it</span>
+headset = DeviceManager().by_name(<span class="c-str">'Kraken Kitty V2 BT'</span>)[<span class="c-str">0</span>]
+headset.colour_zones()                          <span class="c-com"># ['left', 'right']</span>
+headset.set_colour_zones([(<span class="c-str">255</span>, <span class="c-str">0</span>, <span class="c-str">0</span>), (<span class="c-str">0</span>, <span class="c-str">0</span>, <span class="c-str">255</span>)])</code></pre>
       <p class="sub" style="margin:0">
         The API mirrors upstream's <code>openrazer.client</code>, so Linux scripts usually port by
         changing the import. No daemon? <code>DeviceManager(direct=True)</code> opens the HID
@@ -413,7 +425,7 @@ matrix.draw()</code></pre>
       <div class="card">
         <span class="ico">🧪</span>
         <h4>Tested without hardware</h4>
-        <p>A built-in emulator validates CRCs and answers the protocol. 208 tests plus a fleet
+        <p>A built-in emulator validates CRCs and answers the protocol. 265 tests plus a fleet
           simulation exercise every capability of all 267 devices on every commit.</p>
       </div>
       <div class="card">
@@ -437,6 +449,14 @@ matrix.draw()</code></pre>
           <code>razerkraken_driver.c</code> by hand, since it has no switch tables to transpile.</p>
       </div>
       <div class="card">
+        <span class="ico">📡</span>
+        <h4>A protocol nobody documented</h4>
+        <p>The Kraken Kitty V2 BT has no USB data mode, so upstream has no driver for it. Its
+          lighting was recovered here from a Bluetooth HCI capture: a vendor GATT service whose UUID
+          spells <code>Amel-RazerBLE</code>, taking <code>c4 00 06</code> and one RGB triple per
+          ear. Each ear can be given its own colour, in a single write.</p>
+      </div>
+      <div class="card">
         <span class="ico">🔐</span>
         <h4>Local only</h4>
         <p>The daemon binds loopback, generates a random bearer token in an owner-only file, and
@@ -455,7 +475,7 @@ matrix.draw()</code></pre>
     </p>
 
     <div class="filters">
-      <input type="search" id="device-search" placeholder="Search 267 devices — try “BlackWidow”, “Viper”, “0203”…" aria-label="Search devices">
+      <input type="search" id="device-search" placeholder="Search 268 devices — try “BlackWidow”, “Viper”, “0203”…" aria-label="Search devices">
       <button class="chip" data-type="" aria-pressed="true">All</button>
       <button class="chip" data-type="keyboard" aria-pressed="false">Keyboards</button>
       <button class="chip" data-type="mouse" aria-pressed="false">Mice</button>
@@ -502,6 +522,10 @@ matrix.draw()</code></pre>
               <td>The firmware refused that command; the device genuinely lacks the feature.</td></tr>
           <tr><td>Effects reset after sleep</td>
               <td>Windows cuts USB power. The daemon replays stored state on reconnect.</td></tr>
+          <tr><td>A Bluetooth device is on, but not listed</td>
+              <td>Install the extra: <code>pip install "openrazer-win[ble]"</code>.
+                  <code>doctor</code> ends with a Bluetooth section saying whether support is
+                  present and what the radio can hear.</td></tr>
           <tr><td>Nothing listed at all</td>
               <td>Only Razer devices (vendor <code>1532</code>) are handled.</td></tr>
         </tbody>

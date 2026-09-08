@@ -8,7 +8,7 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
 [![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-green)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/openrazer-win)](https://pypi.org/project/openrazer-win/)
-[![Devices: 267](https://img.shields.io/badge/devices-267-orange)](https://ar4ikov.github.io/openrazer-win/#devices)
+[![Devices: 268](https://img.shields.io/badge/devices-268-orange)](https://ar4ikov.github.io/openrazer-win/#devices)
 
 [Documentation](https://ar4ikov.github.io/openrazer-win/) ·
 [Supported devices](https://ar4ikov.github.io/openrazer-win/#devices) ·
@@ -25,7 +25,7 @@ on Windows.
 This is a full port. The protocol layer moves into user space on top of the Windows HID class driver,
 D-Bus is replaced by a loopback JSON-RPC daemon, and **every device quirk is transpiled directly from
 the upstream C sources** — so all 267 devices OpenRazer knows about behave the same way here as they
-do on Linux.
+do on Linux, plus one Bluetooth headset upstream cannot reach at all.
 
 ```console
 $ openrazer-win list
@@ -59,6 +59,15 @@ pip install openrazer-win
 There is no dependency list to speak of — the port runs on the Python standard library alone. No
 compiler, no `hidapi` wheel, no driver signing, no administrator rights, no reboot.
 
+One optional extra exists, for Bluetooth-only devices such as the Kraken Kitty V2 BT:
+
+```bash
+pip install "openrazer-win[ble]"
+```
+
+That pulls in PyWinRT, because Windows exposes Bluetooth LE through WinRT. Everything on the USB
+side keeps working without it.
+
 Prefer a single file? Grab `openrazer-win.exe` from the
 [latest release](https://github.com/Ar4ikov/openrazer-win/releases/latest) and run it directly; it
 needs no Python at all.
@@ -80,6 +89,9 @@ openrazer-win effect spectrum
 openrazer-win effect wave --direction 2
 openrazer-win effect breath_dual "#ff0080" --colour2 "#00ffff"
 openrazer-win effect ripple green   # host-rendered, follows your typing
+
+openrazer-win zones                  # list a device's zones
+openrazer-win zones red blue        # one colour each: left ear red, right ear blue
 
 openrazer-win brightness 60
 openrazer-win dpi 1800
@@ -128,6 +140,16 @@ for row in range(matrix.rows):
     for column in range(matrix.columns):
         matrix[row, column] = (255, 0, 128)
 matrix.draw()
+```
+
+Zones can be painted individually, and a device that can take them all in one message does so, so
+the two never disagree even for an instant:
+
+```python
+headset = DeviceManager().by_name('Kraken Kitty V2 BT')[0]
+headset.colour_zones()                          # ['left', 'right']
+headset.set_colour_zones([(255, 0, 0), (0, 0, 255)])
+headset.fx_for('left').static(0, 255, 0)        # or one ear at a time
 ```
 
 No daemon running? Pass `direct=True` and the library opens the HID handles itself:
@@ -208,12 +230,13 @@ to have a backlight it does not have.
 | Keyboards & laptops | 112 |
 | Accessories (docks, stands, ARGB controllers) | 17 |
 | Headsets (Kraken protocol) | 8 |
+| Headsets (Bluetooth LE) | 1 |
 | Mousepads | 8 |
 | Keypads | 7 |
 | eGPU enclosures | 2 |
-| **Total** | **267** |
+| **Total** | **268** |
 
-165 have addressable matrices; 76 report battery level. The full searchable list is
+166 have addressable matrices; 76 report battery level. The full searchable list is
 [on the documentation site](https://ar4ikov.github.io/openrazer-win/#devices), or run
 `openrazer-win supported`.
 
@@ -222,6 +245,35 @@ starlight ×3), per-key custom frames, per-zone brightness, DPI and DPI stages, 
 8000 Hz, battery level and charging state, idle timeout, low-battery threshold, game mode, macro LED,
 scroll mode and acceleration, keyboard layout, addressable-RGB channels, a host-rendered ripple
 effect driven by a low-level keyboard hook, and autostart at logon.
+
+### Bluetooth
+
+One device in the range has no USB data mode at all: the **Kraken Kitty V2 BT**. Plugging it in
+charges it and nothing more, so upstream has no driver for it — there is no USB device for a kernel
+module to bind to.
+
+Its lighting protocol was recovered for this port by capturing what Razer Synapse sends over the
+air. It turns out to be a vendor GATT service whose UUID spells `Amel-RazerBLE`, driven by write
+commands of the form `c4 00 06` followed by one RGB triple per ear, left first. Setting pure red,
+green and blue in Synapse produced exactly those bytes, and a control capture with Synapse closed
+produced no writes at all. See
+[`openrazer_win/protocol/razer_ble.py`](openrazer_win/protocol/razer_ble.py).
+
+The device itself only knows a static colour per zone. Synapse's breathing, spectrum and
+audio-reactive modes are drawn by the host, one frame at a time — which is why closing Synapse stops
+the traffic dead — so this port renders them the same way, through its own effect engine:
+`effect spectrum` and `effect wave` fall back to the frame-by-frame renderer on any device whose
+firmware has no such mode, and say so when they do.
+
+The GATT connection is held open. Resolving it costs about 90 ms, most of that service discovery,
+which no amount of frame streaming survives; held open, a write costs about 1 ms. It is re-resolved
+once, transparently, if the headset drops the link.
+
+Devices are found by listening for advertisements rather than by pairing: a dual-mode headset need
+not use its classic Bluetooth address on the LE side (this one advertises one byte away from it),
+and Windows creates no device node for an unpaired LE connection. Because a sweep takes a few
+seconds, the radio is swept far less often than the USB bus, and a missed advertisement is not
+treated as an unplugged device.
 
 The Kraken headsets are covered too, through their own protocol: rather than the 90-byte control
 report, they expose the lighting controller's RAM, so colours are written to fixed addresses and a
@@ -248,7 +300,8 @@ each product id is in the database.
 | Device listed as `NOT IN DATABASE` | Newer than the bundled data. [Open an issue](https://github.com/Ar4ikov/openrazer-win/issues) with the product id. |
 | `device replied not supported` | The firmware refused that command; the device genuinely lacks the feature. |
 | Effects reset after sleep | Windows cuts USB power. The daemon replays the stored state when the device reappears. |
-| Device is connected but nothing is listed | It may be paired over Bluetooth, or on a charge-only cable. `doctor` names what Windows sees it as. Lighting needs a USB data connection. |
+| Device is connected but nothing is listed | It may be on a charge-only cable, or be a Bluetooth-only model. `doctor` names what Windows sees it as, and says which of the two it is. |
+| A Bluetooth device is powered on but not listed | Install the extra: `pip install "openrazer-win[ble]"`. `doctor` ends with a Bluetooth section that says whether support is present and what the radio can hear. |
 | Nothing at all listed | Only Razer devices (vendor `1532`) are handled. |
 
 ## Development
@@ -258,7 +311,7 @@ git clone https://github.com/Ar4ikov/openrazer-win
 cd openrazer-win
 pip install -e ".[dev]"
 
-pytest                              # 208 tests, no hardware needed
+pytest                              # 265 tests, no hardware needed
 ruff check .
 python tools/simulate_devices.py    # every capability of all 267 devices
 ```

@@ -47,6 +47,13 @@ class DeviceInfo:
     dpi_max: Optional[int] = None
     image: Optional[str] = None
     methods: frozenset = field(default_factory=frozenset)
+    #: How the device is reached: 'hid' for everything upstream covers, 'ble'
+    #: for Bluetooth-only devices that never appear on the HID bus.
+    transport: str = 'hid'
+
+    @property
+    def is_bluetooth(self) -> bool:
+        return self.transport == 'ble'
 
     @property
     def driver(self) -> str:
@@ -88,6 +95,7 @@ class DeviceInfo:
             'poll_rates': list(self.poll_rates) if self.poll_rates else None,
             'dpi_max': self.dpi_max,
             'image': self.image,
+            'transport': self.transport,
             'methods': sorted(self.methods),
             'zones': self.zones(),
         }
@@ -146,6 +154,7 @@ def _load(path: str = DEVICES_PATH) -> DeviceDatabase:
             dpi_max=raw.get('dpi_max'),
             image=raw.get('image'),
             methods=frozenset(raw.get('methods', [])),
+            transport=raw.get('transport', 'hid'),
         ))
     return DeviceDatabase(entries)
 

@@ -61,6 +61,8 @@ def test_every_device_has_recipes_for_what_it_advertises(database, recipes, tmp_
     persistence = Persistence(str(tmp_path / 'p.json'))
     problems = []
     for entry in database:
+        if entry.is_bluetooth:
+            continue        # no recipes at all; see tests/test_ble.py
         device, _fake = make_device(entry.pid, persistence)
         try:
             capabilities = device.capabilities()
@@ -92,6 +94,8 @@ def test_full_fleet_simulation_passes(tmp_path):
     checked = 0
     for entry in get_database():
         device = build_device(entry, persistence, recipes)
+        if device is None:
+            continue        # not on the HID bus; see tests/test_ble.py
         for label, check in checks_for(device):
             checked += 1
             try:

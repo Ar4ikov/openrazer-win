@@ -17,6 +17,7 @@ import collections
 import os
 import sys
 import tempfile
+from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -52,7 +53,13 @@ EFFECT_ARGS = {
 }
 
 
-def build_device(meta, persistence, recipes) -> RazerDevice:
+def build_device(meta, persistence, recipes) -> Optional[RazerDevice]:
+    """An emulator-backed device, or None for one that is not on the HID bus."""
+    if meta.is_bluetooth:
+        # The emulator speaks HID; a Bluetooth-only device has no USB data
+        # interface at all, and is covered by tests/test_ble.py instead.
+        return None
+
     backend = FakeHidBackend()
     if meta.pid in recipes.kraken_pids:
         # Krakens take output reports on their own collection instead.
@@ -127,7 +134,7 @@ def run(selected: str = '', verbose: bool = False) -> int:
     recipes = get_recipes()
     persistence = Persistence(os.path.join(tempfile.mkdtemp(), 'persistence.json'))
 
-    total = passed = 0
+    total = passed = simulated = 0
     failures: collections.Counter = collections.Counter()
     failed_devices: collections.Counter = collections.Counter()
 
@@ -135,6 +142,9 @@ def run(selected: str = '', verbose: bool = False) -> int:
         if selected and selected.lower() not in meta.name.lower():
             continue
         device = build_device(meta, persistence, recipes)
+        if device is None:
+            continue
+        simulated += 1
         for label, check in checks_for(device):
             total += 1
             try:
@@ -149,7 +159,7 @@ def run(selected: str = '', verbose: bool = False) -> int:
         device.close()
 
     print('{0} checks across {1} devices: {2} passed, {3} failed ({4:.2f}%)'.format(
-        total, len(database), passed, total - passed,
+        total, simulated, passed, total - passed,
         100.0 * passed / total if total else 100.0))
     if failures:
         print('\nfailure modes:')

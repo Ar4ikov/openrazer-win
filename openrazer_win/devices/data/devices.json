@@ -1,5 +1,5 @@
 {
- "schema": 1,
+ "schema": 2,
  "source": "openrazer/openrazer",
  "devices": [
   {
@@ -30,7 +30,8 @@
     "set_poll_rate",
     "set_scroll_none",
     "set_scroll_on"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNaga",
@@ -62,7 +63,8 @@
     "set_poll_rate",
     "set_scroll_none",
     "set_scroll_on"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdder3_5G",
@@ -93,7 +95,8 @@
     "set_poll_rate",
     "set_scroll_none",
     "set_scroll_on"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaEpic",
@@ -130,7 +133,8 @@
     "set_scroll_none",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerAbyssus1800",
@@ -158,7 +162,8 @@
     "set_logo_none",
     "set_logo_on",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerMamba2012Wired",
@@ -195,7 +200,8 @@
     "set_scroll_none",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerMamba2012Wireless",
@@ -232,7 +238,8 @@
     "set_scroll_none",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdder3_5GBlack",
@@ -259,7 +266,8 @@
     "max_dpi",
     "set_dpi_xy",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNaga2012",
@@ -291,7 +299,8 @@
     "set_poll_rate",
     "set_scroll_none",
     "set_scroll_on"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerImperator",
@@ -321,7 +330,8 @@
     "set_poll_rate",
     "set_scroll_none",
     "set_scroll_on"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOuroboros",
@@ -357,7 +367,8 @@
     "set_scroll_brightness",
     "set_scroll_none",
     "set_scroll_on"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerTaipan",
@@ -387,7 +398,8 @@
     "set_poll_rate",
     "set_scroll_none",
     "set_scroll_on"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaHexRed",
@@ -417,7 +429,8 @@
     "set_poll_rate",
     "set_scroll_none",
     "set_scroll_on"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdder2013",
@@ -451,7 +464,8 @@
     "set_scroll_breath_single",
     "set_scroll_none",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdder1800",
@@ -479,7 +493,8 @@
     "set_logo_none",
     "set_logo_on",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrochi2013",
@@ -507,7 +522,8 @@
     "set_poll_rate",
     "set_scroll_none",
     "set_scroll_on"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaEpicChromaWired",
@@ -555,7 +571,8 @@
     "set_scroll_none",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaEpicChromaWireless",
@@ -603,7 +620,8 @@
     "set_scroll_none",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNaga2014",
@@ -635,7 +653,8 @@
     "set_poll_rate",
     "set_scroll_none",
     "set_scroll_on"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaHex",
@@ -665,7 +684,8 @@
     "set_poll_rate",
     "set_scroll_none",
     "set_scroll_on"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerAbyssus",
@@ -690,7 +710,8 @@
     "set_logo_none",
     "set_logo_on",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderChroma",
@@ -730,7 +751,8 @@
     "set_scroll_none",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerMambaChromaWired",
@@ -775,7 +797,8 @@
     "set_key_row",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerMambaChromaWireless",
@@ -822,7 +845,8 @@
     "set_key_row",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerMambaTE",
@@ -861,7 +885,8 @@
     "set_custom_effect",
     "set_dpi_xy",
     "set_key_row"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrochiWired",
@@ -902,7 +927,8 @@
     "set_scroll_brightness",
     "set_scroll_none",
     "set_scroll_on"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDiamondbackChroma",
@@ -941,7 +967,8 @@
     "set_custom_effect",
     "set_dpi_xy",
     "set_key_row"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdder2000",
@@ -977,7 +1004,8 @@
     "set_scroll_brightness",
     "set_scroll_none",
     "set_scroll_on"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaHexV2",
@@ -1038,7 +1066,8 @@
     "set_scroll_reactive",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaChroma",
@@ -1099,7 +1128,8 @@
     "set_scroll_reactive",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdder3500",
@@ -1137,7 +1167,8 @@
     "set_scroll_brightness",
     "set_scroll_none",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerLanceheadWired",
@@ -1216,7 +1247,8 @@
     "set_scroll_spectrum",
     "set_scroll_static",
     "set_scroll_wave"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerLanceheadWireless",
@@ -1297,7 +1329,8 @@
     "set_scroll_spectrum",
     "set_scroll_static",
     "set_scroll_wave"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerAbyssusV2",
@@ -1337,7 +1370,8 @@
     "set_scroll_none",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderElite",
@@ -1386,7 +1420,8 @@
     "set_scroll_reactive",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerAbyssus2000",
@@ -1414,7 +1449,8 @@
     "set_logo_none",
     "set_logo_on",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerLanceheadTE",
@@ -1487,7 +1523,8 @@
     "set_scroll_spectrum",
     "set_scroll_static",
     "set_scroll_wave"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerAtherisReceiver",
@@ -1521,7 +1558,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasilisk",
@@ -1570,7 +1608,8 @@
     "set_scroll_reactive",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskEssential",
@@ -1612,7 +1651,8 @@
     "set_logo_spectrum",
     "set_logo_static",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaTrinity",
@@ -1641,7 +1681,8 @@
     "set_dpi_xy",
     "set_poll_rate",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerFireflyHyperflux",
@@ -1675,7 +1716,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "trigger_reactive_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerAbyssusEliteDVaEdition",
@@ -1710,7 +1752,8 @@
     "set_logo_spectrum",
     "set_logo_static",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerAbyssusEssential",
@@ -1745,7 +1788,8 @@
     "set_logo_spectrum",
     "set_logo_static",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerMambaElite",
@@ -1816,7 +1860,8 @@
     "set_scroll_spectrum",
     "set_scroll_static",
     "set_scroll_wave"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderEssential",
@@ -1852,7 +1897,8 @@
     "set_scroll_brightness",
     "set_scroll_none",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerLanceheadWirelessReceiver",
@@ -1933,7 +1979,8 @@
     "set_scroll_spectrum",
     "set_scroll_static",
     "set_scroll_wave"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerLanceheadWirelessWired",
@@ -2012,7 +2059,8 @@
     "set_scroll_spectrum",
     "set_scroll_static",
     "set_scroll_wave"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderEssentialWhiteEdition",
@@ -2048,7 +2096,8 @@
     "set_scroll_brightness",
     "set_scroll_none",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerMambaWirelessReceiver",
@@ -2105,7 +2154,8 @@
     "set_scroll_reactive",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerMambaWirelessWired",
@@ -2160,7 +2210,8 @@
     "set_scroll_reactive",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerProClickReceiver",
@@ -2199,7 +2250,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerViper",
@@ -2241,7 +2293,8 @@
     "set_logo_spectrum",
     "set_logo_static",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerViperUltimateWired",
@@ -2289,7 +2342,8 @@
     "set_logo_static",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerViperUltimateWireless",
@@ -2339,7 +2393,8 @@
     "set_logo_static",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV2ProWired",
@@ -2387,7 +2442,8 @@
     "set_logo_static",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV2ProWireless",
@@ -2437,7 +2493,8 @@
     "set_logo_static",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerMouseDock",
@@ -2471,7 +2528,8 @@
     "set_none_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerProClickWired",
@@ -2510,7 +2568,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskXHyperSpeed",
@@ -2544,7 +2603,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV2",
@@ -2593,7 +2653,8 @@
     "set_scroll_reactive",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskV2",
@@ -2642,7 +2703,8 @@
     "set_scroll_reactive",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskUltimateWired",
@@ -2717,7 +2779,8 @@
     "set_scroll_reactive",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskUltimateReceiver",
@@ -2794,7 +2857,8 @@
     "set_scroll_reactive",
     "set_scroll_spectrum",
     "set_scroll_static"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerViperMini",
@@ -2836,7 +2900,8 @@
     "set_logo_spectrum",
     "set_logo_static",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV2Mini",
@@ -2878,7 +2943,8 @@
     "set_logo_spectrum",
     "set_logo_static",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaLeftHanded2020",
@@ -2942,7 +3008,8 @@
     "set_scroll_spectrum",
     "set_scroll_static",
     "set_scroll_wave"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaProWired",
@@ -3011,7 +3078,8 @@
     "set_scroll_wave",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaProWireless",
@@ -3082,7 +3150,8 @@
     "set_scroll_wave",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerViper8KHz",
@@ -3127,7 +3196,8 @@
     "set_logo_spectrum",
     "set_logo_static",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrochiV2Receiver",
@@ -3161,7 +3231,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrochiV2Bluetooth",
@@ -3195,7 +3266,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaX",
@@ -3251,7 +3323,8 @@
     "set_scroll_spectrum",
     "set_scroll_static",
     "set_scroll_wave"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderEssential2021",
@@ -3282,7 +3355,8 @@
     "set_logo_none",
     "set_logo_static",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskV3",
@@ -3336,7 +3410,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerProClickMiniReceiver",
@@ -3375,7 +3450,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV2XHyperSpeed",
@@ -3409,7 +3485,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerViperMiniSEWired",
@@ -3448,7 +3525,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerViperMiniSEWireless",
@@ -3491,7 +3569,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV2Lite",
@@ -3533,7 +3612,8 @@
     "set_logo_spectrum",
     "set_logo_static",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerCobra",
@@ -3575,7 +3655,8 @@
     "set_logo_spectrum",
     "set_logo_static",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerMouseDockPro",
@@ -3610,7 +3691,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerViperV2ProWired",
@@ -3644,7 +3726,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerViperV2ProWireless",
@@ -3678,7 +3761,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaV2ProWired",
@@ -3734,7 +3818,8 @@
     "set_reactive_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaV2ProWireless",
@@ -3792,7 +3877,8 @@
     "set_reactive_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskV3ProWired",
@@ -3855,7 +3941,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskV3ProWireless",
@@ -3918,7 +4005,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerCobraProWired",
@@ -3970,7 +4058,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerCobraProWireless",
@@ -4022,7 +4111,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV3",
@@ -4058,7 +4148,8 @@
     "set_dpi_stages",
     "set_dpi_xy",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHyperPollingWirelessDongle",
@@ -4103,7 +4194,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNagaV2HyperSpeedReceiver",
@@ -4137,7 +4229,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV3ProWired",
@@ -4171,7 +4264,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV3ProWireless",
@@ -4205,7 +4299,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerViperV3HyperSpeed",
@@ -4239,7 +4334,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskV3XHyperSpeed",
@@ -4283,7 +4379,8 @@
     "set_scroll_spectrum",
     "set_scroll_static",
     "set_scroll_wave"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV4ProWired",
@@ -4325,7 +4422,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV4ProWireless",
@@ -4367,7 +4465,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerViperV3ProWired",
@@ -4406,7 +4505,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerViperV3ProWireless",
@@ -4449,7 +4549,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV3ProWired_Alternate",
@@ -4483,7 +4584,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV3ProWireless_Alternate",
@@ -4517,7 +4619,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV3HyperSpeedWired",
@@ -4551,7 +4654,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathAdderV3HyperSpeedWireless",
@@ -4585,7 +4689,8 @@
     "set_idle_time",
     "set_low_battery_threshold",
     "set_poll_rate"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerProClickV2VerticalEditionWired",
@@ -4631,7 +4736,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerProClickV2VerticalEditionWireless",
@@ -4677,7 +4783,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskV3_35K",
@@ -4734,7 +4841,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskV3Pro35KWired",
@@ -4797,7 +4905,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskV3Pro35KWireless",
@@ -4860,7 +4969,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerProClickV2Wired",
@@ -4906,7 +5016,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerProClickV2Wireless",
@@ -4952,7 +5063,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskMobileWired",
@@ -4990,7 +5102,8 @@
     "set_none_effect",
     "set_poll_rate",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskMobileReceiver",
@@ -5028,7 +5141,8 @@
     "set_none_effect",
     "set_poll_rate",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskV3Pro35KPhantomGreenEditionWired",
@@ -5085,7 +5199,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBasiliskV3Pro35KPhantomGreenEditionWireless",
@@ -5142,7 +5257,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowUltimate2012",
@@ -5174,7 +5290,8 @@
     "set_game_mode",
     "set_macro_effect",
     "set_macro_mode"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowStealthEdition",
@@ -5206,7 +5323,8 @@
     "set_game_mode",
     "set_macro_effect",
     "set_macro_mode"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerAnansi",
@@ -5239,7 +5357,8 @@
     "set_none_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNostromo",
@@ -5271,7 +5390,8 @@
     "keypad_set_profile_led_blue",
     "keypad_set_profile_led_green",
     "keypad_set_profile_led_red"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrbweaver",
@@ -5306,7 +5426,8 @@
     "keypad_set_profile_led_green",
     "keypad_set_profile_led_red",
     "set_none_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathStalkerEssential",
@@ -5338,7 +5459,8 @@
     "set_game_mode",
     "set_macro_effect",
     "set_macro_mode"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowUltimate2013",
@@ -5370,7 +5492,8 @@
     "set_game_mode",
     "set_macro_effect",
     "set_macro_mode"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowStealth",
@@ -5402,7 +5525,8 @@
     "set_game_mode",
     "set_macro_effect",
     "set_macro_mode"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowTournamentEdition2014",
@@ -5434,7 +5558,8 @@
     "set_game_mode",
     "set_macro_effect",
     "set_macro_mode"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerTartarus",
@@ -5468,7 +5593,8 @@
     "keypad_set_profile_led_green",
     "keypad_set_profile_led_red",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathStalkerExpert",
@@ -5500,7 +5626,8 @@
     "set_game_mode",
     "set_macro_effect",
     "set_macro_mode"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowChroma",
@@ -5545,7 +5672,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathStalkerChroma",
@@ -5587,7 +5715,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeStealth",
@@ -5628,7 +5757,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrbweaverChroma",
@@ -5674,7 +5804,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerTartarusChroma",
@@ -5712,7 +5843,8 @@
     "set_none_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowChromaTournamentEdition",
@@ -5757,7 +5889,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeQHD",
@@ -5796,7 +5929,8 @@
     "set_starlight_random_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeProLate2016",
@@ -5835,7 +5969,8 @@
     "set_starlight_random_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowChromaOverwatch",
@@ -5880,7 +6015,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowUltimate2016",
@@ -5924,7 +6060,8 @@
     "set_starlight_random_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerCore",
@@ -5959,7 +6096,8 @@
     "set_static_effect",
     "set_wave_effect",
     "trigger_reactive_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowXChroma",
@@ -6004,7 +6142,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowXUltimate",
@@ -6048,7 +6187,8 @@
     "set_starlight_random_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowXTournamentEditionChroma",
@@ -6093,7 +6233,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrnataChroma",
@@ -6141,7 +6282,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrnata",
@@ -6185,7 +6327,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeStealthLate2016",
@@ -6226,7 +6369,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowChromaV2",
@@ -6274,7 +6418,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeLate2016",
@@ -6311,7 +6456,8 @@
     "set_starlight_random_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladePro2017",
@@ -6350,7 +6496,8 @@
     "set_starlight_random_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHuntsmanElite",
@@ -6398,7 +6545,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHuntsman",
@@ -6446,7 +6594,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowElite",
@@ -6494,7 +6643,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerCynosaChroma",
@@ -6542,7 +6692,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerTartarusV2",
@@ -6598,7 +6749,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerCynosaChromaPro",
@@ -6644,7 +6796,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeStealthMid2017",
@@ -6685,7 +6838,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladePro2017FullHD",
@@ -6724,7 +6878,8 @@
     "set_starlight_random_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeStealthLate2017",
@@ -6765,7 +6920,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade2018",
@@ -6804,7 +6960,8 @@
     "set_starlight_random_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladePro2019",
@@ -6845,7 +7002,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowLite",
@@ -6878,7 +7036,8 @@
     "set_macro_mode",
     "set_none_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowEssential",
@@ -6922,7 +7081,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeStealth2019",
@@ -6949,7 +7109,8 @@
     "set_reactive_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade2019Adv",
@@ -6988,7 +7149,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade2018Base",
@@ -7015,7 +7177,8 @@
     "set_reactive_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerCynosaLite",
@@ -7051,7 +7214,8 @@
     "set_none_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade2018Mercury",
@@ -7088,7 +7252,8 @@
     "set_starlight_random_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidow2019",
@@ -7136,7 +7301,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHuntsmanTournamentEdition",
@@ -7184,7 +7350,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerTartarusPro",
@@ -7225,7 +7392,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeMid2019Mercury",
@@ -7266,7 +7434,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade2019Base",
@@ -7293,7 +7462,8 @@
     "set_reactive_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeStealthLate2019",
@@ -7320,7 +7490,8 @@
     "set_reactive_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeAdvancedLate2019",
@@ -7361,7 +7532,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeProLate2019",
@@ -7402,7 +7574,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade2019StudioEdition",
@@ -7441,7 +7614,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowV3",
@@ -7489,7 +7663,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeStealthEarly2020",
@@ -7516,7 +7691,8 @@
     "set_reactive_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade15Advanced2020",
@@ -7557,7 +7733,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeEarly2020Base",
@@ -7585,7 +7762,8 @@
     "set_reactive_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeProEarly2020",
@@ -7618,7 +7796,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHuntsmanMini",
@@ -7666,7 +7845,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowV3MiniHyperSpeedWired",
@@ -7716,7 +7896,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeStealthLate2020",
@@ -7743,7 +7924,8 @@
     "set_reactive_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowV3ProWired",
@@ -7797,7 +7979,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowV3ProWireless",
@@ -7849,7 +8032,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrnataV2",
@@ -7897,7 +8081,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerCynosaV2",
@@ -7945,7 +8130,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHuntsmanV2Analog",
@@ -7986,7 +8172,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeLate2020Base",
@@ -8014,7 +8201,8 @@
     "set_reactive_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHuntsmanMiniJP",
@@ -8062,7 +8250,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBook2020",
@@ -8089,7 +8278,8 @@
     "set_reactive_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHuntsmanV2Tenkeyless",
@@ -8150,7 +8340,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHuntsmanV2",
@@ -8211,7 +8402,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade15AdvancedEarly2021",
@@ -8252,7 +8444,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade17ProEarly2021",
@@ -8293,7 +8486,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeEarly2021Base",
@@ -8321,7 +8515,8 @@
     "set_reactive_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade142021",
@@ -8362,7 +8557,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowV3MiniHyperSpeedWireless",
@@ -8412,7 +8608,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade15Advanced2021",
@@ -8453,7 +8650,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade17Pro2021",
@@ -8494,7 +8692,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBladeEarly2022Base",
@@ -8522,7 +8721,8 @@
     "set_reactive_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHuntsmanMiniAnalog",
@@ -8563,7 +8763,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowV4",
@@ -8623,7 +8824,8 @@
     "set_static_effect",
     "set_wave_effect",
     "set_wheel_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade15AdvancedEarly2022",
@@ -8664,7 +8866,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade172022",
@@ -8705,7 +8908,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade142022",
@@ -8746,7 +8950,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowV4Pro",
@@ -8806,7 +9011,8 @@
     "set_static_effect",
     "set_wave_effect",
     "set_wheel_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrnataV3_Alternate",
@@ -8848,7 +9054,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathStalkerV2ProWireless",
@@ -8898,7 +9105,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathStalkerV2ProWired",
@@ -8948,7 +9156,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowV4X",
@@ -8997,7 +9206,8 @@
     "set_static_effect",
     "set_wave_effect",
     "set_wheel_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrnataV3X",
@@ -9037,7 +9247,8 @@
     "set_none_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathStalkerV2",
@@ -9085,7 +9296,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathStalkerV2ProTKLWireless",
@@ -9135,7 +9347,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerDeathStalkerV2ProTKLWired",
@@ -9185,7 +9398,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade142023",
@@ -9226,7 +9440,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade152023",
@@ -9267,7 +9482,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade162023",
@@ -9308,7 +9524,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade182023",
@@ -9349,7 +9566,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrnataV3",
@@ -9391,7 +9609,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrnataV3X_Alternate",
@@ -9431,7 +9650,8 @@
     "set_none_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerOrnataV3Tenkeyless",
@@ -9476,7 +9696,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowV4_75PCT",
@@ -9536,7 +9757,8 @@
     "set_static_effect",
     "set_wave_effect",
     "set_wheel_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHuntsmanV3Pro",
@@ -9580,7 +9802,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHuntsmanV3ProTKL",
@@ -9624,7 +9847,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHuntsmanV3ProMini",
@@ -9668,7 +9892,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade142024",
@@ -9709,7 +9934,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade182024",
@@ -9750,7 +9976,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowV4MiniHyperSpeedWired",
@@ -9800,7 +10027,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowV4MiniHyperSpeedWireless",
@@ -9850,7 +10078,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade142025",
@@ -9891,7 +10120,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade162025",
@@ -9932,7 +10162,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlade182025",
@@ -9973,7 +10204,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerHuntsmanV3Pro8KHz",
@@ -10017,7 +10249,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowV4TenkeylessHyperSpeedWireless",
@@ -10068,7 +10301,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBlackWidowV4TenkeylessHyperSpeedWired",
@@ -10119,7 +10353,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerKraken71",
@@ -10142,7 +10377,8 @@
     "get_device_type_headset",
     "set_none_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerKraken71Chroma",
@@ -10168,7 +10404,8 @@
     "set_none_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerKraken71Alternate",
@@ -10191,7 +10428,8 @@
     "get_device_type_headset",
     "set_none_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerKraken71V2",
@@ -10219,7 +10457,8 @@
     "set_none_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNommoChroma",
@@ -10252,7 +10491,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerNommoPro",
@@ -10285,7 +10525,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerKrakenTournamentEdition",
@@ -10313,7 +10554,8 @@
     "set_none_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerKrakenUltimate",
@@ -10341,7 +10583,8 @@
     "set_none_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerKrakenKittyV2",
@@ -10369,7 +10612,37 @@
     "set_none_effect",
     "set_spectrum_effect",
     "set_static_effect"
-   ]
+   ],
+   "transport": "hid"
+  },
+  {
+   "class_name": "RazerKrakenKittyV2BT",
+   "name": "Razer Kraken Kitty V2 BT",
+   "vid": 5426,
+   "pid": 1378,
+   "type": "headset",
+   "has_matrix": true,
+   "matrix_dims": [
+    1,
+    2
+   ],
+   "dedicated_macro_keys": false,
+   "driver_mode": false,
+   "wave_dirs": [
+    1,
+    2
+   ],
+   "poll_rates": null,
+   "dpi_max": null,
+   "image": null,
+   "methods": [
+    "get_device_type_headset",
+    "set_static_effect",
+    "set_none_effect",
+    "set_key_row",
+    "set_custom_effect"
+   ],
+   "transport": "ble"
   },
   {
    "class_name": "RazerBlackWidowV3TK",
@@ -10417,7 +10690,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerFirefly",
@@ -10452,7 +10726,8 @@
     "set_static_effect",
     "set_wave_effect",
     "trigger_reactive_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerGoliathus",
@@ -10486,7 +10761,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "trigger_reactive_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerGoliathusExtended",
@@ -10520,7 +10796,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "trigger_reactive_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerFireflyV2",
@@ -10555,7 +10832,8 @@
     "set_static_effect",
     "set_wave_effect",
     "trigger_reactive_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerStriderChroma",
@@ -10590,7 +10868,8 @@
     "set_static_effect",
     "set_wave_effect",
     "trigger_reactive_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerGoliathusChroma3XL",
@@ -10624,7 +10903,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "trigger_reactive_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerFireflyV2Pro",
@@ -10659,7 +10939,8 @@
     "set_static_effect",
     "set_wave_effect",
     "trigger_reactive_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerChromaMugHolder",
@@ -10694,7 +10975,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBaseStationChroma",
@@ -10727,7 +11009,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerChromaHDK",
@@ -10760,7 +11043,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerLaptopStandChroma",
@@ -10795,7 +11079,8 @@
     "set_static_effect",
     "set_wave_effect",
     "trigger_reactive_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerRaptor27",
@@ -10828,7 +11113,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerLianLiO11Dynamic",
@@ -10861,7 +11147,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerTomahawkATX",
@@ -10894,7 +11181,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerKrakenKittyEdition",
@@ -10932,7 +11220,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerCoreXChroma",
@@ -10970,7 +11259,8 @@
     "set_static_effect",
     "set_wave_effect",
     "trigger_reactive_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerMouseBungeeV3Chroma",
@@ -11003,7 +11293,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerChromaARGB",
@@ -11041,7 +11332,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerBaseStationV2Chroma",
@@ -11074,7 +11366,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerThunderbolt4DockChroma",
@@ -11110,7 +11403,8 @@
     "set_starlight_single_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerChargingPadChroma",
@@ -11170,7 +11464,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   },
   {
    "class_name": "RazerLaptopStandChromaV2",
@@ -11203,7 +11498,8 @@
     "set_spectrum_effect",
     "set_static_effect",
     "set_wave_effect"
-   ]
+   ],
+   "transport": "hid"
   }
  ]
 }

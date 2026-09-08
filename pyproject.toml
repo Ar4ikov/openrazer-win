@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openrazer-win"
-version = "1.1.2"
+version = "1.2.0"
 description = "OpenRazer for Windows: Razer device control in user space, no kernel driver required"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -36,6 +36,18 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
+# Bluetooth LE devices are reached through WinRT, which needs PyWinRT. Kept
+# optional so the USB side keeps its no-dependency promise; each namespace is
+# its own distribution, so only the four that are used are pulled in.
+ble = [
+    "winrt-runtime>=3.0; sys_platform == 'win32'",
+    "winrt-Windows.Devices.Bluetooth>=3.0; sys_platform == 'win32'",
+    "winrt-Windows.Devices.Bluetooth.Advertisement>=3.0; sys_platform == 'win32'",
+    "winrt-Windows.Devices.Bluetooth.GenericAttributeProfile>=3.0; sys_platform == 'win32'",
+    "winrt-Windows.Storage.Streams>=3.0; sys_platform == 'win32'",
+    "winrt-Windows.Foundation>=3.0; sys_platform == 'win32'",
+    "winrt-Windows.Foundation.Collections>=3.0; sys_platform == 'win32'",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",

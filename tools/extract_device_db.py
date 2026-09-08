@@ -83,6 +83,40 @@ MODULE_TYPE_FALLBACK = {
 }
 
 
+#: Devices upstream does not cover, added by this port.  They are kept here
+#: rather than hand-written into the generated JSON so that re-running the
+#: extractor against a newer OpenRazer does not silently drop them.
+LOCAL_DEVICES = [
+    {
+        # Bluetooth-only: plugging it in charges it and exposes no data
+        # interface, so there is no USB device for upstream to bind to.  Its
+        # lighting protocol was recovered from an HCI capture -- see
+        # openrazer_win/protocol/razer_ble.py.
+        'class_name': 'RazerKrakenKittyV2BT',
+        'name': 'Razer Kraken Kitty V2 BT',
+        'vid': 0x1532,
+        'pid': 0x0562,
+        'type': 'headset',
+        'has_matrix': True,
+        'matrix_dims': [1, 2],
+        'dedicated_macro_keys': False,
+        'driver_mode': False,
+        'wave_dirs': [1, 2],
+        'poll_rates': None,
+        'dpi_max': None,
+        'image': None,
+        'methods': [
+            'get_device_type_headset',
+            'set_static_effect',
+            'set_none_effect',
+            'set_key_row',
+            'set_custom_effect',
+        ],
+        'transport': 'ble',
+    },
+]
+
+
 def _pretty_name(cls) -> str:
     """Turn RazerBlackWidowChroma into 'Razer BlackWidow Chroma'."""
     doc = (cls.__doc__ or '').strip()
@@ -138,6 +172,7 @@ def main(argv: list[str]) -> int:
             'dpi_max': getattr(cls, 'DPI_MAX', None),
             'image': getattr(cls, 'DEVICE_IMAGE', None),
             'methods': methods,
+            'transport': 'hid',
         }
         key = (vid, pid)
         if key in seen:
@@ -146,9 +181,16 @@ def main(argv: list[str]) -> int:
         seen.add(key)
         devices.append(entry)
 
+    for entry in LOCAL_DEVICES:
+        key = (entry['vid'], entry['pid'])
+        if key in seen:
+            continue        # upstream has caught up; prefer its record
+        seen.add(key)
+        devices.append(dict(entry))
+
     devices.sort(key=lambda d: (d['vid'], d['pid']))
     payload = {
-        'schema': 1,
+        'schema': 2,
         'source': 'openrazer/openrazer',
         'devices': devices,
     }

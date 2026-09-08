@@ -41,9 +41,11 @@ jobs:
         if: matrix.artifact == 'exe'
         # A regular install, not editable: PyInstaller cannot follow imports
         # through a PEP 660 editable finder, and silently produced a binary
-        # that could not import openrazer_win.cli.
+        # that could not import openrazer_win.cli.  The [ble] extra is included
+        # so the standalone binary can drive Bluetooth devices too -- there is
+        # no "pip install the extra" answer for someone using the exe.
         run: |
-          pip install .
+          pip install ".[ble]"
           pip install pyinstaller
           pyinstaller --clean --noconfirm packaging/openrazer-win.spec
 

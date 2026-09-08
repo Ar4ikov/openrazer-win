@@ -80,3 +80,16 @@ def mouse(persistence):
     _ = device.serial
     yield device, fake
     device.close()
+
+
+@pytest.fixture(autouse=True)
+def no_bluetooth_radio(monkeypatch):
+    """Keep the test suite off the actual Bluetooth radio.
+
+    A scan listens for advertisements for several seconds and would pick up
+    whichever hardware happens to be in the room, so every test runs with the
+    radio reported as unavailable unless it asks otherwise.
+    """
+    import openrazer_win.ble as ble
+    monkeypatch.setattr(ble, 'is_available', lambda: False)
+    return ble

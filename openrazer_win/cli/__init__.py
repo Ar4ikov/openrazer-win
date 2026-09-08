@@ -34,6 +34,20 @@ breath_random, breath_single, breath_dual, breath_triple,
 starlight_random, starlight_single, starlight_dual,
 ripple, ripple_random (host-rendered, needs the daemon)"""
 
+#: Effects the host can draw frame by frame for hardware that lacks them.
+#: Reached automatically, because "spectrum" is what a user asks for whether or
+#: not the firmware happens to implement it.
+HOST_RENDERED_FALLBACK = {
+    'spectrum': 'spectrum_soft',
+    'wave': 'wave_soft',
+}
+
+ZONES_HELP = """\
+Examples:
+  openrazer-win zones                  list the zones
+  openrazer-win zones red blue         left ear red, right ear blue
+  openrazer-win zones "#ff8800"        every zone the same"""
+
 
 class CliError(Exception):
     """A user-facing error; printed without a traceback."""
@@ -147,7 +161,11 @@ def cmd_info(args) -> int:
             print('  product id  0x{0}'.format(entry['pid']))
             print('  firmware    {0}'.format(entry['firmware'] or 'unknown'))
             transport = capabilities.get('transport') or {}
-            if transport:
+            if capabilities.get('protocol') == 'razer-ble':
+                # No HID interface to speak of; the address is what identifies it.
+                print('  bluetooth   {0}  (LE, vendor GATT service)'.format(
+                    transport.get('path') or '?'))
+            elif transport:
                 print('  interface   mi_{0:02d}  ({1} us wait)'.format(
                     transport.get('interface') or 0, transport.get('wait_us')))
             dimensions = capabilities.get('matrix_dimensions')
@@ -184,14 +202,23 @@ def cmd_effect(args) -> int:
             zone = args.zone or device.zone_for_effect(
                 'custom' if args.effect in ('ripple', 'ripple_random') else args.effect)
             fx = device.fx_for(zone)
+            effect = args.effect
+            rendered = False
+            if effect in HOST_RENDERED_FALLBACK and not fx.has(effect):
+                # The Bluetooth headset, for one, only knows a static colour.
+                # Synapse fakes the rest by streaming frames, and so can we.
+                effect = HOST_RENDERED_FALLBACK[effect]
+                rendered = True
             try:
-                _apply_effect(fx, args.effect, colour, colour2, colour3, args)
+                _apply_effect(fx, effect, colour, colour2, colour3, args)
             except (RpcError, NotSupported, DaemonUnavailable) as error:
                 print('{0}: {1}'.format(device.name, error), file=sys.stderr)
                 failures += 1
                 continue
             if not args.quiet:
-                print('{0}: {1} on {2}'.format(device.name, args.effect, zone))
+                print('{0}: {1} on {2}{3}'.format(
+                    device.name, args.effect, zone,
+                    '  (host-rendered)' if rendered else ''))
     return 1 if failures else 0
 
 
@@ -204,6 +231,10 @@ def _apply_effect(fx, effect: str, colour, colour2, colour3, args) -> None:
         fx.static(*colour)
     elif effect == 'spectrum':
         fx.spectrum()
+    elif effect == 'spectrum_soft':
+        fx.spectrum_soft()
+    elif effect == 'wave_soft':
+        fx.wave_soft(*colour)
     elif effect == 'wave':
         fx.wave(args.direction)
     elif effect == 'wheel':
@@ -235,6 +266,41 @@ def _apply_effect(fx, effect: str, colour, colour2, colour3, args) -> None:
     else:
         raise CliError('unknown effect {0!r}\n\nAvailable:\n{1}'.format(
             effect, EFFECT_HELP))
+
+
+def cmd_zones(args) -> int:
+    """Give each of a device's zones its own colour, in one go."""
+    colours = [parse_colour(text) for text in args.colours]
+    with open_manager(args) as manager:
+        failures = 0
+        for device in pick_devices(manager, args.device):
+            names = device.colour_zones()
+            if not names:
+                print('{0}: no addressable lighting zones'.format(device.name),
+                      file=sys.stderr)
+                failures += 1
+                continue
+            if not colours:
+                print('{0}: {1}'.format(device.name, ', '.join(names)))
+                continue
+            wanted = colours * len(names) if len(colours) == 1 else colours
+            if len(wanted) != len(names):
+                print('{0} has {1} zones ({2}); give that many colours, or one'
+                      .format(device.name, len(names), ', '.join(names)),
+                      file=sys.stderr)
+                failures += 1
+                continue
+            try:
+                device.set_colour_zones(wanted)
+            except (RpcError, NotSupported, DaemonUnavailable, ValueError) as error:
+                print('{0}: {1}'.format(device.name, error), file=sys.stderr)
+                failures += 1
+                continue
+            if not args.quiet:
+                print('{0}: {1}'.format(device.name, ', '.join(
+                    '{0}=#{1:02x}{2:02x}{3:02x}'.format(zone, *colour)
+                    for zone, colour in zip(names, wanted))))
+    return 1 if failures else 0
 
 
 def cmd_brightness(args) -> int:
@@ -523,7 +589,70 @@ def cmd_doctor(args) -> int:
         print('Razer Synapse may be holding the device -- close it and retry.')
 
     _report_devices_beyond_hid(collections, database)
+    _report_bluetooth_support()
     return 0
+
+
+def _report_bluetooth_device(known) -> None:
+    """What to say about a Razer device Windows has paired over Bluetooth."""
+    from ..ble import is_available
+
+    if known is not None and known.is_bluetooth:
+        print('      Bluetooth-only device -- plugging it in only charges it. '
+              'openrazer-win drives its lighting over Bluetooth LE.')
+        if is_available():
+            print('      Bluetooth support is installed. If it is powered on '
+                  'and not in the device list, run: openrazer-win list')
+        else:
+            print('      Bluetooth support is not installed. Add it with:')
+            print('          pip install "openrazer-win[ble]"')
+        return
+
+    print('      Paired over Bluetooth. Lighting for this model is driven '
+          'over USB HID.')
+    print('      Connect it with a USB *data* cable; many bundled cables '
+          'only carry power.')
+
+
+def _report_bluetooth_support() -> None:
+    """Whether the Bluetooth path is usable, and what it can currently see."""
+    from ..ble import is_available, scan
+    from ..protocol import razer_ble
+
+    if not is_available():
+        print('\nBluetooth LE: support not installed '
+              '(pip install "openrazer-win[ble]")')
+        return
+    print('\nBluetooth LE: listening for Razer advertisements ...')
+    try:
+        advertisers = scan(seconds=4.0)
+    except Exception as error:  # noqa: BLE001 - report, do not crash
+        print('  scan failed: {0}'.format(error))
+        return
+    if not advertisers:
+        print('  nothing advertising -- power the device on and keep it '
+              'near the machine')
+        return
+    database = get_database()
+    from ..protocol.report import VENDOR_ID
+    for advertiser in advertisers:
+        known = (database.get(VENDOR_ID, advertiser.product_id)
+                 if advertiser.product_id else None)
+        if known is None and advertiser.name in razer_ble.ADVERTISED_NAMES:
+            known = database.get(
+                VENDOR_ID, razer_ble.ADVERTISED_NAMES[advertiser.name][0])
+        print('  {0:012X}  {1:>4} dBm  {2}'.format(
+            advertiser.address, advertiser.rssi,
+            advertiser.name or '<no name>'))
+        if advertiser.product_id is not None:
+            print('      advertises product id {0:04x}{1}'.format(
+                advertiser.product_id,
+                '  ({0})'.format(known.name) if known else
+                '  -- not in the database'))
+        elif known is not None:
+            print('      {0}'.format(known.name))
+        else:
+            print('      not a Razer model this port knows')
 
 
 def _report_devices_beyond_hid(collections, database) -> None:
@@ -552,14 +681,7 @@ def _report_devices_beyond_hid(collections, database) -> None:
             '{0:04x}'.format(product_id) if product_id else '????',
             entry['name']))
         if entry['transport'].startswith('Bluetooth'):
-            print('      Paired over Bluetooth. This port drives lighting over '
-                  'USB HID only.')
-            if 'Ports' in entry['classes']:
-                print('      It also exposes a Bluetooth serial port, which is '
-                      'how vendor software reaches it wirelessly -- a '
-                      'proprietary channel openrazer-win does not speak.')
-            print('      Connect it with a USB *data* cable; many bundled '
-                  'cables only carry power.')
+            _report_bluetooth_device(known)
         elif known is not None:
             print('      Attached, but exposing no lighting control interface.')
         elif NON_LIGHTING_CLASSES.intersection(entry['classes']):
@@ -607,6 +729,14 @@ def build_parser() -> argparse.ArgumentParser:
     effect.add_argument('--zone', '-z')
     effect.add_argument('--speed', type=int, default=1, choices=(1, 2, 3, 4))
     effect.add_argument('--direction', type=int, default=1, choices=(0, 1, 2))
+
+    zones = add('zones', cmd_zones,
+                "colour each zone separately (the headset's two ears)",
+                formatter_class=argparse.RawDescriptionHelpFormatter,
+                epilog=ZONES_HELP)
+    zones.add_argument('colours', nargs='*',
+                       help='one colour per zone, in the order "zones" lists them')
+    zones.add_argument('--device', '-d')
 
     brightness = add('brightness', cmd_brightness, 'get or set brightness')
     brightness.add_argument('value', nargs='?', type=float)

@@ -254,6 +254,22 @@ class Fx:
         return self._device._software_effect(
             'ripple_random', {'refresh_rate': refresh_rate})
 
+    def spectrum_soft(self, refresh_rate: float = 0.040):
+        """Spectrum drawn frame by frame, for hardware that has no spectrum."""
+        return self._device._software_effect(
+            'spectrum_soft', {'refresh_rate': refresh_rate})
+
+    def wave_soft(self, red: int = 0, green: int = 255, blue: int = 0,
+                  refresh_rate: float = 0.040):
+        """Wave drawn frame by frame, for hardware that has no wave.
+
+        The renderer sweeps in one direction only, so there is no `direction`
+        here -- unlike the hardware effect.
+        """
+        return self._device._software_effect(
+            'wave_soft', {'colour': [red, green, blue],
+                          'refresh_rate': refresh_rate})
+
     def stop_software_effect(self):
         return self._device._software_effect('none', {})
 
@@ -318,6 +334,42 @@ class RazerDevice:
     @property
     def zones(self) -> list:
         return list(self.capabilities.get('zones', {}))
+
+    def colour_zones(self) -> list:
+        """The zones a colour can be written to one at a time, in device order.
+
+        A device that says so publishes the order its zones sit in -- the
+        Bluetooth headset's two ears, left first.  Otherwise it is every
+        lighting zone that can hold a static colour, with the catch-all
+        ``backlight`` dropped when there are named zones beside it.
+        """
+        order = self.capabilities.get('zone_order')
+        if order:
+            return list(order)
+        zones = self.capabilities.get('zones', {})
+        named = [zone for zone, caps in zones.items()
+                 if 'static' in caps.get('effects', [])]
+        if len(named) > 1 and 'backlight' in named:
+            named.remove('backlight')
+        return named
+
+    def set_colour_zones(self, colours) -> None:
+        """Paint one colour per zone, from :meth:`colour_zones`.
+
+        Devices that can take every zone in a single message do so, which
+        matters for the headset: two writes would light one ear before the
+        other, and the mismatch is visible.
+        """
+        colours = [tuple(colour)[:3] for colour in colours]
+        zones = self.colour_zones()
+        if len(colours) > len(zones):
+            raise ValueError('{0} has {1} zones, got {2} colours'.format(
+                self.name, len(zones), len(colours)))
+        if self.capabilities.get('zone_colours') and len(colours) == len(zones):
+            self._call('set_zone_colours', [list(colour) for colour in colours])
+            return
+        for zone, colour in zip(zones, colours):
+            self.fx_for(zone).static(*colour)
 
     def fx_for(self, zone: str) -> Fx:
         if zone not in self._zones:
