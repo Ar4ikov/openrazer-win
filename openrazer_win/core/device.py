@@ -681,7 +681,9 @@ class RazerDevice:
         """Re-apply the last known lighting state for every zone."""
         serial = self.serial
         for zone in self.capabilities()['zones']:
-            state = self.persistence.zone(serial, zone)
+            state = self.persistence.saved_zone(serial, zone)
+            if state is None:
+                continue
             effect = state.get('effect')
             colours = state.get('colors') or [0, 255, 0, 0, 255, 255, 0, 0, 255]
             try:
