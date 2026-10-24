@@ -83,6 +83,10 @@ MODULE_TYPE_FALLBACK = {
 }
 
 
+# Сохраняем driver_mode из поставляемой Windows-базы при повторной генерации.
+DRIVER_MODE_OVERRIDES = {(0x1532, 0x0099): False}
+
+
 #: Devices upstream does not cover, added by this port.  They are kept here
 #: rather than hand-written into the generated JSON so that re-running the
 #: extractor against a newer OpenRazer does not silently drop them.
@@ -138,6 +142,7 @@ def main(argv: list[str]) -> int:
     _install_stubs()
 
     from openrazer_daemon.hardware import get_device_classes  # noqa: E402
+    from openrazer_daemon.hardware.device_base import RazerDeviceBrightnessSuspend  # noqa: E402
 
     devices = []
     seen = set()
@@ -147,6 +152,9 @@ def main(argv: list[str]) -> int:
         if not isinstance(vid, int) or not isinstance(pid, int):
             continue
         methods = sorted(set(getattr(cls, 'METHODS', []) or []))
+        # Базовый класс регистрирует яркость в __init__, вне статического METHODS.
+        if issubclass(cls, RazerDeviceBrightnessSuspend):
+            methods = sorted(set(methods) | {'get_brightness', 'set_brightness'})
         dev_type = None
         for method, name in TYPE_METHODS.items():
             if method in methods:
@@ -166,7 +174,8 @@ def main(argv: list[str]) -> int:
             'has_matrix': bool(getattr(cls, 'HAS_MATRIX', False)),
             'matrix_dims': list(matrix) if matrix else None,
             'dedicated_macro_keys': bool(getattr(cls, 'DEDICATED_MACRO_KEYS', False)),
-            'driver_mode': bool(getattr(cls, 'DRIVER_MODE', False)),
+            'driver_mode': DRIVER_MODE_OVERRIDES.get(
+                (vid, pid), bool(getattr(cls, 'DRIVER_MODE', False))),
             'wave_dirs': list(getattr(cls, 'WAVE_DIRS', (1, 2))),
             'poll_rates': list(getattr(cls, 'POLL_RATES', None) or []) or None,
             'dpi_max': getattr(cls, 'DPI_MAX', None),
