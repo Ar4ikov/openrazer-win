@@ -216,6 +216,40 @@ def test_interface_number_is_parsed_from_the_windows_path():
     assert HidDeviceInfo.parse_interface(r'\\?\hid#vid_1532&pid_0203#7&abc') is None
 
 
+def test_standard_matrix_custom_mode_still_follows_the_frame(keyboard):
+    device, fake = keyboard
+    fake.feature_reports.clear()
+    device.set_custom_frame([(0, 0, b'\xff\x00\x00' * 3)])
+    assert [data[7:9] for _, data in fake.feature_reports] == [b'\x03\x0b', b'\x03\x0a']
+
+
+def test_argb_feature_report_matches_the_windows_wire_format(persistence):
+    device, fake = make_device(0x0F1F, persistence, argb=True)
+    try:
+        device.set_key_row(bytes((0, 0, 2)) + b'\x00\xff\xff' * 3)
+        wire = fake.feature_reports[-1][1]
+        assert wire == bytes.fromhex('5b040000000200ffff00ffff00ffff') + bytes(306)
+    finally:
+        device.close()
+
+
+@pytest.mark.parametrize('colour', [b'\x00\xff\xff', b'\x00\x00\x00'])
+def test_argb_custom_frame_is_not_reset_after_writing_all_six_channels(colour, persistence):
+    device, fake = make_device(0x0F1F, persistence, argb=True)
+    try:
+        device.set_custom_frame((channel, 0, colour * 80) for channel in range(6))
+        wires = [data for _, data in fake.feature_reports]
+        assert [len(data) for data in wires] == [91, 321, 321, 321, 321, 321, 321]
+        assert wires[0][7:9] == b'\x0f\x02'
+        for channel, wire in enumerate(wires[1:]):
+            kind = 0x84 if channel == 5 else 0x04
+            assert wire[:6] == bytes((0x5B, kind, channel, channel, 0, 79))
+            assert wire[6:246] == colour * 80
+            assert wire[246:] == bytes(75)
+    finally:
+        device.close()
+
+
 def test_argb_frames_go_to_the_wide_collection(persistence):
     device, fake = make_device(0x0F1F, persistence, argb=True)   # ARGB controller
     device.set_key_row(bytes((0, 0, 2)) + bytes((1, 2, 3, 4, 5, 6, 7, 8, 9)))

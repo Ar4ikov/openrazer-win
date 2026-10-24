@@ -50,6 +50,7 @@ class FakeHidHandle:
     def send_feature_report(self, data: bytes) -> None:
         if self._closed:
             raise HidError('handle is closed')
+        self._device.feature_reports.append((self.info, bytes(data)))
         if self.info.feature_length == FakeRazerDevice.ARGB_BUFFER_SIZE:
             self._device.argb_frames.append(bytes(data[1:]))
             return
@@ -123,6 +124,7 @@ class FakeRazerDevice:
             product=name,
         ) if kraken else None
         self.argb_frames: list = []
+        self.feature_reports: list = []
         #: Address -> bytes written, plus the raw report stream.
         self.kraken_ram: dict = {}
         self.kraken_writes: list = []

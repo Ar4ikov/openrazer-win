@@ -24,6 +24,7 @@ FEATURE_BUFFER_SIZE = REPORT_SIZE + 1
 #: The ARGB accessory protocol uses a single 320-byte report instead.
 ARGB_REPORT_SIZE = 320
 ARGB_BUFFER_SIZE = ARGB_REPORT_SIZE + 1
+ARGB_FEATURE_REPORT_ID = 0x5B
 
 #: The Kraken family writes 37-byte output reports rather than feature reports,
 #: on interface 3.
@@ -208,7 +209,7 @@ class Transport:
             report[3] = 0x00
             report[4] = max(led_count - 1, 0)
             report[5:5 + len(colours)] = colours[:ARGB_REPORT_SIZE - 5]
-            self._argb_handle.send_feature_report(b'\x00' + bytes(report))
+            self._argb_handle.send_feature_report(bytes((ARGB_FEATURE_REPORT_ID,)) + bytes(report))
 
 
 def open_transport(backend, vendor_id: int, product_id: int,
