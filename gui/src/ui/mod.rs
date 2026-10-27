@@ -7,6 +7,7 @@ pub mod lighting;
 pub mod macros;
 pub mod profiles;
 pub mod settings;
+pub mod setup;
 pub mod theme;
 pub mod widgets;
 

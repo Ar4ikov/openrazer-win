@@ -88,16 +88,34 @@ def test_daemon_logging_survives_a_missing_stderr(tmp_path, monkeypatch):
     assert 'hello from a windowed build' in open(path, encoding='utf-8').read()
 
 
-def test_daemon_logging_keeps_stderr_when_there_is_one(tmp_path):
+def test_daemon_logging_keeps_stderr_when_it_is_a_console(tmp_path, monkeypatch):
     import logging
 
     from openrazer_win.daemon import logs
 
+    monkeypatch.setattr(logs, '_is_console', lambda stream: True)
     path = str(tmp_path / 'daemon.log')
     logs.configure(verbose=True, log_file=path)
     streams = [getattr(h, 'stream', None) for h in logging.getLogger().handlers]
     assert sys.stderr in streams
     assert logging.getLogger().level == logging.DEBUG
+
+
+def test_a_redirected_stderr_does_not_get_a_second_copy_of_the_log(tmp_path, monkeypatch):
+    """The control panel points a starting daemon's stderr at a file.
+
+    That file is for the reason a daemon dies before it can log; mirroring the
+    whole log into it would grow an unrotated copy for as long as it runs.
+    """
+    import logging
+
+    from openrazer_win.daemon import logs
+
+    with open(tmp_path / 'start.log', 'w', encoding='utf-8') as redirected:
+        monkeypatch.setattr(sys, 'stderr', redirected)
+        logs.configure(log_file=str(tmp_path / 'daemon.log'))
+        streams = [getattr(h, 'stream', None) for h in logging.getLogger().handlers]
+        assert redirected not in streams
 
 
 @pytest.fixture(autouse=True)

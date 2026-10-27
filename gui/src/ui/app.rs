@@ -247,7 +247,11 @@ impl App {
 
     fn capture(&mut self, ctx: &egui::Context, snap: &Snapshot) {
         let Some(capture) = self.capture.as_mut() else { return };
-        let ready = matches!(snap.daemon, DaemonState::Running(_)) && !snap.devices.is_empty() && capture.started.elapsed() > Duration::from_secs(4);
+        let settled = match &snap.daemon {
+            DaemonState::Running(info) => !snap.devices.is_empty() || info["state"] == "ready",
+            _ => snap.start_error.is_some(),
+        };
+        let ready = settled && !snap.busy && capture.started.elapsed() > Duration::from_secs(4);
         if !capture.requested {
             if let Some((index, tab)) = capture.page.split_once(':') {
                 if let Some(device) = index.parse::<usize>().ok().and_then(|i| snap.devices.get(i)) {
@@ -411,20 +415,8 @@ impl App {
         match &snap.daemon {
             DaemonState::Connecting => return empty_state(ui, "Connecting to the daemon…", "", None::<fn(&mut egui::Ui)>),
             DaemonState::NotRunning(reason) => {
-                let tx = self.tx.clone();
-                let busy = snap.busy;
-                return empty_state(
-                    ui,
-                    "The daemon is not running",
-                    &format!("It owns the connection to your devices. ({reason})"),
-                    Some(move |ui: &mut egui::Ui| {
-                        if busy {
-                            ui.add(egui::Spinner::new().size(22.0).color(ACCENT));
-                        } else if widgets::primary_button(ui, "Start the daemon").clicked() {
-                            let _ = tx.send(Command::StartDaemon);
-                        }
-                    }),
-                );
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| super::setup::page(self, ui, snap, reason));
+                return;
             }
             DaemonState::Running(_) => {}
         }

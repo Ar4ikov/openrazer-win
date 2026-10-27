@@ -26,6 +26,13 @@ def log_path() -> str:
     return os.path.join(default_config_dir(), 'daemon.log')
 
 
+def _is_console(stream) -> bool:
+    try:
+        return stream.isatty()
+    except (AttributeError, ValueError, OSError):
+        return False
+
+
 def configure(verbose: bool = False, log_file: Optional[str] = None) -> str:
     """Set up daemon logging.  Returns the file being written to."""
     level = logging.DEBUG if verbose else logging.INFO
@@ -40,8 +47,11 @@ def configure(verbose: bool = False, log_file: Optional[str] = None) -> str:
         path = ''
 
     # A windowed build has no stderr; adding a handler on None would make every
-    # log call raise inside logging itself.
-    if sys.stderr is not None:
+    # log call raise inside logging itself.  And a stderr redirected to a file
+    # -- the control panel keeps one to catch a daemon that dies before it can
+    # log anything -- is not a console: copying the whole log into it would
+    # only grow a second, unrotated copy for as long as the daemon runs.
+    if sys.stderr is not None and _is_console(sys.stderr):
         handlers.append(logging.StreamHandler(sys.stderr))
 
     root = logging.getLogger()

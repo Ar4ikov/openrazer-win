@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v4
 
@@ -104,6 +104,11 @@ jobs:
         run: cargo clippy --locked -- -D warnings
       - name: Test
         run: cargo test --locked
+      - name: Check the build that carries the daemon
+        # Any file stands in for the frozen daemon; this only compiles that path.
+        env:
+          OPENRAZER_EMBED_DAEMON: ${{ github.workspace }}/gui/Cargo.toml
+        run: cargo check --locked
       - name: Build
         run: cargo build --release --locked
       - name: Smoke-test the executable

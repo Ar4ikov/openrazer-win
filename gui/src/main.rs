@@ -9,6 +9,7 @@
 mod daemon;
 mod images;
 mod rpc;
+mod setup;
 mod shell;
 mod ui;
 mod worker;
@@ -25,7 +26,8 @@ fn main() -> eframe::Result<()> {
     if args.iter().any(|a| a == "--self-test") {
         // For the release build's smoke test: everything short of a window.
         let icon = shell::icon_rgba(64);
-        std::process::exit(if icon.len() == 64 * 64 * 4 && icon[(32 * 64 + 32) * 4 + 3] == 255 { 0 } else { 1 });
+        let icon_ok = icon.len() == 64 * 64 * 4 && icon[(32 * 64 + 32) * 4 + 3] == 255;
+        std::process::exit(if icon_ok && daemon::embedded_daemon_ok() { 0 } else { 1 });
     }
     // Older autostart entries ran this program as "daemon run"; they mean the
     // same thing now: come up in the background and keep the daemon running.
