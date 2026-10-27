@@ -87,6 +87,9 @@ pub struct App {
     pub profile_name: String,
     tray_ok: bool,
     capture: Option<Capture>,
+    /// eframe shows the window after its first frame whatever the viewport
+    /// asked for, so a background start hides it again for a few frames.
+    hide_frames: u8,
 }
 
 /// For checking the design: `OPENRAZER_GUI_CAPTURE=path.png` saves one
@@ -142,6 +145,7 @@ impl App {
             macro_edit: None,
             profile_name: String::new(),
             tray_ok,
+            hide_frames: if background && tray_ok { 4 } else { 0 },
             capture: std::env::var_os("OPENRAZER_GUI_CAPTURE").map(|path| Capture {
                 path: path.into(),
                 page: std::env::var("OPENRAZER_GUI_PAGE").unwrap_or_default(),
@@ -189,6 +193,11 @@ fn quit() {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.hide_frames > 0 {
+            self.hide_frames -= 1;
+            shell::hide();
+            ctx.request_repaint();
+        }
         if ctx.input(|i| i.viewport().close_requested()) && self.settings.close_to_tray && self.tray_ok {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             shell::hide();
