@@ -6,12 +6,33 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-27
+
+### Changed
+
+- **Studio has a new interface**, built the way Razer Synapse is: devices down
+  the left, each with tabs for performance, lighting, power, profiles, keys and
+  details; settings in titled panels, a label on the left and its control on
+  the right; sliders with a box to type the value in; dropdowns, switches and
+  fields that look like what they are; and controls that keep their size, so
+  nothing jumps when something is chosen. Lighting is now a tab of each
+  device. The installer looks the same.
+
 ### Fixed
 
+- The device page showed 800 DPI and no polling rate when the daemon reported
+  them after the first refresh; it now shows what the device says.
 - **One Bluetooth headset could be listed twice**, each entry with a battery
   level of its own. A headset heard under a second LE address became a second
   device; the classic address it advertises in both is now what makes it one.
   Two headsets of the same model are still two.
+- **The Kraken Kitty's cat ears were not part of its lighting zones** in
+  Studio's drawing. They light with the cup on their side -- left with left --
+  and now glow with it, and with both cups for the whole headset.
+- A thin part of a device, such as a headset's headband, was cut off its
+  drawing along with the cable; only a loose end is taken for a cable now.
+  Black devices photographed on near-black keep their whole outline, and the
+  outline no longer shows its pixel steps when drawn large.
 
 ### Added
 
@@ -593,6 +614,7 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
 - The Kraken headset family uses a separate protocol that is not covered.
 - Razer Synapse must be closed: it holds the device open and competes for the LEDs.
 
+[1.5.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.5.1
 [1.5.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.5.0
 [1.4.2]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.4.2
 [1.4.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.4.1
