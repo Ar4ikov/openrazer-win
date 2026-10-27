@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [semantic versioning](https://semver.org/).
 
+## [1.4.2] - 2026-10-27
+
+### Fixed
+
+- **The daemon opened a console window, and closing it killed the
+  daemon.** The panel started the daemon detached from any console; the
+  frozen daemon runs its real program as a child, which then found no
+  console to inherit and was given a new, visible one. It now starts with a
+  console that has no window, so nothing shows. `openrazer-win daemon
+  start` had the same problem and the same fix.
+- **A headset ear that had been turned off could not be lit again.** The
+  panel blanked the ear's effect a moment after one was chosen, taking the
+  colour picker with it, and "Static" lit the ear in its stored colour --
+  black. An ear now reads as lit or dark from its colour, "Both ears" shows
+  the colour of whichever ear is lit, and choosing an effect replaces black
+  colours with defaults.
+- Lighting zones were listed back to front.
+
+### Added
+
+- The Kraken Kitty V2 BT has a picture, in the colour it is: *About* lets
+  you pick Quartz, White or Black, since the headset does not say which it
+  is. Photos on a dark backdrop are cut out to sit cleanly in the panel.
+
 ## [1.4.1] - 2026-10-27
 
 ### Fixed
@@ -493,6 +517,7 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
 - The Kraken headset family uses a separate protocol that is not covered.
 - Razer Synapse must be closed: it holds the device open and competes for the LEDs.
 
+[1.4.2]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.4.2
 [1.4.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.4.1
 [1.4.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.4.0
 [1.3.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.3.1
