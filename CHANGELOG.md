@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+
+- The control panel no longer depends on glib 0.18, which has an unsound
+  iterator ([GHSA-wrw7-89jp-8q8g](https://github.com/advisories/GHSA-wrw7-89jp-8q8g)).
+  It only ever came in through the tray library's Linux backend, so the
+  Windows build never contained it; that library is now on 0.26 with its
+  D-Bus backend, which needs no GTK.
+
 ## [1.4.2] - 2026-10-27
 
 ### Fixed
