@@ -4,6 +4,97 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [semantic versioning](https://semver.org/).
 
+## [1.3.1] - 2026-10-27
+
+### Added
+
+- **Macro keys work** ([#1](https://github.com/Ar4ikov/openrazer-win/issues/1)). M1-M5
+  on a BlackWidow and the like did nothing without Synapse. In driver mode
+  a Razer keyboard hands its macro keys -- and its whole Fn layer -- to the
+  host; on Linux the kernel driver takes them over, and now the daemon does
+  the same here, from the same logic:
+
+  - an unbound macro key sends F13-F17, like upstream, so any program that
+    takes hotkeys can use it;
+  - a bound one plays its macro: a key sequence, a piece of text, or a
+    program, document or URL to open -- `openrazer-win macro set M1 --keys
+    "ctrl+shift+esc"`, `--text`, `--launch`, `--disable`;
+  - `openrazer-win macro record M2` records one, and so does **Fn+F9** on
+    the keyboard, as on Linux;
+  - **Fn+F10** toggles game mode, holding back the Windows key, and
+    **Fn+F11/F12** step the backlight;
+  - the rest of the Fn layer keeps working -- Fn+F1 is still Mute -- through
+    the per-keyboard translation tables of upstream's driver, generated
+    into `keys.json` by the new `tools/transpile_keys.py`.
+
+  A keyboard is only switched to driver mode once its key report can be read
+  and the keyboard hook is in place; otherwise, or with the daemon's new
+  `--no-keys`, it stays in normal mode and keeps its Fn layer to itself.
+  `openrazer-win macro watch` prints the raw key reports, for working out a
+  keyboard that does not respond. Bindings are kept in
+  `%LOCALAPPDATA%\openrazer-win\macros.json`.
+
+- **Seven more device entries**, from upstream: the Cobra HyperSpeed and its
+  receiver, the Viper V3 Pro SE wired and wireless, the Joro, and the Blade
+  16 and 18 (2026). Device data now comes from
+  OpenRazer master at 477f4d6, which carries everything in the 3.12.4
+  release.
+
+- `openrazer-win daemon restart`, and "Start with Windows" in the control
+  panel.
+
+### Fixed
+
+- **A daemon started with Windows did nothing to the devices**, while one
+  started by hand worked. Several things combined at logon:
+  - a device that would not take its settings yet -- normal at logon for a
+    Bluetooth headset, heard before Windows will hold a link to it -- was
+    tried once and never again. Set-up is now retried until it takes, and
+    `daemon status` names what is still waiting;
+  - a Bluetooth call that timed out raised an error nothing caught, ending
+    start-up silently;
+  - the daemon only started answering once every device was set up, so the
+    control panel took it for not running and started a second one, and
+    the two fought over the hardware. It answers at once now, sets devices
+    up in the background, and only one daemon runs per session;
+  - the radio was swept once a minute while every client request waited for
+    the sweep; it is now swept outside the lock, every 10 seconds for the
+    first three minutes, and at once when a client asks for a rescan;
+  - the console build registered itself for logon, opening a console window
+    whose closing killed the daemon; the windowless build is registered
+    instead, and an entry pointing at an executable that has since moved is
+    repointed.
+
+- **Setting the device mode did nothing on most keyboards.** The catch-all
+  recipe started with a stop, because the transpiler treated `if
+  (is_blade_laptop(device))` as undecidable. Regenerating against upstream
+  turned up more driver logic that had been dropped: device-mode switches
+  inside handlers (the Charging Pad and Mouse Dock Pro around their
+  effects), `fallthrough` between cases, and the device mode the kernel puts
+  accessories in when it binds -- most of them into driver mode, "just to
+  function". All of it is now transpiled and run.
+
+- The Naga V2 Pro's lighting, and the Huntsman V3 Pro 8KHz writing lighting
+  to a profile it is not showing -- both upstream fixes, which needed the
+  Naga Trinity effect builders and the active-profile query ported.
+
+- Brightness on devices that inherit it from upstream's base class, such as
+  the Mamba and the Firefly ([#2](https://github.com/Ar4ikov/openrazer-win/pull/2),
+  thanks @VoyagerVPN).
+
+- The Chroma Addressable RGB Controller: the right report id on Windows, and
+  custom mode before the frame rather than after it, which wiped the
+  colours ([#3](https://github.com/Ar4ikov/openrazer-win/pull/3), thanks
+  @VoyagerVPN).
+
+- A device seen for the first time was sent default lighting nobody had
+  chosen, and changing only the brightness saved "spectrum" beside it to be
+  replayed later ([#4](https://github.com/Ar4ikov/openrazer-win/pull/4),
+  thanks @VoyagerVPN, and a follow-up covering Krakens and the Bluetooth
+  headset).
+
+- The test suite wrote to the real daemon log and Run key of whoever ran it.
+
 ## [1.3.0] - 2026-09-08
 
 ### Added
@@ -327,6 +418,7 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
 - The Kraken headset family uses a separate protocol that is not covered.
 - Razer Synapse must be closed: it holds the device open and competes for the LEDs.
 
+[1.3.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.3.1
 [1.1.2]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.1.2
 [1.1.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.1.0
 [1.0.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.0.1
