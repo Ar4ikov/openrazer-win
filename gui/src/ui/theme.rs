@@ -97,13 +97,13 @@ pub fn apply(ctx: &egui::Context) {
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = BG;
     visuals.window_fill = CARD;
-    visuals.window_stroke = Stroke::new(1.0, BORDER);
+    visuals.window_stroke = Stroke::new(1.0_f32, BORDER);
     visuals.window_corner_radius = CornerRadius::same(RADIUS);
     visuals.menu_corner_radius = CornerRadius::same(RADIUS);
     visuals.extreme_bg_color = Color32::from_rgb(0x0A, 0x0C, 0x0F);
     visuals.faint_bg_color = CARD;
     visuals.selection.bg_fill = ACCENT_DIM;
-    visuals.selection.stroke = Stroke::new(1.0, ACCENT);
+    visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT);
     visuals.hyperlink_color = ACCENT;
     visuals.override_text_color = Some(TEXT);
     let widgets = &mut visuals.widgets;
@@ -111,19 +111,19 @@ pub fn apply(ctx: &egui::Context) {
         w.corner_radius = CornerRadius::same(8);
     }
     widgets.noninteractive.bg_fill = CARD;
-    widgets.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
-    widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT_DIM);
+    widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, BORDER);
+    widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT_DIM);
     widgets.inactive.bg_fill = Color32::from_rgb(0x24, 0x29, 0x33);
     widgets.inactive.weak_bg_fill = Color32::from_rgb(0x24, 0x29, 0x33);
     widgets.inactive.bg_stroke = Stroke::NONE;
-    widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT);
+    widgets.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT);
     widgets.hovered.bg_fill = Color32::from_rgb(0x2D, 0x33, 0x40);
     widgets.hovered.weak_bg_fill = Color32::from_rgb(0x2D, 0x33, 0x40);
-    widgets.hovered.bg_stroke = Stroke::new(1.0, Color32::from_rgb(0x3A, 0x41, 0x50));
-    widgets.hovered.fg_stroke = Stroke::new(1.5, TEXT);
+    widgets.hovered.bg_stroke = Stroke::new(1.0_f32, Color32::from_rgb(0x3A, 0x41, 0x50));
+    widgets.hovered.fg_stroke = Stroke::new(1.5_f32, TEXT);
     widgets.active.bg_fill = ACCENT_DIM;
     widgets.active.weak_bg_fill = ACCENT_DIM;
-    widgets.active.fg_stroke = Stroke::new(1.5, Color32::WHITE);
+    widgets.active.fg_stroke = Stroke::new(1.5_f32, Color32::WHITE);
     style.visuals = visuals;
     ctx.set_style(style);
 }

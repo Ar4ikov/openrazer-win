@@ -298,7 +298,7 @@ fn banner(ui: &mut egui::Ui, handled: bool, service_running: bool) {
     };
     Frame::new()
         .fill(colour.gamma_multiply(0.10))
-        .stroke(Stroke::new(1.0, colour.gamma_multiply(0.5)))
+        .stroke(Stroke::new(1.0_f32, colour.gamma_multiply(0.5)))
         .corner_radius(CornerRadius::same(10))
         .inner_margin(Margin::symmetric(16, 12))
         .show(ui, |ui| {

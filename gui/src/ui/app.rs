@@ -299,7 +299,7 @@ impl App {
             let (rect, _) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::hover());
             let painter = ui.painter();
             painter.circle_filled(rect.center(), 14.0, Color32::from_rgb(0x12, 0x16, 0x1C));
-            painter.circle_stroke(rect.center(), 10.5, Stroke::new(4.0, ACCENT));
+            painter.circle_stroke(rect.center(), 10.5, Stroke::new(4.0_f32, ACCENT));
             painter.circle_filled(rect.center(), 4.5, Color32::from_rgb(0xB8, 0xFF, 0xA8));
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
@@ -393,7 +393,7 @@ impl App {
         let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
         let painter = ui.painter();
         painter.rect_filled(rect, CornerRadius::same(10), if selected { CARD_ACTIVE } else if response.hovered() { CARD_HOVER } else { CARD });
-        painter.rect_stroke(rect, CornerRadius::same(10), Stroke::new(1.0, BORDER), StrokeKind::Inside);
+        painter.rect_stroke(rect, CornerRadius::same(10), Stroke::new(1.0_f32, BORDER), StrokeKind::Inside);
         painter.circle_filled(pos2(rect.left() + 18.0, rect.center().y), 4.5, dot);
         painter.text(pos2(rect.left() + 32.0, rect.center().y), egui::Align2::LEFT_CENTER, text, egui::FontId::proportional(13.5), TEXT);
         painter.text(pos2(rect.right() - 16.0, rect.center().y), egui::Align2::RIGHT_CENTER, theme::icon::SETTINGS, theme::icon_font(15.0), TEXT_DIM);
@@ -497,7 +497,7 @@ impl App {
             let (rect, _) = ui.allocate_exact_size(vec2(84.0, 84.0), Sense::hover());
             let painter = ui.painter();
             painter.rect_filled(rect, CornerRadius::same(14), Color32::from_rgb(0x1E, 0x23, 0x2C));
-            painter.rect_stroke(rect, CornerRadius::same(14), Stroke::new(1.0, BORDER), StrokeKind::Inside);
+            painter.rect_stroke(rect, CornerRadius::same(14), Stroke::new(1.0_f32, BORDER), StrokeKind::Inside);
             match device.image.as_ref().and_then(|url| self.images.get(ui.ctx(), url)) {
                 Some(texture) => {
                     let size = fit(texture.size_vec2(), rect.shrink(8.0).size());
@@ -549,7 +549,7 @@ impl App {
             }
         });
         let y = ui.cursor().top() + 6.0;
-        ui.painter().line_segment([pos2(bar.left(), y), pos2(bar.left() + ui.available_width(), y)], Stroke::new(1.0, BORDER));
+        ui.painter().line_segment([pos2(bar.left(), y), pos2(bar.left() + ui.available_width(), y)], Stroke::new(1.0_f32, BORDER));
         ui.add_space(6.0);
     }
 
@@ -567,7 +567,7 @@ impl App {
             .show(ctx, |ui| {
                 Frame::new()
                     .fill(if toast.error { Color32::from_rgb(0x3A, 0x1C, 0x1F) } else { Color32::from_rgb(0x1D, 0x2B, 0x1E) }.gamma_multiply(fade))
-                    .stroke(Stroke::new(1.0, if toast.error { theme::DANGER } else { ACCENT_BORDER }.gamma_multiply(fade)))
+                    .stroke(Stroke::new(1.0_f32, if toast.error { theme::DANGER } else { ACCENT_BORDER }.gamma_multiply(fade)))
                     .corner_radius(CornerRadius::same(10))
                     .inner_margin(Margin::symmetric(16, 12))
                     .show(ui, |ui| {
@@ -618,7 +618,7 @@ pub fn empty_state(ui: &mut egui::Ui, title: &str, text: &str, action: Option<im
         ui.add_space(ui.available_height() * 0.28);
         let (rect, _) = ui.allocate_exact_size(vec2(64.0, 64.0), Sense::hover());
         let painter = ui.painter();
-        painter.circle_stroke(rect.center(), 28.0, Stroke::new(3.0, Color32::from_rgb(0x2A, 0x30, 0x3B)));
+        painter.circle_stroke(rect.center(), 28.0, Stroke::new(3.0_f32, Color32::from_rgb(0x2A, 0x30, 0x3B)));
         painter.circle_filled(rect.center(), 8.0, Color32::from_rgb(0x2A, 0x30, 0x3B));
         ui.add_space(10.0);
         ui.label(RichText::new(title).font(theme::bold(20.0)));

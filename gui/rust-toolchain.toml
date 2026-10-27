@@ -1,0 +1,5 @@
+[toolchain]
+# Pinned so a lint new to a later stable cannot fail CI on unchanged code.
+channel = "1.96.0"
+components = ["clippy"]
+profile = "minimal"

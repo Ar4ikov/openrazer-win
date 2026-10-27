@@ -83,7 +83,9 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
       - name: Install Rust
-        run: rustup toolchain install stable --profile minimal && rustup default stable
+        # The version pinned in gui/rust-toolchain.toml.
+        working-directory: gui
+        run: rustup toolchain install
       - name: Build
         working-directory: gui
         run: cargo build --release --locked

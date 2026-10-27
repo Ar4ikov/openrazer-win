@@ -9,7 +9,7 @@ use egui::{
 pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     Frame::new()
         .fill(CARD)
-        .stroke(Stroke::new(1.0, BORDER))
+        .stroke(Stroke::new(1.0_f32, BORDER))
         .corner_radius(CornerRadius::same(theme::RADIUS))
         .inner_margin(Margin::same(18))
         .show(ui, |ui| {
@@ -54,7 +54,7 @@ pub fn segmented<T: PartialEq + Clone>(ui: &mut Ui, options: &[(T, String)], cur
     let mut changed = false;
     Frame::new()
         .fill(Color32::from_rgb(0x12, 0x15, 0x1B))
-        .stroke(Stroke::new(1.0, BORDER))
+        .stroke(Stroke::new(1.0_f32, BORDER))
         .corner_radius(CornerRadius::same(9))
         .inner_margin(Margin::same(3))
         .show(ui, |ui| {
@@ -161,7 +161,7 @@ pub fn effect_preview(painter: &egui::Painter, rect: Rect, effect: &str, colours
             painter.rect_filled(inner, CornerRadius::same(5), if effect == "on" { Color32::from_rgb(0xDD, 0xF5, 0xD8) } else { c1 });
         }
         "none" => {
-            painter.line_segment([inner.left_bottom() + vec2(10.0, -8.0), inner.right_top() + vec2(-10.0, 8.0)], Stroke::new(2.0, TEXT_FAINT));
+            painter.line_segment([inner.left_bottom() + vec2(10.0, -8.0), inner.right_top() + vec2(-10.0, 8.0)], Stroke::new(2.0_f32, TEXT_FAINT));
         }
         "spectrum" | "spectrum_soft" => {
             let hues: Vec<Color32> = (0..=12).map(|i| hsv(i as f32 / 12.0, 0.85, 1.0)).collect();
@@ -195,7 +195,7 @@ pub fn effect_preview(painter: &egui::Painter, rect: Rect, effect: &str, colours
             let centre = inner.center();
             for (i, radius) in [6.0, 13.0, 20.0, 27.0].iter().enumerate() {
                 let colour = if effect == "ripple_random" { hsv(i as f32 * 0.22, 0.8, 1.0) } else { c1 };
-                painter.circle_stroke(centre, *radius, Stroke::new(2.0, colour.gamma_multiply(1.0 - i as f32 * 0.22)));
+                painter.circle_stroke(centre, *radius, Stroke::new(2.0_f32, colour.gamma_multiply(1.0 - i as f32 * 0.22)));
             }
             painter.circle_filled(centre, 3.5, c1);
         }
@@ -235,7 +235,7 @@ pub fn effect_tile(ui: &mut Ui, effect: &str, label: &str, colours: &[Color32; 3
     let painter = ui.painter_at(rect.expand(2.0));
     let fill = if selected { CARD_ACTIVE } else if response.hovered() { CARD_HOVER } else { CARD };
     painter.rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
-    let stroke = if selected { Stroke::new(1.5, ACCENT) } else { Stroke::new(1.0, BORDER) };
+    let stroke = if selected { Stroke::new(1.5_f32, ACCENT) } else { Stroke::new(1.0_f32, BORDER) };
     painter.rect_stroke(rect, CornerRadius::same(theme::RADIUS), stroke, StrokeKind::Inside);
     let preview = Rect::from_min_size(rect.min + vec2(10.0, 10.0), vec2(rect.width() - 20.0, 46.0));
     effect_preview(&painter.with_clip_rect(preview), preview, effect, colours);
@@ -254,12 +254,12 @@ pub fn swatch(ui: &mut Ui, colour: Color32, size: f32, selected: bool) -> Respon
     let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
     let painter = ui.painter();
     if selected {
-        painter.rect_stroke(rect.expand(3.0), CornerRadius::same(10), Stroke::new(2.0, TEXT), StrokeKind::Outside);
+        painter.rect_stroke(rect.expand(3.0), CornerRadius::same(10), Stroke::new(2.0_f32, TEXT), StrokeKind::Outside);
     } else if response.hovered() {
-        painter.rect_stroke(rect.expand(2.0), CornerRadius::same(10), Stroke::new(1.0, TEXT_DIM), StrokeKind::Outside);
+        painter.rect_stroke(rect.expand(2.0), CornerRadius::same(10), Stroke::new(1.0_f32, TEXT_DIM), StrokeKind::Outside);
     }
     painter.rect_filled(rect, CornerRadius::same(8), colour);
-    painter.rect_stroke(rect, CornerRadius::same(8), Stroke::new(1.0, Color32::from_white_alpha(28)), StrokeKind::Inside);
+    painter.rect_stroke(rect, CornerRadius::same(8), Stroke::new(1.0_f32, Color32::from_white_alpha(28)), StrokeKind::Inside);
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -320,7 +320,7 @@ pub fn battery(ui: &mut Ui, level: f64, charging: bool) {
     let (rect, _) = ui.allocate_exact_size(vec2(30.0, 14.0), Sense::hover());
     let painter = ui.painter();
     let body = Rect::from_min_size(rect.min, vec2(26.0, 14.0));
-    painter.rect_stroke(body, CornerRadius::same(3), Stroke::new(1.3, TEXT_DIM), StrokeKind::Inside);
+    painter.rect_stroke(body, CornerRadius::same(3), Stroke::new(1.3_f32, TEXT_DIM), StrokeKind::Inside);
     painter.rect_filled(Rect::from_min_size(pos2(body.right() + 1.0, body.center().y - 3.0), vec2(2.5, 6.0)), CornerRadius::same(1), TEXT_DIM);
     let colour = if charging { ACCENT } else if level < 20.0 { theme::DANGER } else if level < 40.0 { theme::WARN } else { ACCENT };
     let fill = Rect::from_min_size(body.min + vec2(2.5, 2.5), vec2((body.width() - 5.0) * (level.clamp(0.0, 100.0) / 100.0) as f32, body.height() - 5.0));
