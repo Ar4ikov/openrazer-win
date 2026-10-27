@@ -262,6 +262,19 @@ def test_argb_frames_go_to_the_wide_collection(persistence):
 
 # -- persistence ------------------------------------------------------------
 
+@pytest.mark.parametrize('read_default', [False, True])
+def test_defaults_do_not_turn_into_a_lighting_restore_request(keyboard, read_default):
+    device, fake = keyboard
+    before = device.persistence.as_dict()
+    if read_default:
+        assert device.persistence.get(device.serial, 'backlight', 'brightness') == 75
+        assert device.persistence.as_dict() == before
+    device.restore()
+    assert fake.state.brightness == {}
+    assert fake.state.led_effect == {}
+    assert device.persistence.as_dict() == before
+
+
 def test_restore_reapplies_the_stored_effect(keyboard):
     device, fake = keyboard
     device.set_static(7, 8, 9)
@@ -270,6 +283,37 @@ def test_restore_reapplies_the_stored_effect(keyboard):
     device.restore()
     assert len(fake.sent_reports) > before
     assert bytes(last_report(fake, 0x03, 0x0A).arguments[1:4]) == bytes((7, 8, 9))
+
+
+def test_saved_lighting_is_restored_after_reloading_the_existing_json_format(persistence):
+    from openrazer_win.core.persistence import Persistence
+
+    device, _ = make_device(KEYBOARD_PID, persistence)
+    try:
+        serial = device.serial
+        device.set_static(7, 8, 9)
+        device.set_brightness(60)
+        persistence.save()
+    finally:
+        device.close()
+    restored, fake = make_device(KEYBOARD_PID, Persistence(persistence.path))
+    fake.state.serial = serial
+    try:
+        restored.restore()
+        assert restored.get_brightness() == 60
+        assert bytes(last_report(fake, 0x03, 0x0A).arguments[1:4]) == bytes((7, 8, 9))
+    finally:
+        restored.close()
+
+
+def test_reading_default_colours_returns_an_independent_value(keyboard):
+    device, _ = keyboard
+    before = device.persistence.as_dict()
+    colours = device.persistence.get(device.serial, 'backlight', 'colors')
+    colours[0] = 42
+    assert device.persistence.get(device.serial, 'backlight', 'colors') == [
+        0, 255, 0, 0, 255, 255, 0, 0, 255]
+    assert device.persistence.as_dict() == before
 
 
 def test_persistence_survives_a_reload(persistence, tmp_path):

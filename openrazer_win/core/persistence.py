@@ -7,6 +7,7 @@ job ``persistence.conf`` does in upstream OpenRazer.
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -91,7 +92,18 @@ class Persistence:
         return state
 
     def get(self, serial: str, zone: str, key: str) -> Any:
-        return self.zone(serial, zone).get(key)
+        state = self.saved_zone(serial, zone)
+        if state is not None and key in state:
+            return state[key]
+        return copy.deepcopy(DEFAULT_ZONE_STATE.get(key))
+
+    def saved_zone(self, serial: str, zone: str) -> Optional[dict]:
+        """Чтение defaults не создаёт запрос на восстановление подсветки."""
+        with self._lock:
+            device = self._data.get(serial, {})
+            zones = device.get('zones', {}) if isinstance(device, dict) else {}
+            state = zones.get(zone) if isinstance(zones, dict) else None
+            return copy.deepcopy(state) if isinstance(state, dict) else None
 
     def set(self, serial: str, zone: str, key: str, value: Any) -> None:
         with self._lock:
