@@ -6,6 +6,60 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-27
+
+### Added
+
+- **OpenRazer Studio**, a new app (`studio/`), and an installer for it. It is
+  laid out the way Razer Synapse is: *Home* with every device and its most
+  used settings, *Devices*, *Lighting*, *Macros*, *Integrations* and
+  *Settings*, in English and Russian. The classic control panel is still
+  released beside it, unchanged.
+  - **Devices drawn from their own photos.** Each device's product photo is
+    traced into a line drawing; a keyboard's key layout is fitted onto the
+    keycaps in it (ANSI or ISO, with or without macro keys), and a mouse's
+    logo and wheel are found where the photo shows them lit. The drawing
+    glows in the device's current lighting, key by key.
+  - **Per-key lighting in layers** (*Lighting › Studio*): static, gradient,
+    breathing, spectrum, rainbow wave, starlight, reactive and ripple layers,
+    painted onto keys by clicking or dragging, with a live preview.
+  - **Profiles by app**: a profile linked to a game or program is applied
+    while it is in front, and a default one when it is not.
+  - A **macro library**: macros built step by step, recorded in the window,
+    or text and programs, put on any macro key.
+  - *All lights off*, one look on every device, a warning (and a button) when
+    Razer Synapse is running, devices that are plugged in but not supported,
+    update checks, and a report to attach when asking for help.
+- **An installer that can repair and remove what it installs.**
+  `openrazer-studio-setup.exe` installs Studio and the daemon for the current
+  user, with no administrator prompt, and registers in *Settings › Apps*.
+  Repair compares every file with the copy inside it and puts back anything
+  missing or damaged, restores the Start menu entry and starting with
+  Windows, and sets aside settings files that no longer read. Uninstall
+  removes everything it put on the machine and asks before removing
+  settings. Both work without a download, and silently for scripts.
+- The daemon draws **layered per-key lighting** itself (`effect.set` with
+  `layers`), so it keeps going with no window open. A stack of static layers
+  is sent once rather than redrawn every frame.
+- **Host-drawn effects survive a restart**: the daemon remembers the live
+  effect of each device -- layers, ripple, smooth wave -- and starts it again
+  when the device comes back, and profiles save and restore it.
+- Release files come with `SHA256SUMS.txt`.
+
+### Changed
+
+- Giving the backlight an effect of the device's own now stops and forgets a
+  host-drawn effect on it, whichever program asked -- before, only the
+  control panel knew to stop it first.
+- `effect.set` reports an effect a device cannot draw as *not supported* and a
+  malformed one as *invalid parameters*, rather than as an internal error;
+  `effect.status` includes each running effect's options.
+
+### Fixed
+
+- Host-drawn effects on an ARGB controller switched it to custom mode after
+  writing each frame, which wipes the frame on that controller.
+
 ### Security
 
 - The control panel no longer depends on glib 0.18, which has an unsound
@@ -527,6 +581,7 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
 - The Kraken headset family uses a separate protocol that is not covered.
 - Razer Synapse must be closed: it holds the device open and competes for the LEDs.
 
+[1.5.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.5.0
 [1.4.2]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.4.2
 [1.4.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.4.1
 [1.4.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.4.0
