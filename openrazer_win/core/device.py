@@ -441,11 +441,16 @@ class RazerDevice:
         `rows` is an iterable of ``(row_index, start_col, colours)`` where
         `colours` is a flat RGB byte sequence.
         """
+        attribute = self._effect_attribute('backlight', 'custom')
+        # На ARGB включение custom после кадра сбрасывает уже записанные цвета.
+        if self.transport.argb_info is not None:
+            self.run(attribute, b'1')
         for row_index, start_col, colours in rows:
             colours = bytes(colours)
             stop_col = start_col + len(colours) // 3 - 1
             self.set_key_row(bytes((row_index, start_col, stop_col)) + colours)
-        self.run(self._effect_attribute('backlight', 'custom'), b'1')
+        if self.transport.argb_info is None:
+            self.run(attribute, b'1')
 
     # -- mouse: DPI and polling -------------------------------------------
     def get_dpi(self) -> tuple:
