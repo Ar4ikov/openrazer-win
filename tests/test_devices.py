@@ -42,6 +42,26 @@ def test_serial_falls_back_when_the_device_will_not_answer(persistence):
 
 # -- effects ----------------------------------------------------------------
 
+@pytest.mark.parametrize('pid', [0x0226, 0x0C04, 0x0F20])
+def test_inherited_brightness_is_available_through_the_public_api(pid, persistence):
+    device, _ = make_device(pid, persistence)
+    try:
+        assert device.capabilities()['zones']['backlight']['brightness']
+        device.set_brightness(42)
+        assert device.get_brightness() == 42
+    finally:
+        device.close()
+
+
+def test_regeneration_preserves_basilisk_v3_driver_mode(persistence):
+    device, fake = make_device(0x0099, persistence)
+    try:
+        device.enter_driver_mode()
+        assert fake.state.device_mode == (0x00, 0x00)
+    finally:
+        device.close()
+
+
 def test_static_effect_reaches_the_wire(keyboard):
     device, fake = keyboard
     device.set_static(255, 0, 0)
