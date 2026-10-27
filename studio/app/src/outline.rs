@@ -310,6 +310,28 @@ pub fn trace(photo: &RgbaImage) -> Option<Trace> {
     };
     let r = ((extent as f32) * 0.03).round().clamp(3.0, 14.0) as usize;
     let opened = morph(&morph(&body, w, h, r, false), w, h, r, true);
+    // But a cable is a loose end, joined to the body at one end only. A thin
+    // part that joins two pieces of the body -- the side of a headband, from
+    // the ears down to a cup -- is the device itself, and is put back.
+    let taken: Vec<bool> = (0..w * h).map(|i| body[i] && !opened[i]).collect();
+    let (strands, strand_sizes) = components(&taken, w, h);
+    let (pieces, _) = components(&opened, w, h);
+    let mut joins: Vec<Vec<u32>> = vec![Vec::new(); strand_sizes.len()];
+    for (i, &strand) in strands.iter().enumerate() {
+        let strand = strand as usize;
+        if strand == 0 {
+            continue;
+        }
+        let (x, y) = (i % w, i / w);
+        let around = [(x > 0).then(|| i - 1), (x + 1 < w).then(|| i + 1), (y > 0).then(|| i - w), (y + 1 < h).then(|| i + w)];
+        for j in around.into_iter().flatten() {
+            let piece = pieces[j];
+            if piece != 0 && !joins[strand].contains(&piece) {
+                joins[strand].push(piece);
+            }
+        }
+    }
+    let opened: Vec<bool> = (0..w * h).map(|i| opened[i] || (strands[i] != 0 && joins[strands[i] as usize].len() >= 2)).collect();
     let (labels, sizes) = components(&opened, w, h);
     let largest = sizes.iter().copied().max().unwrap_or(0);
     if largest < w * h / 50 {
@@ -367,14 +389,22 @@ pub fn trace(photo: &RgbaImage) -> Option<Trace> {
     let strong = strengths.get(strengths.len() * 92 / 100).copied().unwrap_or(1.0).max(0.05);
     let detail: Vec<f32> = thin.iter().map(|&m| ((m / strong - 0.2) / 0.8).clamp(0.0, 1.0)).collect();
 
-    let mut lines = vec![0u8; w * h];
+    // The outer line, softened so its pixel steps do not show when the
+    // drawing is scaled up.
+    let mut edge = vec![0.0f32; w * h];
     for y in 0..h {
         for x in 0..w {
             let i = y * w + x;
-            let outer = body[i]
-                && (x == 0 || y == 0 || x + 1 == w || y + 1 == h || !body[i - 1] || !body[i + 1] || !body[i - w] || !body[i + w]);
-            lines[i] = if outer { 255 } else { (detail[i] * 175.0) as u8 };
+            if body[i] && (x == 0 || y == 0 || x + 1 == w || y + 1 == h || !body[i - 1] || !body[i + 1] || !body[i - w] || !body[i + w]) {
+                edge[i] = 1.0;
+            }
         }
+    }
+    let edge = blur(&edge, w, h, 1);
+    let mut lines = vec![0u8; w * h];
+    for i in 0..w * h {
+        let outer = (edge[i] * 2.6).min(1.0);
+        lines[i] = (outer * 255.0).max(detail[i] * 175.0) as u8;
     }
     let field = blur(&detail, w, h, ((w as f32) / 400.0).round().max(1.0) as usize);
 
@@ -465,7 +495,7 @@ mod tests {
         let edge = trace.contour[0];
         let near = (-2..=2)
             .flat_map(|dy| (-2..=2).map(move |dx| (dx, dy)))
-            .any(|(dx, dy)| trace.lines[((edge.1 as isize + dy) as usize) * trace.w + (edge.0 as isize + dx) as usize] == 255);
+            .any(|(dx, dy)| trace.lines[((edge.1 as isize + dy) as usize) * trace.w + (edge.0 as isize + dx) as usize] >= 200);
         assert!(near);
     }
 }

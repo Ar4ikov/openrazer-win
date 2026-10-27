@@ -128,8 +128,6 @@ fn decode(bytes: &[u8]) -> Option<(ColorImage, Arc<RgbaImage>)> {
 /// where it is nearly the backdrop's colour. Anything already transparent, or
 /// not on one flat colour, is left as it is.
 pub fn cut_out_backdrop(image: &RgbaImage) -> Option<RgbaImage> {
-    const NEAR: i32 = 5;
-    const FAR: i32 = 14;
     let (w, h) = image.dimensions();
     if w < 3 || h < 3 {
         return None;
@@ -138,9 +136,13 @@ pub fn cut_out_backdrop(image: &RgbaImage) -> Option<RgbaImage> {
     if backdrop[3] < 255 {
         return None;
     }
+    // A black device on a near-black backdrop is only a few levels off it, so
+    // dark backdrops get tight margins; white ones carry more JPEG noise.
+    let dark = backdrop.0[..3].iter().all(|&c| c < 64);
+    let (near, far): (i32, i32) = if dark { (3, 8) } else { (6, 16) };
     let distance = |p: &image::Rgba<u8>| (0..3).map(|i| (p[i] as i32 - backdrop[i] as i32).abs()).max().unwrap_or(0);
     let border: Vec<(u32, u32)> = (0..w).flat_map(|x| [(x, 0), (x, h - 1)]).chain((0..h).flat_map(|y| [(0, y), (w - 1, y)])).collect();
-    let flat = border.iter().filter(|&&(x, y)| distance(image.get_pixel(x, y)) <= NEAR + 2).count();
+    let flat = border.iter().filter(|&&(x, y)| distance(image.get_pixel(x, y)) <= near + 2).count();
     if flat * 50 < border.len() * 49 {
         return None;
     }
@@ -154,11 +156,11 @@ pub fn cut_out_backdrop(image: &RgbaImage) -> Option<RgbaImage> {
             continue;
         }
         let d = distance(image.get_pixel(x, y));
-        if d >= FAR {
+        if d >= far {
             continue;
         }
-        out.get_pixel_mut(x, y)[3] = if d <= NEAR { 0 } else { (255 * (d - NEAR) / (FAR - NEAR)) as u8 };
-        if d > NEAR {
+        out.get_pixel_mut(x, y)[3] = if d <= near { 0 } else { (255 * (d - near) / (far - near)) as u8 };
+        if d > near {
             continue; // an edge: faded, but the backdrop does not spread past it
         }
         for (dx, dy) in [(1i64, 0i64), (-1, 0), (0, 1), (0, -1)] {

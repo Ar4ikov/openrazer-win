@@ -161,7 +161,7 @@ impl Art {
             "headset" => {
                 let found = traced.is_some();
                 let trace = traced.unwrap_or_else(|| synthetic(Silhouette::Headset));
-                let shapes = headset_shapes(&trace, &leds);
+                let shapes = headset_shapes(&trace, &leds, caps["name"].as_str().unwrap_or_default());
                 Art::finish(trace, shapes, found, None, 0.0)
             }
             _ => {
@@ -778,8 +778,44 @@ fn run_points(run: &[Pos2], n: usize) -> Vec<Pos2> {
     (0..n).map(|i| run[i * (run.len() - 1) / (n - 1)]).collect()
 }
 
-fn headset_shapes(trace: &Trace, leds: &Leds) -> Vec<Shape> {
+/// The lit part of a headset on one side, above the cups: a Kraken Kitty's
+/// cat ear.  Its own lit pixels where the photo shows it lit; otherwise, on a
+/// Kitty, the ear's shape itself -- the body standing above the headband.
+fn cat_ear(trace: &Trace, left_side: bool, kitty: bool) -> Option<Geom> {
+    let (top, w, h) = (trace.bbox[1] as f32, trace.bbox_w(), trace.bbox_h());
+    let cx = centre_x(trace);
+    let mut pixels: Vec<u32> = Vec::new();
+    for blob in &trace.lit {
+        if blob.y < top + 0.45 * h && (blob.x < cx) == left_side && (blob.x - cx).abs() > 0.12 * w {
+            pixels.extend_from_slice(&blob.pixels);
+        }
+    }
+    if pixels.is_empty() && kitty {
+        // The ears stand at the top corners, out past the middle of the headband.
+        let bottom = (top + 0.27 * h) as usize;
+        for y in trace.bbox[1]..bottom.min(trace.bbox[3]) {
+            for x in trace.bbox[0]..=trace.bbox[2] {
+                let outward = if left_side { cx - x as f32 } else { x as f32 - cx };
+                if outward > 0.17 * w && trace.body[y * trace.w + x] {
+                    pixels.push((y * trace.w + x) as u32);
+                }
+            }
+        }
+    }
+    if pixels.is_empty() {
+        return None;
+    }
+    let n = pixels.len() as f32;
+    let sx: f32 = pixels.iter().map(|&p| (p as usize % trace.w) as f32).sum();
+    let sy: f32 = pixels.iter().map(|&p| (p as usize / trace.w) as f32).sum();
+    Some(Geom::Pixels(pixels, pos2(sx / n, sy / n), w * 0.1))
+}
+
+fn headset_shapes(trace: &Trace, leds: &Leds, name: &str) -> Vec<Shape> {
     let (left, top, w, h) = (trace.bbox[0] as f32, trace.bbox[1] as f32, trace.bbox_w(), trace.bbox_h());
+    // The Kitty's cat ears light with the cup on their side, left with left.
+    let kitty = name.to_lowercase().contains("kitty");
+    let ears = [cat_ear(trace, true, kitty), cat_ear(trace, false, kitty)];
     // Each ear cup: the middle of the body's lower part on that side.
     let cup = |left_side: bool| {
         let (mut sx, mut sy, mut n) = (0.0f64, 0.0f64, 0usize);
@@ -802,22 +838,35 @@ fn headset_shapes(trace: &Trace, leds: &Leds) -> Vec<Shape> {
     };
     let (l, r) = (cup(true), cup(false));
     let radius = w * 0.13;
+    // Everything one side lights: its cup, and its cat ear if it has one.
+    let side = |left_side: bool, region: Region, label: &str, shapes: &mut Vec<Shape>| {
+        let at = if left_side { l } else { r };
+        shapes.push(Shape { region, geom: Geom::Dot(at, radius), label: label.into() });
+        if let Some(ear) = &ears[if left_side { 0 } else { 1 }] {
+            shapes.push(Shape { region, geom: ear.clone(), label: label.into() });
+        }
+    };
     let mut shapes = Vec::new();
     for zone in &leds.zones {
         match *zone {
-            "left" => shapes.push(Shape { region: Region::Zone("left"), geom: Geom::Dot(l, radius), label: "Left ear".into() }),
-            "right" => shapes.push(Shape { region: Region::Zone("right"), geom: Geom::Dot(r, radius), label: "Right ear".into() }),
+            "left" => side(true, Region::Zone("left"), "Left ear", &mut shapes),
+            "right" => side(false, Region::Zone("right"), "Right ear", &mut shapes),
             "backlight" | "logo" => {
-                shapes.push(Shape { region: Region::Zone(zone), geom: Geom::Dot(l, radius), label: "Both ears".into() });
-                shapes.push(Shape { region: Region::Zone(zone), geom: Geom::Dot(r, radius), label: "Both ears".into() });
+                side(true, Region::Zone(zone), "Both ears", &mut shapes);
+                side(false, Region::Zone(zone), "Both ears", &mut shapes);
             }
             _ => {}
         }
     }
     for index in 0..leds.cells() {
-        let at = if index % 2 == 0 { l } else { r };
-        let lifted = pos2(at.x, at.y - (index / 2) as f32 * radius * 1.2);
-        shapes.push(Shape { region: Region::Cell(0, index as u8), geom: Geom::Dot(lifted, radius * 0.8), label: format!("LED {}", index + 1) });
+        let label = format!("LED {}", index + 1);
+        if index < 2 {
+            side(index == 0, Region::Cell(0, index as u8), &label, &mut shapes);
+        } else {
+            let at = if index % 2 == 0 { l } else { r };
+            let lifted = pos2(at.x, at.y - (index / 2) as f32 * radius * 1.2);
+            shapes.push(Shape { region: Region::Cell(0, index as u8), geom: Geom::Dot(lifted, radius * 0.8), label });
+        }
     }
     shapes
 }
@@ -1085,7 +1134,9 @@ mod tests {
             } else if name.contains("tartarus") {
                 ("keypad", caps("keypad", Some([4, 8]), &["backlight"]))
             } else if name.contains("kitty") || name.contains("kraken") {
-                ("headset", caps("headset", None, &["backlight", "left", "right"]))
+                let mut caps = caps("headset", Some([1, 2]), &["backlight", "left", "right"]);
+                caps["name"] = "Razer Kraken Kitty V2 BT".into();
+                ("headset", caps)
             } else {
                 ("keyboard", caps("keyboard", Some([6, 22]), &["backlight", "logo"]))
             };
