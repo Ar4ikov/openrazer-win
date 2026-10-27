@@ -271,6 +271,29 @@ def test_the_launch_command_is_quoted_and_windowless():
     assert subprocess.list2cmdline(['a b', 'c']) == '"a b" c'
 
 
+@pytest.mark.skipif(sys.platform != 'win32', reason='Windows consoles')
+def test_a_started_daemon_s_own_children_get_no_console_window():
+    """The frozen daemon's bootloader runs the real program as a child.
+
+    Started with ``DETACHED_PROCESS``, that child found no console to inherit,
+    so Windows gave it a new, visible one -- and closing it killed the daemon.
+    The child must share its parent's console, and that console has no window.
+    """
+    import subprocess
+
+    from openrazer_win.cli import daemon_creation_flags
+
+    report = ('import ctypes; k = ctypes.windll.kernel32; ids = (ctypes.c_uint32 * 8)(); '
+              'print(k.GetConsoleProcessList(ids, 8), bool(k.GetConsoleWindow()))')
+    parent = ('import subprocess, sys; print(subprocess.run([sys.executable, "-c", {0!r}], '
+              'capture_output=True, text=True).stdout.strip())').format(report)
+    result = subprocess.run([sys.executable, '-c', parent], creationflags=daemon_creation_flags(),
+                            capture_output=True, text=True, timeout=60)
+    sharing, window = result.stdout.split()
+    assert int(sharing) >= 2, 'the child got a console of its own'
+    assert window == 'False'
+
+
 def test_stopping_a_dead_daemon_clears_the_stale_endpoint(tmp_path, monkeypatch, capsys):
     """A crashed daemon leaves its endpoint file behind.
 

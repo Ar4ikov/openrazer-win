@@ -171,10 +171,15 @@ fn try_start(mut command: Command) -> Result<(), String> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        // A console of its own that has no window -- not no console at all.
+        // The frozen daemon is a one-file build whose bootloader runs the real
+        // program as a child, and so is pip's openrazer-win.exe launcher: with
+        // DETACHED_PROCESS that child found no console to inherit and Windows
+        // opened a new, visible one for it, and closing that window killed the
+        // daemon. A windowless console is inherited, so nothing shows.
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        command.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        command.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
     }
     command
         .stdin(Stdio::null())

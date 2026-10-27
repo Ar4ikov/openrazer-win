@@ -740,6 +740,20 @@ def child_environment() -> dict:
     return environment
 
 
+def daemon_creation_flags() -> int:
+    """How to start the daemon so it outlives this console and shows nothing.
+
+    A console of its own without a window, in a process group of its own --
+    not ``DETACHED_PROCESS``, which leaves it no console at all.  The frozen
+    daemon is a one-file build whose bootloader runs the real program as a
+    child, and so is pip's ``openrazer-win.exe`` launcher; a detached parent
+    left that child nothing to inherit, so Windows opened a new, visible
+    console for it, and closing that window killed the daemon.
+    """
+    return (getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
+            | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0x00000200))
+
+
 def start_daemon_detached(no_effects: bool = False, timeout: float = 15.0,
                           no_keys: bool = False) -> bool:
     """Spawn the daemon so it outlives this process.  True once it answers.
@@ -756,9 +770,7 @@ def start_daemon_detached(no_effects: bool = False, timeout: float = 15.0,
         command.append('--no-keys')
     creationflags = 0
     if sys.platform == 'win32':
-        # Detach so the daemon outlives this console.
-        creationflags = getattr(subprocess, 'CREATE_NO_WINDOW', 0) | \
-            getattr(subprocess, 'DETACHED_PROCESS', 0)
+        creationflags = daemon_creation_flags()
     subprocess.Popen(command, creationflags=creationflags,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      stdin=subprocess.DEVNULL, close_fds=True,

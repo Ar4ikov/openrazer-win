@@ -82,7 +82,10 @@ def _launch(target: str) -> None:
         if sys.platform == 'win32':
             os.startfile(target)  # noqa: S606 - the user's own binding
             return
-    subprocess.Popen(target, close_fds=True)  # noqa: S603 - the user's own binding
+    # The daemon runs in a console without a window, which a console program
+    # would inherit and so never be seen; it gets one of its own instead.
+    flags = getattr(subprocess, 'CREATE_NEW_CONSOLE', 0) if sys.platform == 'win32' else 0
+    subprocess.Popen(target, close_fds=True, creationflags=flags)  # noqa: S603 - the user's own binding
 
 
 class _Binding:
