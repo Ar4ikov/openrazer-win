@@ -13,7 +13,7 @@ pip install -e ".[dev]"
 ```bash
 pytest                              # 208 tests, no hardware required
 ruff check .
-python tools/simulate_devices.py    # every capability of all 267 devices
+python tools/simulate_devices.py    # every capability of all 274 USB devices
 ```
 
 Everything runs against the built-in emulator, so all three pass on any machine — Windows or not.

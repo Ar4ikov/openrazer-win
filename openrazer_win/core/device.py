@@ -151,6 +151,9 @@ class RazerDevice:
         self._serial: Optional[str] = None
         self._firmware: Optional[str] = None
         self._capabilities: Optional[dict] = None
+        #: Set once this port has put the device into driver mode, so that it
+        #: is handed back on the way out and only then.
+        self._in_driver_mode = False
 
     # -- identity ----------------------------------------------------------
     @property
@@ -257,10 +260,35 @@ class RazerDevice:
         self.run('write:device_mode', bytes((mode & 0xFF, param & 0xFF)),
                  mode=mode, param=param)
 
-    def enter_driver_mode(self) -> None:
-        """Switch a macro-capable device into driver mode, like the daemon does."""
-        if self.info.driver_mode:
+    def enter_driver_mode(self, keys_handled: bool = False) -> None:
+        """Put the device in the mode upstream leaves it in once set up.
+
+        Two layers, as on Linux.  The kernel driver sets a mode when it binds
+        -- most accessories go into driver mode "just to function", keyboards
+        are reset to normal mode -- and that is the ``probe:device_mode``
+        recipe.  The daemon then moves macro-capable devices into driver mode.
+
+        On a keyboard, driver mode hands the macro keys *and the Fn layer* to
+        the host: the firmware stops turning Fn+F1 into Mute and leaves that to
+        whoever reads the vendor report.  So a keyboard only goes there when
+        `keys_handled` says something on this side is reading it; otherwise it
+        stays in normal mode, where the firmware keeps Fn working by itself.
+        """
+        if self.supports('probe:device_mode'):
+            self.run('probe:device_mode')
+        if self.info.driver_mode and (keys_handled or self.driver != 'kbd'):
             self.set_device_mode(0x03, 0x00)
+            self._in_driver_mode = True
+
+    def leave_driver_mode(self) -> None:
+        """Hand the device back to its firmware, as upstream's daemon does on exit.
+
+        A keyboard left in driver mode with nothing reading its vendor report
+        has dead macro keys and a dead Fn layer until it is unplugged.
+        """
+        if self._in_driver_mode:
+            self.set_device_mode(0x00, 0x00)
+            self._in_driver_mode = False
 
     # -- brightness --------------------------------------------------------
     def _brightness_attribute(self, zone: str, write: bool) -> str:

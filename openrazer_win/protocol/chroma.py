@@ -683,6 +683,38 @@ def naga_trinity_effect_static(rgb) -> RazerReport:
     return report
 
 
+# The rest of the Naga Trinity family's effects.  Upstream moved the Naga V2
+# Pro onto these after its standard extended-matrix effects turned out not to
+# light it at all.
+
+def _naga_trinity_effect(size: int, *arguments: int) -> RazerReport:
+    report = get_razer_report(0x0F, 0x02, size)
+    for index, value in enumerate(arguments):
+        report.set_argument(index, value)
+    return report
+
+
+def naga_trinity_effect_breathing_single(rgb) -> RazerReport:
+    return _naga_trinity_effect(0x09, 0x00, 0x00, 0x02, 0x01, 0x00, 0x01, *_as_rgb(rgb))
+
+
+def naga_trinity_effect_breathing_dual(rgb1, rgb2) -> RazerReport:
+    return _naga_trinity_effect(0x0C, 0x00, 0x00, 0x02, 0x02, 0x00, 0x02,
+                                *_as_rgb(rgb1), *_as_rgb(rgb2))
+
+
+def naga_trinity_effect_breathing_random() -> RazerReport:
+    return _naga_trinity_effect(0x06, 0x00, 0x00, 0x02)
+
+
+def naga_trinity_effect_spectrum() -> RazerReport:
+    return _naga_trinity_effect(0x06, 0x00, 0x00, 0x03)
+
+
+def naga_trinity_effect_none() -> RazerReport:
+    return _naga_trinity_effect(0x06, 0x00, 0x00, 0x00)
+
+
 def misc_set_scroll_mode(scroll_mode: int) -> RazerReport:
     report = get_razer_report(0x02, 0x14, 0x02)
     report.set_argument(0, VarStore.VARSTORE)
@@ -767,7 +799,9 @@ def _register_builders() -> None:
             continue
         if name.startswith(_BUILDER_PREFIXES):
             BUILDERS['razer_chroma_' + name] = value
-    BUILDERS['razer_naga_trinity_effect_static'] = naga_trinity_effect_static
+    for name, value in list(globals().items()):
+        if name.startswith('naga_trinity_effect_') and callable(value):
+            BUILDERS['razer_' + name] = value
     BUILDERS['razer_basilisk_mobile_effect_static'] = basilisk_mobile_effect_static
     BUILDERS['get_razer_report'] = get_razer_report
 

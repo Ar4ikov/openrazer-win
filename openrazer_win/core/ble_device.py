@@ -289,7 +289,7 @@ class BleDevice:
         self.persistence.set(self.serial, AGGREGATE_ZONE, 'brightness',
                              razer_ble.level_to_percentage(level))
 
-    def enter_driver_mode(self) -> None:
+    def enter_driver_mode(self, keys_handled: bool = False) -> None:
         """Tell the device the host is taking the lighting over.
 
         Synapse sends this before applying any effect.  What it means beyond

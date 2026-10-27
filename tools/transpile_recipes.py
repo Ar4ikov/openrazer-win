@@ -373,7 +373,7 @@ IGNORED_PREFIXES = (
     'mutex_lock', 'mutex_unlock', 'return', 'break', 'continue', 'memset', 'memcpy',
     'WARN', 'msleep', 'usleep', 'print_erroneous_report', 'goto', 'kfree',
     'fallthrough', 'strscpy', 'strncpy', 'serial_string[', 'device->',
-    'exit:', 'buf++', 'remaining++', 'dev_get_drvdata',
+    'exit:', 'buf++', 'remaining++', 'remaining--', 'dev_get_drvdata',
 )
 
 RGB_DECL_RE = re.compile(r'^struct razer_rgb (\w+)\s*=\s*\{(.+)\}$')
@@ -402,32 +402,55 @@ DECL_RE = re.compile(
     r'[\s*]+\w+')
 
 
+#: ``err = razer_set_device_mode(device, 0x03, 0x00)`` inside a handler or a
+#: probe function.  Dropping these with the rest of the ``err =`` noise is how
+#: the Charging Pad and Mouse Dock Pro lost the mode switch their custom frames
+#: depend on, so they are inlined from the driver's own helper instead.
+#: Helpers that produce a value, and the variable the value is bound to.
+VALUE_HELPERS = {'razer_get_active_varstore': 'active_varstore'}
+
+#: Where a helper's ``return <value>`` leaves the value for its caller.
+RETURN_VAR = '__return__'
+
+DEVICE_MODE_CALL_RE = re.compile(
+    r'^(?:\w+\s*=\s*)?razer_set_device_mode\s*\(\s*\w+\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)$')
+
+
 class Emitter:
     def __init__(self, consts: dict[str, int], pid: Optional[int], blade_pids: set,
-                 driver: str, unhandled: list):
+                 driver: str, unhandled: list, helpers: Optional[dict] = None,
+                 helper: bool = False):
         self.consts = consts
         self.pid = pid
         self.blade_pids = blade_pids
         self.driver = driver
         self.unhandled = unhandled
+        #: Driver-local helpers that handlers call, as ``name -> nodes``.
+        self.helpers = helpers or {}
+        #: Inside a helper every ``return`` ends the helper -- there is no
+        #: ``return count`` convention to honour, and the final
+        #: ``return razer_send_payload(...)`` is the send itself.
+        self.helper = helper
 
     # -- condition folding -------------------------------------------------
     def fold_condition(self, cond: str) -> Optional[bool]:
         """Return True/False when the condition is decidable for this PID."""
         text = ' '.join(cond.split())
         if 'is_blade_laptop' in text:
-            if self.pid is None:
+            if '&&' in text or '||' in text:
                 return None
-            base = self.pid in self.blade_pids
+            # Every Blade gets its own recipe (see emit_per_pid), so the
+            # catch-all one is by definition not running on a Blade.
+            base = self.pid in self.blade_pids if self.pid is not None else False
             return (not base) if text.startswith('!') else base
         if 'usb_pid' in text or 'idProduct' in text:
-            if self.pid is None:
-                return None
             names = re.findall(r'USB_DEVICE_ID_\w+', text)
             if not names or '&&' in text:
                 return None
+            # Likewise every product id a test names gets its own recipe, so
+            # the catch-all is never one of them.
             values = {self.consts.get(name) for name in names}
-            present = self.pid in values
+            present = self.pid in values if self.pid is not None else False
             if '!=' in text and '==' not in text:
                 return not present
             return present
@@ -514,25 +537,76 @@ class Emitter:
             return {'op': m.group(1), 'value': int(m.group(2))}
         return None
 
+    def inline_helper(self, name: str, arguments: dict,
+                      result: Optional[str] = None) -> dict:
+        """A call to one of the driver's helpers, as this device's own steps."""
+        body = Emitter(self.consts, self.pid, self.blade_pids, self.driver,
+                       self.unhandled, helper=True).emit(self.helpers[name])
+        step = {'op': 'call',
+                'vars': {key: parse_expr(value, self.consts)
+                         for key, value in arguments.items()},
+                'steps': body}
+        if result is not None:
+            step['result'] = result
+        return step
+
     def emit_pid_switch(self, node: Node) -> list[dict]:
-        default_body: Optional[list[Node]] = None
-        for labels, body in node.cases:
+        default_index: Optional[int] = None
+        for index, (labels, _body) in enumerate(node.cases):
             if 'default' in labels:
-                default_body = body
+                default_index = index
             if self.pid is None:
                 continue
             names = [lab for lab in labels if lab != 'default']
             values = {self.consts.get(name) for name in names}
             if self.pid in values:
-                return self.emit(body)
-        if default_body is not None:
-            return self.emit(default_body)
+                return self.emit(self._case_run(node.cases, index))
+        if default_index is not None:
+            return self.emit(self._case_run(node.cases, default_index))
         return []
+
+    @staticmethod
+    def _case_run(cases: list, index: int) -> list:
+        """A case's statements, plus the cases it falls through into.
+
+        The kernel marks an intended fall-through with ``fallthrough;``.  The
+        Charging Pad's handlers use it to switch device mode and then share the
+        next case's report, so stopping at the case boundary loses the report.
+        """
+        run: list = []
+        for _labels, body in cases[index:]:
+            run.extend(body)
+            last = body[-1] if body else None
+            if last is None or last.kind != 'stmt' or                     last.text.strip().rstrip(';').strip() != 'fallthrough':
+                break
+        return run
 
     def emit_stmt(self, stmt: str) -> list[dict]:
         text = stmt.strip().rstrip(';').strip()
         if not text:
             return []
+        if self.helper and re.match(r'return\b', text):
+            inner = text[len('return'):].strip()
+            if 'razer_send_payload' in inner:
+                return self.emit_stmt(inner) + [{'op': 'stop'}]
+            value = parse_expr(inner, self.consts)
+            if isinstance(value, dict) and value.get('k') == 'raw':
+                return [{'op': 'stop'}]          # an error code: nothing to hand back
+            return [{'op': 'let', 'name': RETURN_VAR, 'value': value}, {'op': 'stop'}]
+
+        m = DEVICE_MODE_CALL_RE.match(text)
+        if m and 'razer_set_device_mode' in self.helpers:
+            return [self.inline_helper('razer_set_device_mode',
+                                       {'mode': m.group(1), 'param': m.group(2)})]
+
+        # A helper whose value is used inside the statement, such as
+        # ``razer_get_active_varstore(device)`` as a builder argument: ask the
+        # device first, then use the answer as a plain variable.
+        for name, variable in VALUE_HELPERS.items():
+            call = re.compile(re.escape(name) + r'\s*\(\s*\w+\s*\)')
+            if name in self.helpers and call.search(text):
+                return ([self.inline_helper(name, {}, result=variable)]
+                        + self.emit_stmt(call.sub(variable, text)))
         # ``return count;`` is the kernel's "handled, we're done" exit.  It
         # matters: the ARGB controller returns there and must NOT fall through
         # to the shared razer_send_payload tail.  Error returns carry no such
@@ -747,6 +821,55 @@ def extract_transport(driver_dir: str, consts: dict) -> dict:
     return transport
 
 
+HELPER_RE = re.compile(
+    r'static\s+(?:int|unsigned\s+char)\s+(?:__must_check\s+)?'
+    r'(razer_set_device_mode|razer_get_active_varstore)\s*\(([^)]*)\)\s*\{')
+PROBE_RE = re.compile(r'static\s+int\s+(razer_\w+_probe)\s*\(([^)]*)\)\s*\{')
+
+
+def _function_body(src: str, match) -> list:
+    brace = match.end() - 1
+    return parse_block(src[brace + 1:_match_brace(src, brace)])
+
+
+def _mentions(node: Node, needle: str) -> bool:
+    if needle in node.text:
+        return True
+    for child in node.children or ():
+        if any(_mentions(n, needle) for n in child):
+            return True
+    for _labels, body in node.cases or ():
+        if any(_mentions(n, needle) for n in body):
+            return True
+    return False
+
+
+def find_mode_nodes(nodes: list) -> list:
+    """The parts of a probe function that decide the device mode.
+
+    A probe function is mostly sysfs file creation, which means nothing here.
+    What does matter is the device mode it leaves the hardware in: the
+    accessory driver puts nearly everything into driver mode "just to
+    function", and the keyboard driver resets to normal mode for the daemon to
+    take over.  Only the product-id decisions around those calls are kept;
+    everything else in the probe is walked through rather than emitted.
+    """
+    found: list = []
+    for node in nodes:
+        if not _mentions(node, 'razer_set_device_mode'):
+            continue
+        is_pid_test = 'usb_pid' in node.text or 'idProduct' in node.text
+        if node.kind == 'stmt' or (node.kind in ('if', 'switch') and is_pid_test):
+            found.append(node)
+        elif node.kind == 'switch':
+            for _labels, body in node.cases or ():
+                found.extend(find_mode_nodes(body))
+        else:
+            for child in node.children or ():
+                found.extend(find_mode_nodes(child))
+    return found
+
+
 def transpile(upstream: str, out_path: str) -> int:
     driver_dir = os.path.join(upstream, 'driver')
     consts, _pid_map = load_constants(driver_dir)
@@ -775,6 +898,31 @@ def transpile(upstream: str, out_path: str) -> int:
             pool.append(steps)
         return pool_index[key]
 
+    def emit_per_pid(nodes: list, pids: set, driver: str, helpers: dict,
+                     keep_empty: bool = False) -> dict:
+        """One recipe per product id named in `nodes`, plus the catch-all.
+
+        A product id whose steps come out empty normally falls back to the
+        catch-all -- for a sysfs handler, empty means the case only rejected
+        the call.  With `keep_empty`, empty is an answer in its own right: a
+        probe that leaves a device's mode alone must not inherit the catch-all
+        that changes it.
+        """
+        if driver == 'kbd':
+            pids = set(pids) | blade_pids
+        default_steps = Emitter(consts, None, blade_pids, driver, unhandled,
+                                helpers).emit(nodes)
+        default_ref = intern(default_steps)
+        per_pid: dict[str, int] = {}
+        for pid in sorted(pids):
+            steps = Emitter(consts, pid, blade_pids, driver, unhandled, helpers).emit(nodes)
+            if not steps and not keep_empty:
+                continue
+            ref = intern(steps)
+            if ref != default_ref:
+                per_pid['{0:04x}'.format(pid)] = ref
+        return {'default': default_ref, 'pids': per_pid}
+
     for driver, filename in DRIVERS.items():
         src = strip_comments(open(os.path.join(driver_dir, filename), encoding='utf-8').read())
         attrs: dict[str, Any] = {}
@@ -784,6 +932,8 @@ def transpile(upstream: str, out_path: str) -> int:
         signatures: dict[str, list] = {}
         for match in FUNC_RE.finditer(src):
             signatures[match.group(1)] = parse_signature(match.group(4))
+
+        helpers = {m.group(1): _function_body(src, m) for m in HELPER_RE.finditer(src)}
 
         for match in FUNC_RE.finditer(src):
             attr_name = match.group(3)
@@ -808,20 +958,20 @@ def transpile(upstream: str, out_path: str) -> int:
             pids = {consts[name] for name in re.findall(r'USB_DEVICE_ID_\w+', body_src)
                     if name in consts}
 
-            default_steps = Emitter(consts, None, blade_pids, driver, unhandled).emit(nodes)
-            default_ref = intern(default_steps)
+            attrs['{0}:{1}'.format(direction, attr_name)] = emit_per_pid(
+                nodes, pids, driver, helpers)
 
-            per_pid: dict[str, int] = {}
-            for pid in sorted(pids):
-                steps = Emitter(consts, pid, blade_pids, driver, unhandled).emit(nodes)
-                if not steps:
-                    continue
-                ref = intern(steps)
-                if ref != default_ref:
-                    per_pid['{0:04x}'.format(pid)] = ref
-
-            attrs['{0}:{1}'.format(direction, attr_name)] = {
-                'default': default_ref, 'pids': per_pid}
+        # What the kernel does to the device mode when it binds, recorded as a
+        # pseudo-attribute the port runs when it takes a device over.
+        probe = PROBE_RE.search(src)
+        if probe is not None:
+            probe_src = src[probe.end() - 1:_match_brace(src, probe.end() - 1)]
+            nodes = find_mode_nodes(_function_body(src, probe))
+            if nodes:
+                pids = {consts[name] for name in re.findall(r'USB_DEVICE_ID_\w+', probe_src)
+                        if name in consts}
+                attrs['probe:device_mode'] = emit_per_pid(nodes, pids, driver, helpers,
+                                                          keep_empty=True)
         result['drivers'][driver] = attrs
 
     # The Kraken family speaks a different protocol entirely (address writes to

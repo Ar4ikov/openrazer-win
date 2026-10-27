@@ -8,7 +8,7 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
 [![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-green)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/openrazer-win)](https://pypi.org/project/openrazer-win/)
-[![Devices: 268](https://img.shields.io/badge/devices-268-orange)](https://ar4ikov.github.io/openrazer-win/#devices)
+[![Devices: 275](https://img.shields.io/badge/devices-275-orange)](https://ar4ikov.github.io/openrazer-win/#devices)
 
 [Documentation](https://ar4ikov.github.io/openrazer-win/) ·
 [Supported devices](https://ar4ikov.github.io/openrazer-win/#devices) ·
@@ -24,7 +24,7 @@ on Windows.
 
 This is a full port. The protocol layer moves into user space on top of the Windows HID class driver,
 D-Bus is replaced by a loopback JSON-RPC daemon, and **every device quirk is transpiled directly from
-the upstream C sources** — so all 267 devices OpenRazer knows about behave the same way here as they
+the upstream C sources** — so all 274 USB devices OpenRazer knows about behave the same way here as they
 do on Linux, plus one Bluetooth headset upstream cannot reach at all.
 
 ```console
@@ -226,7 +226,7 @@ against every known product id, and emits a small program per (attribute, device
  {"op": "send"}]
 ```
 
-565 distinct recipes cover all 267 devices. `openrazer_win/devices/recipes.py` interprets them at
+603 distinct recipes cover all 274 USB devices. `openrazer_win/devices/recipes.py` interprets them at
 runtime. Tracking a new upstream release means re-running the transpiler, not rewriting Python.
 
 **The device database** comes from the same place: `tools/extract_device_db.py` imports upstream's
@@ -239,17 +239,17 @@ to have a backlight it does not have.
 
 | Category | Devices |
 |---|---:|
-| Mice | 113 |
-| Keyboards & laptops | 112 |
+| Mice | 117 |
+| Keyboards & laptops | 115 |
 | Accessories (docks, stands, ARGB controllers) | 17 |
 | Headsets (Kraken protocol) | 8 |
 | Headsets (Bluetooth LE) | 1 |
 | Mousepads | 8 |
 | Keypads | 7 |
 | eGPU enclosures | 2 |
-| **Total** | **268** |
+| **Total** | **275** |
 
-166 have addressable matrices; 76 report battery level. The full searchable list is
+169 have addressable matrices; 81 report battery level. The full searchable list is
 [on the documentation site](https://ar4ikov.github.io/openrazer-win/#devices), or run
 `openrazer-win supported`.
 
@@ -347,7 +347,7 @@ pip install -e ".[dev]"
 
 pytest                              # 315 tests, no hardware needed
 ruff check .
-python tools/simulate_devices.py    # every capability of all 267 devices
+python tools/simulate_devices.py    # every capability of all 274 USB devices
 ```
 
 The test suite runs against a built-in device emulator that validates CRCs and answers the protocol,

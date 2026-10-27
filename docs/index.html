@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OpenRazer for Windows</title>
-<meta name="description" content="Control Razer keyboards, mice and mousepads on Windows 10 and 11 without Synapse and without a kernel driver. A user-space port of OpenRazer covering 268 devices.">
+<meta name="description" content="Control Razer keyboards, mice and mousepads on Windows 10 and 11 without Synapse and without a kernel driver. A user-space port of OpenRazer covering 275 devices.">
 <meta property="og:title" content="OpenRazer for Windows">
-<meta property="og:description" content="Razer device control on Windows 10/11 — no Synapse, no kernel driver, no dependencies. 268 devices.">
+<meta property="og:description" content="Razer device control on Windows 10/11 — no Synapse, no kernel driver, no dependencies. 275 devices.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://ar4ikov.github.io/openrazer-win/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%90%8D%3C/text%3E%3C/svg%3E">
@@ -195,7 +195,7 @@ footer p { margin: 0 0 8px; }
       daemon, and every per-device quirk is transpiled straight from the upstream C sources.
     </p>
     <div class="badges">
-      <span class="badge on">268 devices</span>
+      <span class="badge on">275 devices</span>
       <span class="badge">Zero dependencies</span>
       <span class="badge">No kernel driver</span>
       <span class="badge">No admin rights</span>
@@ -407,7 +407,7 @@ headset.set_colour_zones([(<span class="c-str">255</span>, <span class="c-str">0
  {<span class="c-str">"op"</span>: <span class="c-str">"txid"</span>, <span class="c-str">"value"</span>: {<span class="c-str">"k"</span>: <span class="c-str">"const"</span>, <span class="c-str">"value"</span>: 63}},
  {<span class="c-str">"op"</span>: <span class="c-str">"send"</span>}]</code></pre>
     <p class="sub">
-      565 distinct recipes cover all 267 devices, and a runtime interpreter executes them. Tracking
+      603 distinct recipes cover all 274 USB devices, and a runtime interpreter executes them. Tracking
       a new upstream release means re-running the transpiler, not rewriting Python.
     </p>
 
@@ -430,7 +430,7 @@ headset.set_colour_zones([(<span class="c-str">255</span>, <span class="c-str">0
         <span class="ico">🧪</span>
         <h4>Tested without hardware</h4>
         <p>A built-in emulator validates CRCs and answers the protocol. 315 tests plus a fleet
-          simulation exercise every capability of all 267 devices on every commit.</p>
+          simulation exercise every capability of all 274 USB devices on every commit.</p>
       </div>
       <div class="card">
         <span class="ico">⌨️</span>
@@ -481,7 +481,7 @@ headset.set_colour_zones([(<span class="c-str">255</span>, <span class="c-str">0
     </p>
 
     <div class="filters">
-      <input type="search" id="device-search" placeholder="Search 268 devices — try “BlackWidow”, “Viper”, “0203”…" aria-label="Search devices">
+      <input type="search" id="device-search" placeholder="Search 275 devices — try “BlackWidow”, “Viper”, “0203”…" aria-label="Search devices">
       <button class="chip" data-type="" aria-pressed="true">All</button>
       <button class="chip" data-type="keyboard" aria-pressed="false">Keyboards</button>
       <button class="chip" data-type="mouse" aria-pressed="false">Mice</button>

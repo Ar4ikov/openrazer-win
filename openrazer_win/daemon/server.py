@@ -105,6 +105,15 @@ class DaemonService:
     def stop(self) -> None:
         if self.effects is not None:
             self.effects.stop()
+        for device in self.manager.devices:
+            leave = getattr(device, 'leave_driver_mode', None)
+            if leave is None:
+                continue
+            try:
+                leave()
+            except Exception:  # noqa: BLE001 - shutting down regardless
+                logger.debug('could not hand %s back to its firmware', device.name,
+                             exc_info=True)
         self.manager.close()
 
     def poll_hotplug(self) -> None:

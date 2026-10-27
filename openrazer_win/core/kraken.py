@@ -116,7 +116,7 @@ class KrakenDevice(RazerDevice):
             '{0} reports its firmware over input reports, which this port '
             'does not read'.format(self.name))
 
-    def enter_driver_mode(self) -> None:
+    def enter_driver_mode(self, keys_handled: bool = False) -> None:
         """Krakens have no driver mode."""
 
     # -- sending -----------------------------------------------------------

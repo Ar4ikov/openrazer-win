@@ -243,6 +243,10 @@ _COMPARISONS: dict = {
 Sender = Callable[[RazerReport, bool], Optional[RazerReport]]
 
 
+#: Where a helper's ``return <value>`` is left for the step that called it.
+RETURN_VAR = '__return__'
+
+
 class _Stop(Exception):
     """Raised internally when a recipe hits the kernel's ``return count``."""
 
@@ -254,6 +258,28 @@ def execute(steps: list, env: Environment, send: Sender) -> Environment:
     except _Stop:
         pass
     return env
+
+
+def _call(step: dict, env: Environment, send: Sender) -> None:
+    """Run a driver helper the handler calls, such as ``razer_set_device_mode``.
+
+    The helper is a C function with its own locals: its request, its response
+    and its arguments must not leak into the handler that called it, and its
+    ``return`` ends only the helper.
+    """
+    saved = (env.vars, env.reports, env.response)
+    env.vars = dict(env.vars)
+    env.vars.update({name: evaluate(value, env) for name, value in step['vars'].items()})
+    env.reports = {}
+    try:
+        _execute(step['steps'], env, send)
+    except _Stop:
+        pass
+    finally:
+        returned = env.vars.get(RETURN_VAR)
+        env.vars, env.reports, env.response = saved
+    if step.get('result'):
+        env.vars[step['result']] = returned
 
 
 def _execute(steps: list, env: Environment, send: Sender) -> Environment:
@@ -304,6 +330,9 @@ def _execute(steps: list, env: Environment, send: Sender) -> Environment:
             env.sent += 1
             if response is not None:
                 env.response = response
+
+        elif op == 'call':
+            _call(step, env, send)
 
         elif op == 'let':
             env.vars[step['name']] = evaluate(step['value'], env)
@@ -417,6 +446,8 @@ ACTIONABLE_OPS = frozenset(('build', 'for_each_row', 'send_argb'))
 def is_actionable(steps: list) -> bool:
     for step in steps:
         if step['op'] in ACTIONABLE_OPS:
+            return True
+        if step['op'] == 'call' and is_actionable(step['steps']):
             return True
         if step['op'] == 'if_count':
             if is_actionable(step['then']) or is_actionable(step.get('else', [])):
