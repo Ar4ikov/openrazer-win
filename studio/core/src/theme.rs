@@ -1,38 +1,69 @@
-//! Colours, type and the look of every widget.
+//! Colours, type, spacing and the look of egui's own widgets.
 //!
-//! Near-black surfaces, hairline borders, small capitals for headings and one
-//! green accent: the look Razer's own software has taught its users to read.
+//! Charcoal surfaces in three steps (window, panel, raised), hairline borders
+//! that get one step brighter on hover, inputs sunk darker than the panel they
+//! sit on, and one green accent kept for what is on, selected or primary.
+//! Nothing changes size between states: hover and selection only change colour.
 
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Stroke, TextStyle};
 use std::sync::Arc;
 
-pub const BG: Color32 = Color32::from_rgb(0x06, 0x07, 0x08);
-pub const RAIL: Color32 = Color32::from_rgb(0x0B, 0x0C, 0x0E);
-pub const BAR: Color32 = Color32::from_rgb(0x0B, 0x0C, 0x0E);
-pub const SURFACE: Color32 = Color32::from_rgb(0x0F, 0x11, 0x14);
-pub const SURFACE_HI: Color32 = Color32::from_rgb(0x17, 0x1A, 0x1E);
-pub const SURFACE_HOVER: Color32 = Color32::from_rgb(0x1D, 0x21, 0x26);
-pub const SURFACE_ACTIVE: Color32 = Color32::from_rgb(0x10, 0x20, 0x11);
-pub const WELL: Color32 = Color32::from_rgb(0x08, 0x09, 0x0B);
-pub const BORDER: Color32 = Color32::from_rgb(0x1E, 0x21, 0x26);
-pub const BORDER_HI: Color32 = Color32::from_rgb(0x2C, 0x30, 0x37);
-pub const TEXT: Color32 = Color32::from_rgb(0xF3, 0xF4, 0xF6);
-pub const TEXT_DIM: Color32 = Color32::from_rgb(0xA0, 0xA5, 0xAE);
-pub const TEXT_FAINT: Color32 = Color32::from_rgb(0x5E, 0x63, 0x6B);
+// -- surfaces -------------------------------------------------------------------------
+/// The window behind the pages.
+pub const BG: Color32 = Color32::from_rgb(0x13, 0x14, 0x16);
+/// The navigation column, a step darker than the page.
+pub const NAV: Color32 = Color32::from_rgb(0x0C, 0x0D, 0x0E);
+/// A panel holding one group of settings.
+pub const SURFACE: Color32 = Color32::from_rgb(0x1B, 0x1D, 0x20);
+/// Rows, tiles and secondary buttons inside a panel.
+pub const SURFACE_HI: Color32 = Color32::from_rgb(0x23, 0x26, 0x2A);
+pub const SURFACE_HOVER: Color32 = Color32::from_rgb(0x2B, 0x2F, 0x34);
+/// Something selected: a dark green wash.
+pub const SURFACE_ACTIVE: Color32 = Color32::from_rgb(0x1A, 0x2B, 0x17);
+/// Inputs and the device canvas: sunk below the panel.
+pub const WELL: Color32 = Color32::from_rgb(0x0F, 0x10, 0x12);
+
+// -- lines ----------------------------------------------------------------------------
+/// Panel edges and dividers.
+pub const BORDER: Color32 = Color32::from_rgb(0x2A, 0x2D, 0x32);
+/// The edge of anything to type in or click.
+pub const BORDER_HI: Color32 = Color32::from_rgb(0x3B, 0x40, 0x47);
+pub const BORDER_HOVER: Color32 = Color32::from_rgb(0x5A, 0x61, 0x6A);
+
+// -- text -----------------------------------------------------------------------------
+pub const TEXT: Color32 = Color32::from_rgb(0xEC, 0xED, 0xEF);
+pub const TEXT_DIM: Color32 = Color32::from_rgb(0xA4, 0xA9, 0xB0);
+pub const TEXT_FAINT: Color32 = Color32::from_rgb(0x6F, 0x75, 0x7D);
+
+// -- accent and states ------------------------------------------------------------------
 pub const ACCENT: Color32 = Color32::from_rgb(0x44, 0xD6, 0x2C);
-pub const ACCENT_HI: Color32 = Color32::from_rgb(0x7C, 0xFF, 0x5B);
-pub const ACCENT_DIM: Color32 = Color32::from_rgb(0x2C, 0x8C, 0x1D);
-pub const ACCENT_DEEP: Color32 = Color32::from_rgb(0x12, 0x2B, 0x10);
-pub const ON_ACCENT: Color32 = Color32::from_rgb(0x04, 0x10, 0x03);
-pub const DANGER: Color32 = Color32::from_rgb(0xFF, 0x5C, 0x6A);
-pub const WARN: Color32 = Color32::from_rgb(0xFF, 0xC8, 0x4A);
-pub const INFO: Color32 = Color32::from_rgb(0x52, 0xB4, 0xFF);
+pub const ACCENT_HI: Color32 = Color32::from_rgb(0x5E, 0xE6, 0x46);
+pub const ACCENT_DIM: Color32 = Color32::from_rgb(0x2E, 0x8F, 0x1E);
+pub const ON_ACCENT: Color32 = Color32::from_rgb(0x07, 0x14, 0x05);
+pub const DANGER: Color32 = Color32::from_rgb(0xF0, 0x55, 0x62);
+pub const WARN: Color32 = Color32::from_rgb(0xF2, 0xB8, 0x3C);
+pub const INFO: Color32 = Color32::from_rgb(0x52, 0xAE, 0xF5);
 
-pub const RADIUS: u8 = 12;
+// -- shape and spacing --------------------------------------------------------------------
+/// Panels and tiles.
+pub const RADIUS: u8 = 8;
+/// Buttons, fields and rows.
+pub const RADIUS_SM: u8 = 5;
+/// The grid everything is spaced on: between panels and columns.
+pub const GAP: f32 = 16.0;
+/// Between controls side by side.
+pub const SPACING: f32 = 8.0;
+/// Inside a panel.
+pub const PAD: i8 = 16;
+/// Buttons, fields, selects.
+pub const CONTROL_H: f32 = 32.0;
+pub const CONTROL_H_SM: f32 = 28.0;
+/// Width of the label column of a settings row, at most.
+pub const LABEL_W: f32 = 260.0;
 
-/// The soft drop shadow raised panels sit on.
+/// The soft shadow under popups and dialogs.
 pub fn shadow() -> egui::epaint::Shadow {
-    egui::epaint::Shadow { offset: [0, 8], blur: 24, spread: 0, color: Color32::from_black_alpha(150) }
+    egui::epaint::Shadow { offset: [0, 6], blur: 20, spread: 0, color: Color32::from_black_alpha(140) }
 }
 
 /// A soft round glow: `colour` at the centre, fading out by `radius`.
@@ -50,12 +81,10 @@ pub fn glow(painter: &egui::Painter, centre: egui::Pos2, radius: egui::Vec2, col
     painter.add(egui::Shape::mesh(mesh));
 }
 
-/// The window's background: near black, lit from the corners in the accent.
-pub fn backdrop(painter: &egui::Painter, rect: egui::Rect) {
-    painter.rect_filled(rect, CornerRadius::ZERO, BG);
-    let size = rect.size();
-    glow(painter, rect.left_top() + egui::vec2(size.x * 0.18, -size.y * 0.05), egui::vec2(size.x * 0.55, size.y * 0.5), ACCENT.gamma_multiply(0.10));
-    glow(painter, rect.right_bottom() + egui::vec2(-size.x * 0.05, size.y * 0.05), egui::vec2(size.x * 0.45, size.y * 0.45), Color32::from_rgb(0x1C, 0x9C, 0x8C).gamma_multiply(0.06));
+/// The mark: a green ring around a light core.
+pub fn logo(painter: &egui::Painter, centre: egui::Pos2, size: f32) {
+    painter.circle_stroke(centre, size * 0.36, Stroke::new(size * 0.11, ACCENT));
+    painter.circle_filled(centre, size * 0.13, Color32::from_rgb(0xC8, 0xFF, 0xB8));
 }
 
 /// Segoe UI if Windows has it, with egui's own fonts behind for anything it
@@ -86,7 +115,7 @@ pub fn install_fonts(ctx: &egui::Context) {
         fonts.families.insert(FontFamily::Name(family.into()), chain);
     };
     add_family("bold", &["seguisb.ttf", "segoeuib.ttf"]);
-    add_family("heavy", &["seguibl.ttf", "segoeuib.ttf"]);
+    add_family("heavy", &["segoeuib.ttf", "seguisb.ttf"]);
     add_family("light", &["segoeuil.ttf", "segoeuisl.ttf"]);
     if let Some(icons) = load("SegoeIcons.ttf").or_else(|| load("segmdl2.ttf")) {
         fonts.font_data.insert("icons".into(), Arc::new(FontData::from_owned(icons)));
@@ -97,6 +126,11 @@ pub fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
+pub fn body(size: f32) -> FontId {
+    FontId::proportional(size)
+}
+
+/// Semibold: titles, labels that matter, numbers.
 pub fn bold(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name("bold".into()))
 }
@@ -174,6 +208,9 @@ pub mod icon {
     pub const PALETTE: &str = "\u{E790}";
     pub const GLOBE: &str = "\u{E774}";
     pub const HOMEAUTO: &str = "\u{E80F}";
+    pub const STAR: &str = "\u{E734}";
+    pub const STAR_FILLED: &str = "\u{E735}";
+    pub const TOOLS: &str = "\u{EC7A}";
 }
 
 pub fn apply(ctx: &egui::Context) {
@@ -182,56 +219,71 @@ pub fn apply(ctx: &egui::Context) {
     style.text_styles = [
         (TextStyle::Small, FontId::proportional(12.0)),
         (TextStyle::Body, FontId::proportional(14.0)),
-        (TextStyle::Button, FontId::proportional(13.5)),
+        (TextStyle::Button, FontId::proportional(14.0)),
         (TextStyle::Heading, bold(22.0)),
         (TextStyle::Monospace, FontId::monospace(13.0)),
     ]
     .into();
-    style.spacing.item_spacing = egui::vec2(10.0, 10.0);
-    style.spacing.button_padding = egui::vec2(16.0, 7.0);
-    style.spacing.slider_width = 260.0;
-    style.spacing.interact_size.y = 28.0;
-    style.spacing.combo_width = 180.0;
-    style.spacing.window_margin = Margin::same(14);
-    style.spacing.scroll.bar_width = 6.0;
+    style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+    style.spacing.button_padding = egui::vec2(12.0, 6.0);
+    style.spacing.slider_width = 220.0;
+    style.spacing.interact_size = egui::vec2(32.0, CONTROL_H);
+    style.spacing.combo_width = 200.0;
+    style.spacing.combo_height = 320.0;
+    style.spacing.menu_margin = Margin::same(6);
+    style.spacing.window_margin = Margin::same(PAD);
+    style.spacing.scroll.bar_width = 8.0;
     style.spacing.scroll.floating = true;
+    style.spacing.scroll.floating_allocated_width = 0.0;
+    style.spacing.icon_width = 16.0;
+    style.spacing.icon_width_inner = 8.0;
+    style.interaction.selectable_labels = false;
 
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = BG;
     visuals.window_fill = SURFACE;
     visuals.window_stroke = Stroke::new(1.0_f32, BORDER_HI);
-    visuals.window_corner_radius = CornerRadius::same(RADIUS + 2);
+    visuals.window_corner_radius = CornerRadius::same(RADIUS);
     visuals.window_shadow = shadow();
     visuals.popup_shadow = shadow();
-    visuals.menu_corner_radius = CornerRadius::same(RADIUS);
+    visuals.menu_corner_radius = CornerRadius::same(RADIUS_SM + 1);
     visuals.extreme_bg_color = WELL;
     visuals.faint_bg_color = SURFACE;
-    visuals.selection.bg_fill = ACCENT_DIM;
+    visuals.code_bg_color = WELL;
+    visuals.selection.bg_fill = Color32::from_rgb(0x2C, 0x5A, 0x22);
+    // The focus ring of anything typed into.
     visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT);
     visuals.hyperlink_color = ACCENT;
-    visuals.override_text_color = Some(TEXT);
+    visuals.override_text_color = None;
     visuals.slider_trailing_fill = true;
     visuals.handle_shape = egui::style::HandleShape::Circle;
+    visuals.striped = false;
     let widgets = &mut visuals.widgets;
     for w in [&mut widgets.noninteractive, &mut widgets.inactive, &mut widgets.hovered, &mut widgets.active, &mut widgets.open] {
-        w.corner_radius = CornerRadius::same(10);
+        w.corner_radius = CornerRadius::same(RADIUS_SM);
+        // Never grow on hover: a growing widget nudges its neighbours.
+        w.expansion = 0.0;
     }
     widgets.noninteractive.bg_fill = SURFACE;
+    widgets.noninteractive.weak_bg_fill = SURFACE;
     widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, BORDER);
-    widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT_DIM);
+    widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT);
     widgets.inactive.bg_fill = SURFACE_HI;
     widgets.inactive.weak_bg_fill = SURFACE_HI;
-    widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER);
+    widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER_HI);
     widgets.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT);
     widgets.hovered.bg_fill = SURFACE_HOVER;
     widgets.hovered.weak_bg_fill = SURFACE_HOVER;
-    widgets.hovered.bg_stroke = Stroke::new(1.0_f32, BORDER_HI);
-    widgets.hovered.fg_stroke = Stroke::new(1.5_f32, TEXT);
-    widgets.active.bg_fill = ACCENT_DIM;
-    widgets.active.weak_bg_fill = ACCENT_DIM;
+    widgets.hovered.bg_stroke = Stroke::new(1.0_f32, BORDER_HOVER);
+    widgets.hovered.fg_stroke = Stroke::new(1.0_f32, TEXT);
+    widgets.active.bg_fill = SURFACE_HOVER;
+    widgets.active.weak_bg_fill = SURFACE_HOVER;
     widgets.active.bg_stroke = Stroke::new(1.0_f32, ACCENT);
-    widgets.active.fg_stroke = Stroke::new(1.5_f32, Color32::WHITE);
+    widgets.active.fg_stroke = Stroke::new(1.0_f32, TEXT);
+    widgets.open.bg_fill = SURFACE_HOVER;
     widgets.open.weak_bg_fill = SURFACE_HOVER;
+    widgets.open.bg_stroke = Stroke::new(1.0_f32, ACCENT);
+    widgets.open.fg_stroke = Stroke::new(1.0_f32, TEXT);
     style.visuals = visuals;
     ctx.set_style(style);
 }

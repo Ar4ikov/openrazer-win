@@ -47,10 +47,16 @@ fn main() -> eframe::Result<()> {
     }
 
     let icon = egui::IconData { rgba: shell::icon_rgba(64), width: 64, height: 64 };
+    // For checking the design at other sizes, with the screenshot hook in
+    // `ui::app`: `OPENRAZER_STUDIO_SIZE=1000x660`.
+    let size = std::env::var("OPENRAZER_STUDIO_SIZE")
+        .ok()
+        .and_then(|s| s.split_once('x').and_then(|(w, h)| Some([w.trim().parse::<f32>().ok()?, h.trim().parse::<f32>().ok()?])))
+        .unwrap_or([1320.0, 860.0]);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(shell::WINDOW_TITLE)
-            .with_inner_size([1320.0, 860.0])
+            .with_inner_size(size)
             .with_min_inner_size([1000.0, 660.0])
             .with_visible(!background)
             .with_icon(Arc::new(icon)),

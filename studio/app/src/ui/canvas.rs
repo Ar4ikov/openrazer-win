@@ -100,6 +100,8 @@ pub struct Picked {
     pub swept: Option<Vec<usize>>,
     pub modifiers: egui::Modifiers,
     pub secondary: bool,
+    /// Clicked anywhere on the canvas, on a shape or not.
+    pub any_click: bool,
 }
 
 pub struct View<'a> {
@@ -194,6 +196,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, serial: &str, art: &Art, colours: 
         }
     }
 
+    if picked.hovered.is_some() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
     if let (Some(index), Some(_)) = (picked.hovered, pointer) {
         let label = &art.shapes[index].label;
         if !label.is_empty() && !response.dragged() {
@@ -227,6 +232,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, serial: &str, art: &Art, colours: 
     }
     if response.clicked() {
         picked.clicked = picked.hovered;
+        picked.any_click = true;
     }
     if response.secondary_clicked() {
         picked.clicked = picked.hovered;

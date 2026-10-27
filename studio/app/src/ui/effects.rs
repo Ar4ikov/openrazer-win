@@ -149,21 +149,6 @@ pub fn effects_for(caps: &Value, zone: &str) -> Vec<String> {
     effects
 }
 
-/// The handful of effects offered as one-click choices on the home page.
-pub fn quick_effects(caps: &Value, zone: &str) -> Vec<String> {
-    let all = effects_for(caps, zone);
-    ["static", "breath_single", "spectrum", "wave", "none"].iter().filter(|e| all.iter().any(|a| a == *e)).map(|e| e.to_string()).collect()
-}
-
-pub fn parse_hex(text: &str) -> Option<Color32> {
-    let hex = text.trim().trim_start_matches('#');
-    if hex.len() != 6 {
-        return None;
-    }
-    let value = u32::from_str_radix(hex, 16).ok()?;
-    Some(Color32::from_rgb((value >> 16) as u8, (value >> 8) as u8, value as u8))
-}
-
 pub fn hex(c: Color32) -> String {
     format!("#{:02X}{:02X}{:02X}", c.r(), c.g(), c.b())
 }
@@ -210,11 +195,8 @@ mod tests {
     }
 
     #[test]
-    fn hex_colours_parse_both_ways() {
-        let colour = Color32::from_rgb(0x44, 0xD6, 0x2C);
-        assert_eq!(parse_hex("#44D62C"), Some(colour));
-        assert_eq!(parse_hex("44d62c"), Some(colour));
-        assert_eq!(parse_hex("#44D6"), None);
-        assert_eq!(hex(colour), "#44D62C");
+    fn colours_are_written_as_hex() {
+        assert_eq!(hex(Color32::from_rgb(0x44, 0xD6, 0x2C)), "#44D62C");
+        assert_eq!(hex(Color32::from_rgb(0, 5, 255)), "#0005FF");
     }
 }

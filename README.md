@@ -209,14 +209,16 @@ DeviceManager(direct=True)
 The app most people want: everything Synapse does for these devices, laid out the way Synapse taught
 Razer owners to look for it, in English or Russian.
 
-- **Home** — every device drawn in its own light, as it is lit right now, with what you change most
-  beside it: one-click effects and colours, brightness, DPI stages, game mode. *All lights off* puts
-  every device in the dark and back.
-- **Devices** — DPI with stages, polling rate, battery and sleep, the macro keys, details, and
-  **profiles**: save what a device shows, put it back, and link a profile to a game or app so it is
-  applied whenever that app is in front.
-- **Lighting**, two ways. *Quick*: click a part of the device — the logo, the wheel, the keys — and
-  pick an effect, its colours and speed; or apply the same look to every device at once. *Studio*:
+- **Home** — a tile per device, drawn in its own light as it is lit right now, with what you change
+  most beside it: effect, colour, brightness, DPI stage, game mode. *All lights off* puts every
+  device in the dark and back.
+- **Each device** — listed down the left, with tabs as in Synapse: *Performance* (DPI with stages,
+  polling rate), *Lighting*, *Power* (battery, sleep), *Profiles*, *Keys* and *About*. Profiles save
+  what a device shows and put it back, and a profile linked to a game or app is applied whenever
+  that app is in front.
+- **Lighting**, two ways. *Quick effects*: click a part of the device — the logo, the wheel, the
+  keys, a Kraken Kitty's cat ears — and pick an effect, its colours and speed; or apply the same look
+  to every device at once. *Studio*:
   per-key lighting in layers, Chroma Studio style. Each layer is one effect — static, gradient,
   breathing, spectrum, rainbow wave, starlight, reactive, ripple — painted onto the keys you click or
   drag over; upper layers cover lower ones. The daemon draws the result, so it keeps running with

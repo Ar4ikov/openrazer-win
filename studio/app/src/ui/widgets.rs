@@ -3,9 +3,12 @@
 
 use super::effects::{self, PALETTE};
 use crate::preview;
-use egui::{epaint::Mesh, pos2, vec2, Color32, CornerRadius, FontId, Pos2, Rect, Response, RichText, Sense, Shape, Stroke, StrokeKind, Ui};
-use openrazer_studio_core::theme::{self, ACCENT, BORDER, SURFACE, SURFACE_ACTIVE, SURFACE_HOVER, TEXT, TEXT_DIM, TEXT_FAINT, WELL};
+use egui::{epaint::Mesh, pos2, vec2, Align, Color32, CornerRadius, Layout, Pos2, Rect, Response, RichText, Sense, Shape, Stroke, StrokeKind, Ui};
+use openrazer_studio_core::theme::{self, ACCENT, BORDER, BORDER_HI, BORDER_HOVER, SURFACE_ACTIVE, SURFACE_HI, SURFACE_HOVER, TEXT, TEXT_DIM, TEXT_FAINT, WELL};
 use openrazer_studio_core::{t, widgets};
+
+/// The height of an effect tile.
+pub const TILE_HEIGHT: f32 = 84.0;
 
 fn gradient(painter: &egui::Painter, rect: Rect, colours: &[Color32]) {
     let mut mesh = Mesh::default();
@@ -25,13 +28,13 @@ fn gradient(painter: &egui::Painter, rect: Rect, colours: &[Color32]) {
 
 /// A strip of LEDs showing an effect as it runs, `t` seconds in.
 pub fn effect_strip(painter: &egui::Painter, rect: Rect, effect: &str, colours: &[Color32; 3], speed: i64, direction: i64, t: f32) {
-    painter.rect_filled(rect, CornerRadius::same(4), WELL);
+    painter.rect_filled(rect, CornerRadius::same(3), WELL);
     if effect == "none" {
-        painter.line_segment([rect.left_bottom() + vec2(12.0, -10.0), rect.right_top() + vec2(-12.0, 10.0)], Stroke::new(2.0_f32, TEXT_FAINT));
+        painter.line_segment([rect.left_bottom() + vec2(12.0, -8.0), rect.right_top() + vec2(-12.0, 8.0)], Stroke::new(1.5_f32, TEXT_FAINT));
         return;
     }
     let cells = 12;
-    let inner = rect.shrink(5.0);
+    let inner = rect.shrink(4.0);
     let w = inner.width() / cells as f32;
     let mut stops = Vec::new();
     for i in 0..cells {
@@ -54,57 +57,77 @@ pub fn effect_strip(painter: &egui::Painter, rect: Rect, effect: &str, colours: 
         painter.rect_filled(cell, CornerRadius::same(2), colour);
     }
     // A soft glow under the strip, like light on a desk.
-    let glow = Rect::from_min_max(pos2(inner.left(), inner.bottom() - 2.0), pos2(inner.right(), inner.bottom() + 3.0));
-    gradient(painter, glow, &stops.iter().map(|c| c.gamma_multiply(0.5)).collect::<Vec<_>>());
+    let glow = Rect::from_min_max(pos2(inner.left(), inner.bottom() - 1.0), pos2(inner.right(), inner.bottom() + 3.0));
+    gradient(painter, glow, &stops.iter().map(|c| c.gamma_multiply(0.4)).collect::<Vec<_>>());
 }
 
-/// A selectable tile showing an effect running, and its name.
-pub fn effect_tile(ui: &mut Ui, effect: &str, colours: &[Color32; 3], selected: bool, t: f32) -> Response {
-    let size = vec2(132.0, 86.0);
-    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-    let painter = ui.painter_at(rect.expand(2.0));
-    let fill = if selected { SURFACE_ACTIVE } else if response.hovered() { SURFACE_HOVER } else { SURFACE };
-    painter.rect_filled(rect, CornerRadius::same(theme::RADIUS), fill);
-    let stroke = if selected { Stroke::new(1.5_f32, ACCENT) } else { Stroke::new(1.0_f32, BORDER) };
-    painter.rect_stroke(rect, CornerRadius::same(theme::RADIUS), stroke, StrokeKind::Inside);
-    let strip = Rect::from_min_size(rect.min + vec2(10.0, 12.0), vec2(rect.width() - 20.0, 34.0));
-    effect_strip(&painter.with_clip_rect(strip.expand(4.0)), strip, effect, colours, 2, 1, t);
-    painter.text(
-        pos2(rect.center().x, rect.bottom() - 18.0),
-        egui::Align2::CENTER_CENTER,
-        effects::label(effect),
-        if selected { theme::bold(12.5) } else { FontId::proportional(12.5) },
-        if selected { TEXT } else { TEXT_DIM },
-    );
+/// A selectable tile showing an effect running, and its name. One size and
+/// one typeface whether chosen or not; the chosen one is edged in green.
+pub fn effect_tile(ui: &mut Ui, effect: &str, colours: &[Color32; 3], selected: bool, time: f32, width: f32) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, TILE_HEIGHT), Sense::click());
+    let hovered = ui.is_enabled() && response.hovered();
+    let painter = ui.painter_at(rect);
+    let fill = if selected { SURFACE_ACTIVE } else if hovered { SURFACE_HOVER } else { SURFACE_HI };
+    let stroke = if selected { Stroke::new(1.5_f32, ACCENT) } else { Stroke::new(1.0_f32, if hovered { BORDER_HOVER } else { BORDER }) };
+    painter.rect(rect, CornerRadius::same(theme::RADIUS_SM), fill, stroke, StrokeKind::Inside);
+    let strip = Rect::from_min_size(rect.min + vec2(10.0, 10.0), vec2(rect.width() - 20.0, 32.0));
+    effect_strip(&painter.with_clip_rect(strip.expand(4.0)), strip, effect, colours, 2, 1, time);
+    let colour = if selected || hovered { TEXT } else { TEXT_DIM };
+    let name = widgets::galley_fit(ui, effects::label(effect), theme::body(13.0), colour, rect.width() - 16.0);
+    painter.galley(pos2(rect.center().x - name.size().x / 2.0, rect.bottom() - 13.0 - name.size().y / 2.0), name, colour);
     if effects::SOFTWARE.contains(&effect) {
-        painter.text(rect.right_top() + vec2(-8.0, 8.0), egui::Align2::RIGHT_TOP, theme::icon::CODE, theme::icon_font(10.0), TEXT_FAINT);
+        painter.text(rect.right_top() + vec2(-7.0, 6.0), egui::Align2::RIGHT_TOP, theme::icon::CODE, theme::icon_font(9.0), TEXT_FAINT);
     }
-    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    if effects::SOFTWARE.contains(&effect) {
+        response.on_hover_text(t("Drawn by the daemon, frame by frame"))
+    } else {
+        response
+    }
 }
 
-/// A round colour to pick, glowing when it is the one chosen.
+/// Tiles for `effects` in a grid as wide as the panel; true for the one clicked.
+pub fn effect_grid(ui: &mut Ui, list: &[String], colours: impl Fn(&str) -> [Color32; 3], selected: impl Fn(&str) -> bool, t: f32) -> Option<String> {
+    let gap = 8.0;
+    let width = ui.available_width();
+    let columns = ((width + gap) / (124.0 + gap)).floor().max(1.0) as usize;
+    let tile = ((width - gap * (columns as f32 - 1.0)) / columns as f32).floor();
+    let mut clicked = None;
+    for row in list.chunks(columns) {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = gap;
+            for effect in row {
+                if effect_tile(ui, effect, &colours(effect), selected(effect), t, tile).clicked() {
+                    clicked = Some(effect.clone());
+                }
+            }
+        });
+    }
+    clicked
+}
+
+/// A round colour to pick; a ring outside it when chosen. One size either way.
 pub fn dot(ui: &mut Ui, colour: Color32, size: f32, selected: bool) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
     let painter = ui.painter();
-    let radius = size / 2.0 - if selected { 3.0 } else { 1.0 };
+    let hovered = ui.is_enabled() && response.hovered();
+    painter.circle_filled(rect.center(), size / 2.0 - 4.0, colour);
     if selected {
-        theme::glow(painter, rect.center(), vec2(size, size), colour.gamma_multiply(0.45));
-        painter.circle_stroke(rect.center(), size / 2.0, Stroke::new(1.5_f32, TEXT));
-    } else if response.hovered() {
-        painter.circle_stroke(rect.center(), size / 2.0, Stroke::new(1.0_f32, TEXT_DIM));
+        painter.circle_stroke(rect.center(), size / 2.0 - 1.0, Stroke::new(2.0_f32, TEXT));
+    } else if hovered {
+        painter.circle_stroke(rect.center(), size / 2.0 - 1.0, Stroke::new(1.0_f32, BORDER_HOVER));
     }
-    painter.circle_filled(rect.center(), radius, colour);
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// A simple line drawing of a device of `kind`, inside `rect`.
 pub fn device_glyph(painter: &egui::Painter, rect: Rect, kind: &str, colour: Color32) {
-    let stroke = Stroke::new((rect.width() / 18.0).max(1.4), colour);
+    let stroke = Stroke::new((rect.width() / 18.0).clamp(1.2, 3.0), colour);
     let c = rect.center();
     let s = rect.width().min(rect.height());
     match kind {
         "keyboard" | "keypad" => {
-            let body = Rect::from_center_size(c, vec2(s * 0.9, s * 0.42));
+            let body = Rect::from_center_size(c, vec2(rect.width().min(s * 1.6) * 0.9, s * 0.42));
             painter.rect_stroke(body, CornerRadius::same(3), stroke, StrokeKind::Middle);
             for row in 0..3 {
                 for col in 0..7 {
@@ -133,7 +156,7 @@ pub fn device_glyph(painter: &egui::Painter, rect: Rect, kind: &str, colour: Col
             }
         }
         "mousemat" => {
-            let body = Rect::from_center_size(c, vec2(s * 0.84, s * 0.56));
+            let body = Rect::from_center_size(c, vec2(rect.width().min(s * 1.5) * 0.84, s * 0.56));
             painter.rect_stroke(body, CornerRadius::same(5), stroke, StrokeKind::Middle);
         }
         _ => {
@@ -144,77 +167,85 @@ pub fn device_glyph(painter: &egui::Painter, rect: Rect, kind: &str, colour: Col
 }
 
 /// A battery: outline, fill to `level`, a bolt when charging, and the number.
-pub fn battery(ui: &mut Ui, level: f64, charging: bool) {
-    let (rect, _) = ui.allocate_exact_size(vec2(28.0, 13.0), Sense::hover());
+/// Always the same width, so whatever follows it stays put.
+pub fn battery(ui: &mut Ui, level: f64, charging: bool) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(74.0, 20.0), Sense::hover());
     let painter = ui.painter();
-    let body = Rect::from_min_size(rect.min, vec2(24.0, 13.0));
+    let body = Rect::from_min_size(pos2(rect.left(), rect.center().y - 6.5), vec2(24.0, 13.0));
     painter.rect_stroke(body, CornerRadius::same(3), Stroke::new(1.2_f32, TEXT_DIM), StrokeKind::Inside);
     painter.rect_filled(Rect::from_min_size(pos2(body.right() + 1.0, body.center().y - 3.0), vec2(2.5, 6.0)), CornerRadius::same(1), TEXT_DIM);
     let colour = if charging { ACCENT } else if level < 20.0 { theme::DANGER } else if level < 40.0 { theme::WARN } else { ACCENT };
     let fill = Rect::from_min_size(body.min + vec2(2.5, 2.5), vec2((body.width() - 5.0) * (level.clamp(0.0, 100.0) / 100.0) as f32, body.height() - 5.0));
     painter.rect_filled(fill, CornerRadius::same(1), colour);
-    ui.label(RichText::new(format!("{level:.0}%{}", if charging { " ⚡" } else { "" })).size(12.5).color(TEXT_DIM));
+    let text = format!("{level:.0}%{}", if charging { " ⚡" } else { "" });
+    painter.text(pos2(body.right() + 9.0, rect.center().y), egui::Align2::LEFT_CENTER, text, theme::bold(12.5), TEXT_DIM);
+    response.on_hover_text(if charging { t("charging") } else { t("on battery") })
 }
 
-/// Choosing one colour: the picker, presets, recent colours and hex.
-/// Returns true when the colour changed.
-pub fn colour_chooser(ui: &mut Ui, colour: &mut Color32, hex: &mut String, recent: &[[u8; 3]]) -> bool {
+/// Choosing one colour: a picker, a box for its hex code, preset swatches and
+/// recently used ones. Side by side where there is room, else one above the
+/// other; the same size whatever is chosen. True when the colour changed.
+pub fn colour_chooser(ui: &mut Ui, id: &str, colour: &mut Color32, recent: &[[u8; 3]]) -> bool {
     let mut changed = false;
-    // Side by side where there is room; one above the other in a narrow panel.
-    let narrow = ui.available_width() < 680.0;
-    let layout = if narrow { egui::Layout::top_down(egui::Align::Min) } else { egui::Layout::left_to_right(egui::Align::Min) };
-    ui.with_layout(layout, |ui| {
-        ui.vertical(|ui| {
-            if narrow {
-                ui.spacing_mut().slider_width = (ui.available_width() - 8.0).min(260.0);
-            }
-            if egui::widgets::color_picker::color_picker_color32(ui, colour, egui::color_picker::Alpha::Opaque) {
-                changed = true;
-            }
+    let width = ui.available_width();
+    // The presets beside the picker need 6 swatches' width.
+    let details = 6.0 * 24.0 + 5.0 * 8.0;
+    let wide = width >= details + 20.0 + 170.0;
+    let picker_width = if wide { (width - details - 20.0).min(260.0) } else { width.min(320.0) };
+    let picker_height = if wide { 132.0 } else { 110.0 };
+    if wide {
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 20.0;
+            ui.vertical(|ui| {
+                ui.set_width(picker_width);
+                changed |= widgets::colour_picker(ui, id, colour, picker_width, picker_height);
+            });
+            changed |= chooser_details(ui, id, colour, recent);
         });
-        if !narrow {
-            ui.add_space(16.0);
-        }
-        ui.vertical(|ui| {
-            widgets::section(ui, t("Presets"));
-            egui::Grid::new(ui.next_auto_id()).spacing(vec2(7.0, 7.0)).show(ui, |ui| {
-                for (i, preset) in PALETTE.iter().enumerate() {
-                    if widgets::swatch(ui, *preset, 26.0, *colour == *preset).clicked() {
+    } else {
+        changed |= widgets::colour_picker(ui, id, colour, picker_width, picker_height);
+        ui.add_space(4.0);
+        changed |= chooser_details(ui, id, colour, recent);
+    }
+    changed
+}
+
+/// The hex box, presets and recent colours beside the picker.
+fn chooser_details(ui: &mut Ui, id: &str, colour: &mut Color32, recent: &[[u8; 3]]) -> bool {
+    let mut changed = false;
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 8.0;
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            let (rect, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
+            ui.painter().rect(rect, CornerRadius::same(theme::RADIUS_SM), *colour, Stroke::new(1.0_f32, BORDER_HI), StrokeKind::Inside);
+            changed |= widgets::hex_field(ui, (id, "hex"), colour, 104.0);
+        });
+        ui.label(RichText::new(t("Presets").to_uppercase()).font(theme::bold(10.5)).color(TEXT_FAINT).extra_letter_spacing(1.0));
+        for line in PALETTE.chunks(6) {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                for preset in line {
+                    if widgets::swatch(ui, *preset, 24.0, *colour == *preset).on_hover_text(effects::hex(*preset)).clicked() {
                         *colour = *preset;
                         changed = true;
                     }
-                    if i % 6 == 5 {
-                        ui.end_row();
-                    }
                 }
             });
-            if !recent.is_empty() {
-                ui.add_space(4.0);
-                widgets::section(ui, t("Recent"));
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 7.0;
-                    for rgb in recent.iter().take(6) {
-                        let c = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
-                        if widgets::swatch(ui, c, 22.0, *colour == c).clicked() {
-                            *colour = c;
-                            changed = true;
-                        }
-                    }
-                });
+        }
+        ui.label(RichText::new(t("Recent").to_uppercase()).font(theme::bold(10.5)).color(TEXT_FAINT).extra_letter_spacing(1.0));
+        ui.allocate_ui_with_layout(vec2(6.0 * 24.0 + 5.0 * 8.0, 24.0), Layout::left_to_right(Align::Center), |ui| {
+            ui.set_min_height(24.0);
+            ui.spacing_mut().item_spacing.x = 8.0;
+            if recent.is_empty() {
+                ui.label(widgets::faint(t("None yet")));
             }
-            ui.add_space(4.0);
-            widgets::section(ui, t("Hex"));
-            let response = ui.add(egui::TextEdit::singleline(hex).desired_width(96.0).font(egui::TextStyle::Monospace));
-            if response.changed() {
-                if let Some(parsed) = effects::parse_hex(hex) {
-                    if parsed != *colour {
-                        *colour = parsed;
-                        changed = true;
-                    }
+            for rgb in recent.iter().take(6) {
+                let c = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                if widgets::swatch(ui, c, 24.0, *colour == c).on_hover_text(effects::hex(c)).clicked() {
+                    *colour = c;
+                    changed = true;
                 }
-            }
-            if !response.has_focus() {
-                *hex = effects::hex(*colour);
             }
         });
     });

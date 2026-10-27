@@ -66,6 +66,23 @@ impl DeviceEdit {
 
     pub fn refresh(&mut self, device: &Device, detail: &Detail, snap: &Snapshot) {
         let Some(caps) = detail.caps.as_ref() else { return };
+        // The worker reads a device piece by piece after its capabilities, so
+        // DPI, polling rate and the rest can arrive after the first look:
+        // take them when they do, or the controls show defaults for good.
+        if self.detail_seen {
+            self.dpi = self.dpi.or(detail.dpi);
+            if self.stages.is_none() {
+                self.stages = detail.dpi_stages.clone();
+            }
+            self.poll_rate = self.poll_rate.or(detail.poll_rate);
+            self.idle_minutes = self.idle_minutes.or(detail.idle_time.map(|s| s as f32 / 60.0));
+            self.low_battery = self.low_battery.or(detail.low_battery.map(|v| v as f32));
+            for (zone, edit) in self.zones.iter_mut() {
+                if edit.brightness.is_none() {
+                    edit.brightness = detail.brightness.get(zone).map(|b| *b as f32);
+                }
+            }
+        }
         let first = !self.detail_seen;
         if !first && (snap.generation == self.generation || self.recently_touched()) {
             return;
@@ -208,6 +225,21 @@ mod tests {
         edit.refresh(&device, &detail, &snap);
         assert_eq!(edit.zones["left"].effect, "static");
         assert_eq!(edit.zones["left"].colours[0], Color32::from_rgb(0x44, 0xD6, 0x2C));
+    }
+
+    #[test]
+    fn values_read_after_the_first_look_are_taken_when_they_arrive() {
+        let device = Device { serial: "M1".into(), kind: "mouse".into(), ..Default::default() };
+        let mut detail = Detail { caps: Some(json!({ "zones": {}, "dpi": true, "poll_rate": true })), ..Default::default() };
+        let snap = Snapshot { generation: 1, ..Default::default() };
+        let mut edit = DeviceEdit::default();
+        edit.refresh(&device, &detail, &snap);
+        assert_eq!((edit.dpi, edit.poll_rate), (None, None));
+        // The same generation: the daemon's saved state has not moved on.
+        detail.dpi = Some((1800, 1800));
+        detail.poll_rate = Some(500);
+        edit.refresh(&device, &detail, &snap);
+        assert_eq!((edit.dpi, edit.poll_rate), (Some((1800, 1800)), Some(500)));
     }
 
     #[test]

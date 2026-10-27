@@ -5,12 +5,13 @@
 //! device -- the binding is a copy, so changing the library later does not
 //! change a key until the macro is put on it again.
 
-use super::app::{short_name, App};
+use super::app::{scroll, short_name, App};
 use crate::settings::LibraryMacro;
 use crate::worker::{Command, Device, Snapshot};
-use egui::{vec2, CornerRadius, Frame, Margin, RichText, Sense, Stroke};
-use openrazer_studio_core::theme::{self, icon, ACCENT, BORDER, TEXT, TEXT_DIM, TEXT_FAINT};
-use openrazer_studio_core::{t, tf, widgets};
+use egui::{vec2, Align, CornerRadius, Frame, Layout, Margin, RichText, Sense, Stroke};
+use openrazer_studio_core::theme::{self, icon, ACCENT, TEXT, TEXT_DIM, TEXT_FAINT};
+use openrazer_studio_core::widgets::{self, Button, IconButton};
+use openrazer_studio_core::{t, tf};
 use serde_json::{json, Value};
 use std::time::Instant;
 
@@ -174,74 +175,94 @@ pub struct MacrosUi {
 }
 
 pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        ui.horizontal_top(|ui| {
-            ui.vertical(|ui| {
-                ui.set_width(270.0);
+    widgets::page_header(ui, t("Macros"), t("Make a macro once, then put it on any macro key."), |ui| {
+        if ui.add(Button::primary(t("New macro")).icon(icon::ADD)).clicked() {
+            new_draft(app);
+        }
+    });
+    scroll(ui, "macros", |ui| {
+        widgets::columns(ui, 0.32, 820.0, |ui, column| {
+            if column == 0 {
                 library(app, ui);
-            });
-            ui.add_space(14.0);
-            ui.vertical(|ui| {
-                ui.set_width(ui.available_width());
-                if app.macros.draft.is_some() {
-                    editor(app, ui);
-                    ui.add_space(12.0);
-                }
-                assign(app, ui, snap);
-            });
+                return;
+            }
+            if app.macros.draft.is_some() {
+                editor(app, ui);
+            } else {
+                widgets::panel(ui, t("Macro"), |ui| {
+                    widgets::empty_state(ui, t("No macro open"), t("Choose one from the library, or make a new one."), |ui| {
+                        if ui.add(Button::secondary(t("New macro")).icon(icon::ADD)).clicked() {
+                            new_draft(app);
+                        }
+                    });
+                });
+            }
+            assign(app, ui, snap);
         });
-        ui.add_space(20.0);
     });
 }
 
+/// Open the library's macro `index` in the editor.
+pub fn open(app: &mut App, index: usize) {
+    if let Some(item) = app.settings.macros.get(index) {
+        app.macros.draft = Some(Draft::from(index, item));
+        app.macros.selected = Some(index);
+    }
+}
+
+fn new_draft(app: &mut App) {
+    let mut draft = Draft::new();
+    draft.name = tf("Macro {}", &[&(app.settings.macros.len() + 1)]);
+    app.macros.draft = Some(draft);
+    app.macros.selected = None;
+}
+
 fn library(app: &mut App, ui: &mut egui::Ui) {
-    widgets::card(ui, |ui| {
-        ui.horizontal(|ui| {
-            widgets::heading(ui, t("Library"));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(RichText::new(format!("+ {}", t("New"))).strong()).clicked() {
-                    let mut draft = Draft::new();
-                    draft.name = tf("Macro {}", &[&(app.settings.macros.len() + 1)]);
-                    app.macros.draft = Some(draft);
-                    app.macros.selected = None;
+    let count = app.settings.macros.len().to_string();
+    widgets::panel_with(
+        ui,
+        t("Library"),
+        |ui| {
+            widgets::chip(ui, &count);
+        },
+        |ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            if app.settings.macros.is_empty() {
+                widgets::help(ui, t("Nothing here yet. Make a macro once, then put it on any macro key."));
+            }
+            let mut open: Option<usize> = None;
+            for (index, item) in app.settings.macros.iter().enumerate() {
+                let selected = app.macros.selected == Some(index);
+                let (response, _) = widgets::list_row(ui, selected, 48.0, |ui| {
+                    let glyph = match item.action["type"].as_str() {
+                        Some("text") => icon::TEXT,
+                        Some("launch") => icon::OPEN,
+                        Some("disabled") => icon::CLOSE,
+                        _ => icon::KEYBOARD,
+                    };
+                    ui.add_space(2.0);
+                    widgets::icon(ui, glyph, 14.0, if selected { ACCENT } else { TEXT_DIM });
+                    let room = ui.available_width() - 4.0;
+                    let (rect, _) = ui.allocate_exact_size(vec2(room, 40.0), Sense::hover());
+                    let name = widgets::galley_fit(ui, &item.name, theme::bold(13.5), TEXT, room);
+                    let (text, _) = summary(Some(&item.action), "");
+                    let line = widgets::galley_fit(ui, &text, theme::body(12.0), TEXT_FAINT, room);
+                    ui.painter().galley(egui::pos2(rect.left(), rect.center().y - name.size().y + 1.0), name, TEXT);
+                    ui.painter().galley(egui::pos2(rect.left(), rect.center().y + 1.0), line, TEXT_FAINT);
+                });
+                if response.clicked() {
+                    open = Some(index);
                 }
-            });
-        });
-        if app.settings.macros.is_empty() {
-            ui.label(widgets::dim(t("Nothing here yet. Make a macro once, then put it on any macro key.")));
-        }
-        let mut open: Option<usize> = None;
-        for (index, item) in app.settings.macros.iter().enumerate() {
-            let selected = app.macros.selected == Some(index);
-            let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
-            let painter = ui.painter();
-            painter.rect_filled(rect, CornerRadius::same(theme::RADIUS), if selected { theme::SURFACE_ACTIVE } else if response.hovered() { theme::SURFACE_HOVER } else { theme::SURFACE_HI });
-            if selected {
-                painter.rect_stroke(rect, CornerRadius::same(theme::RADIUS), Stroke::new(1.0_f32, ACCENT), egui::StrokeKind::Inside);
             }
-            let glyph = match item.action["type"].as_str() {
-                Some("text") => icon::TEXT,
-                Some("launch") => icon::OPEN,
-                Some("disabled") => icon::CLOSE,
-                _ => icon::KEYBOARD,
-            };
-            painter.text(rect.left_center() + vec2(14.0, 0.0), egui::Align2::LEFT_CENTER, glyph, theme::icon_font(14.0), if selected { ACCENT } else { TEXT_DIM });
-            painter.text(rect.left_top() + vec2(36.0, 7.0), egui::Align2::LEFT_TOP, &item.name, theme::bold(13.0), TEXT);
-            let (summary, _) = summary(Some(&item.action), "");
-            painter.text(rect.left_bottom() + vec2(36.0, -7.0), egui::Align2::LEFT_BOTTOM, truncate(&summary, 34), egui::FontId::proportional(11.5), TEXT_FAINT);
-            if response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                open = Some(index);
+            if let Some(index) = open {
+                app.macros.selected = Some(index);
+                app.macros.draft = Some(Draft::from(index, &app.settings.macros[index]));
             }
-        }
-        if let Some(index) = open {
-            app.macros.selected = Some(index);
-            app.macros.draft = Some(Draft::from(index, &app.settings.macros[index]));
-        }
-    });
-    ui.add_space(12.0);
+        },
+    );
     widgets::panel(ui, t("Tips"), |ui| {
-        ui.label(widgets::faint(t("An unbound macro key sends F13–F17, so any game or app that takes hotkeys can use it as is.")));
-        ui.label(widgets::faint(t("On the keyboard: Fn + F9 records a macro straight onto a key.")));
+        widgets::help(ui, t("An unbound macro key sends F13–F17, so any game or app that takes hotkeys can use it as is."));
+        widgets::help(ui, t("On the keyboard: Fn + F9 records a macro straight onto a key."));
     });
 }
 
@@ -317,168 +338,70 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
     if draft.recording.is_some() {
         ui.ctx().request_repaint();
     }
-    widgets::card(ui, |ui| {
-        ui.horizontal(|ui| {
-            widgets::heading(ui, t("Macro"));
-            ui.add(egui::TextEdit::singleline(&mut draft.name).desired_width(260.0).font(theme::bold(14.0)));
-        });
-        let options = vec![(Kind::Keys, t("Key presses").to_string()), (Kind::Text, t("Type text").to_string()), (Kind::Launch, t("Open something").to_string()), (Kind::Disabled, t("Do nothing").to_string())];
-        widgets::segmented(ui, &options, &mut draft.kind);
-        ui.add_space(6.0);
-        match draft.kind {
-            Kind::Keys => {
-                let recording = draft.recording.is_some();
-                ui.horizontal(|ui| {
-                    if recording {
-                        if widgets::danger_button(ui, &format!("■  {}", t("Stop recording"))).clicked() {
-                            draft.recording = None;
-                        }
-                        ui.label(RichText::new(t("Recording: type the macro in this window. Pauses are kept.")).color(theme::DANGER));
-                    } else {
-                        if ui.add(egui::Button::new(RichText::new(format!("●  {}", t("Record"))).color(theme::DANGER))).clicked() {
-                            draft.steps.clear();
-                            draft.recording = Some((Instant::now(), Instant::now(), ui.input(|i| i.modifiers)));
-                        }
-                        ui.label(widgets::faint(t("or build it step by step:")));
-                    }
-                });
-                // The steps, in order.
-                let mut remove: Option<usize> = None;
-                let mut swap: Option<(usize, usize)> = None;
-                Frame::new().fill(theme::WELL).corner_radius(CornerRadius::same(theme::RADIUS)).inner_margin(Margin::same(10)).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    if draft.steps.is_empty() {
-                        ui.label(widgets::faint(t("No steps yet.")));
-                    }
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-                        let count = draft.steps.len();
-                        for (i, step) in draft.steps.iter_mut().enumerate() {
-                            let (text, colour) = match *step {
-                                Step::Tap(vk) => (key_name(vk), TEXT),
-                                Step::Down(vk) => (format!("{} ↓", key_name(vk)), ACCENT),
-                                Step::Up(vk) => (format!("{} ↑", key_name(vk)), TEXT_DIM),
-                                Step::Wait(ms) => (format!("⏱ {ms} ms"), TEXT_FAINT),
-                            };
-                            let response = Frame::new()
-                                .fill(theme::SURFACE_HI)
-                                .stroke(Stroke::new(1.0_f32, BORDER))
-                                .corner_radius(CornerRadius::same(4))
-                                .inner_margin(Margin::symmetric(8, 4))
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.spacing_mut().item_spacing.x = 4.0;
-                                        if let Step::Wait(ms) = step {
-                                            ui.label(RichText::new("⏱").color(TEXT_FAINT));
-                                            ui.add(egui::DragValue::new(ms).range(10..=30_000).speed(10.0).suffix(" ms"));
-                                        } else {
-                                            ui.label(RichText::new(&text).font(theme::bold(12.5)).color(colour));
-                                        }
-                                        if i > 0 && ui.add(egui::Button::new(RichText::new("‹").color(TEXT_FAINT)).frame(false)).clicked() {
-                                            swap = Some((i, i - 1));
-                                        }
-                                        if i + 1 < count && ui.add(egui::Button::new(RichText::new("›").color(TEXT_FAINT)).frame(false)).clicked() {
-                                            swap = Some((i, i + 1));
-                                        }
-                                        if ui.add(egui::Button::new(RichText::new(icon::CLOSE).font(theme::icon_font(9.0)).color(TEXT_FAINT)).frame(false)).clicked() {
-                                            remove = Some(i);
-                                        }
-                                    });
-                                })
-                                .response;
-                            response.on_hover_text(match step {
-                                Step::Tap(_) => t("Press and let go"),
-                                Step::Down(_) => t("Hold down"),
-                                Step::Up(_) => t("Let go"),
-                                Step::Wait(_) => t("Wait"),
-                            });
-                        }
+    let saved = draft.index;
+    widgets::panel_with(
+        ui,
+        if saved.is_some() { t("Macro") } else { t("New macro") },
+        |ui| {
+            if let Some(index) = saved {
+                if ui.add(Button::danger(t("Delete")).icon(icon::DELETE).small()).clicked() {
+                    delete = Some(index);
+                }
+            }
+        },
+        |ui| {
+            widgets::row(ui, t("Name"), "", |ui| {
+                widgets::text_field(ui, &mut draft.name, t("Macro"), ui.available_width().min(360.0));
+            });
+            widgets::divider(ui);
+            widgets::stacked(ui, t("What it does"), |ui| {
+                let options = vec![(Kind::Keys, t("Key presses").to_string()), (Kind::Text, t("Type text").to_string()), (Kind::Launch, t("Open something").to_string()), (Kind::Disabled, t("Do nothing").to_string())];
+                if widgets::segmented(ui, &options, &mut draft.kind) {
+                    draft.recording = None;
+                }
+            });
+            match draft.kind {
+                Kind::Keys => keys_editor(ui, draft),
+                Kind::Text => {
+                    widgets::stacked(ui, t("Text to type"), |ui| {
+                        widgets::text_area(ui, &mut draft.text, t("Text to type"), 4);
+                        widgets::help(ui, t("Typed exactly as written, whatever the keyboard layout."));
                     });
-                });
-                if let Some(i) = remove {
-                    draft.steps.remove(i);
                 }
-                if let Some((a, b)) = swap {
-                    draft.steps.swap(a, b);
-                }
-                ui.horizontal_wrapped(|ui| {
-                    egui::ComboBox::from_id_salt("pick-key").selected_text(key_name(draft.pick)).width(150.0).height(320.0).show_ui(ui, |ui| {
-                        for (name, vk) in KEYS {
-                            ui.selectable_value(&mut draft.pick, *vk, t_key(name));
-                        }
+                Kind::Launch => {
+                    widgets::stacked(ui, t("What to open"), |ui| {
+                        ui.horizontal(|ui| {
+                            widgets::text_field(ui, &mut draft.target, t("A program, document, folder or https:// link"), ui.available_width() - 120.0);
+                            if ui.add(Button::secondary(t("Browse")).icon(icon::FOLDER).width(112.0)).clicked() {
+                                if let Some(path) = rfd::FileDialog::new().set_title(t("What should this macro open?")).pick_file() {
+                                    draft.target = path.display().to_string();
+                                }
+                            }
+                        });
                     });
-                    if ui.button(t("Press")).on_hover_text(t("Press and let go")).clicked() {
-                        draft.steps.push(Step::Tap(draft.pick));
-                    }
-                    if ui.button(t("Hold")).on_hover_text(t("Hold down, for combinations such as Ctrl + C")).clicked() {
-                        draft.steps.push(Step::Down(draft.pick));
-                    }
-                    if ui.button(t("Let go")).clicked() {
-                        draft.steps.push(Step::Up(draft.pick));
-                    }
-                    if widgets::icon_button(ui, icon::TIMER, t("Pause")).clicked() {
-                        draft.steps.push(Step::Wait(100));
-                    }
-                    if !draft.steps.is_empty() && ui.button(t("Clear")).clicked() {
-                        draft.steps.clear();
-                    }
-                });
-                let held: Vec<u8> = {
-                    let mut down: Vec<u8> = Vec::new();
-                    for step in &draft.steps {
-                        match step {
-                            Step::Down(vk) => down.push(*vk),
-                            Step::Up(vk) => down.retain(|d| d != vk),
-                            _ => {}
-                        }
-                    }
-                    down
-                };
-                if !held.is_empty() {
-                    ui.label(RichText::new(tf("Still held down at the end: {}", &[&held.iter().map(|vk| key_name(*vk)).collect::<Vec<_>>().join(", ")])).size(12.5).color(theme::WARN));
+                }
+                Kind::Disabled => {
+                    widgets::help(ui, t("The key will do nothing at all: handy for a key that gets in the way."));
                 }
             }
-            Kind::Text => {
-                ui.add(egui::TextEdit::multiline(&mut draft.text).hint_text(t("Text to type")).desired_rows(3).desired_width(f32::INFINITY));
-                ui.label(widgets::faint(t("Typed exactly as written, whatever the keyboard layout.")));
-            }
-            Kind::Launch => {
-                ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(&mut draft.target).hint_text(t("A program, document, folder or https:// link")).desired_width(ui.available_width() - 110.0));
-                    if widgets::icon_button(ui, icon::FOLDER, t("Browse")).clicked() {
-                        if let Some(path) = rfd::FileDialog::new().set_title(t("What should this macro open?")).pick_file() {
-                            draft.target = path.display().to_string();
+            widgets::divider(ui);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                if ui.add(Button::primary(t("Save to library")).icon(icon::SAVE)).clicked() {
+                    match draft.action() {
+                        Ok(action) => {
+                            let name = if draft.name.trim().is_empty() { t("Macro").to_string() } else { draft.name.trim().to_string() };
+                            save = Some((draft.index, LibraryMacro { name, action }));
                         }
+                        Err(why) => problem = Some(why),
                     }
-                });
-            }
-            Kind::Disabled => {
-                ui.label(widgets::dim(t("The key will do nothing at all: handy for a key that gets in the way.")));
-            }
-        }
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            if widgets::primary_button(ui, t("Save to library")).clicked() {
-                match draft.action() {
-                    Ok(action) => {
-                        let name = if draft.name.trim().is_empty() { t("Macro").to_string() } else { draft.name.trim().to_string() };
-                        save = Some((draft.index, LibraryMacro { name, action }));
-                    }
-                    Err(why) => problem = Some(why),
                 }
-            }
-            if ui.button(t("Close")).clicked() {
-                close = true;
-            }
-            if let Some(index) = draft.index {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if widgets::danger_button(ui, t("Delete")).clicked() {
-                        delete = Some(index);
-                    }
-                });
-            }
-        });
-    });
+                if ui.add(Button::secondary(t("Close"))).clicked() {
+                    close = true;
+                }
+            });
+        },
+    );
     if let Some(why) = problem {
         app.toast(why, true);
     }
@@ -510,6 +433,139 @@ fn editor(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// Steps of a key macro: recorded, or built one by one.
+fn keys_editor(ui: &mut egui::Ui, draft: &mut Draft) {
+    let recording = draft.recording.is_some();
+    widgets::row(ui, t("Record"), t("Type the macro in this window; pauses are kept."), |ui| {
+        if recording {
+            if ui.add(Button::danger(t("Stop recording")).icon(icon::STOP).min_width(160.0)).clicked() {
+                draft.recording = None;
+            }
+            ui.label(RichText::new(t("Recording…")).color(theme::DANGER));
+        } else if ui.add(Button::secondary(t("Record")).icon(icon::RECORD).min_width(160.0)).clicked() {
+            draft.steps.clear();
+            draft.recording = Some((Instant::now(), Instant::now(), ui.input(|i| i.modifiers)));
+        }
+    });
+    // The steps, in order.
+    let mut remove: Option<usize> = None;
+    let mut swap: Option<(usize, usize)> = None;
+    widgets::stacked(ui, t("Steps"), |ui| {
+        Frame::new()
+            .fill(theme::WELL)
+            .stroke(Stroke::new(1.0_f32, if recording { theme::DANGER.gamma_multiply(0.7) } else { theme::BORDER_HI }))
+            .corner_radius(CornerRadius::same(theme::RADIUS_SM))
+            .inner_margin(Margin::same(10))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.set_min_height(36.0);
+                if draft.steps.is_empty() {
+                    ui.label(widgets::faint(t("No steps yet: record them, or add them below.")));
+                }
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                    let count = draft.steps.len();
+                    for (i, step) in draft.steps.iter_mut().enumerate() {
+                        let (text, colour) = match *step {
+                            Step::Tap(vk) => (key_name(vk), TEXT),
+                            Step::Down(vk) => (format!("{} ↓", key_name(vk)), ACCENT),
+                            Step::Up(vk) => (format!("{} ↑", key_name(vk)), TEXT_DIM),
+                            Step::Wait(ms) => (format!("{ms} ms"), TEXT_FAINT),
+                        };
+                        let response = Frame::new()
+                            .fill(theme::SURFACE_HI)
+                            .stroke(Stroke::new(1.0_f32, theme::BORDER_HI))
+                            .corner_radius(CornerRadius::same(4))
+                            .inner_margin(Margin { left: 8, right: 2, top: 2, bottom: 2 })
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 2.0;
+                                    if let Step::Wait(ms) = step {
+                                        widgets::icon(ui, icon::TIMER, 11.0, TEXT_FAINT);
+                                        let mut value = *ms as f64;
+                                        if widgets::number_field(ui, ("wait", i), &mut value, 10.0..=30_000.0, 0, "ms", 84.0) {
+                                            *ms = value.round() as u32;
+                                        }
+                                    } else {
+                                        ui.label(RichText::new(&text).font(theme::bold(12.5)).color(colour));
+                                    }
+                                    ui.add_space(4.0);
+                                    if ui.add(IconButton::new(icon::BACK, t("Earlier")).size(20.0).enabled(i > 0)).clicked() {
+                                        swap = Some((i, i - 1));
+                                    }
+                                    if ui.add(IconButton::new(icon::FORWARD, t("Later")).size(20.0).enabled(i + 1 < count)).clicked() {
+                                        swap = Some((i, i + 1));
+                                    }
+                                    if ui.add(IconButton::new(icon::CLOSE, t("Remove")).danger().size(20.0)).clicked() {
+                                        remove = Some(i);
+                                    }
+                                });
+                            })
+                            .response;
+                        response.on_hover_text(match step {
+                            Step::Tap(_) => t("Press and let go"),
+                            Step::Down(_) => t("Hold down"),
+                            Step::Up(_) => t("Let go"),
+                            Step::Wait(_) => t("Wait"),
+                        });
+                    }
+                });
+            });
+    });
+    if let Some(i) = remove {
+        draft.steps.remove(i);
+    }
+    if let Some((a, b)) = swap {
+        draft.steps.swap(a, b);
+    }
+    widgets::stacked(ui, t("Add a step"), |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+            let mut pick = draft.pick;
+            widgets::select(ui, "pick-key", key_name(pick), 150.0, |ui| {
+                for (name, vk) in KEYS {
+                    if widgets::option(ui, pick == *vk, t_key(name)).clicked() {
+                        pick = *vk;
+                    }
+                }
+            });
+            draft.pick = pick;
+            if ui.add(Button::secondary(t("Press")).small()).on_hover_text(t("Press and let go")).clicked() {
+                draft.steps.push(Step::Tap(draft.pick));
+            }
+            if ui.add(Button::secondary(t("Hold")).small()).on_hover_text(t("Hold down, for combinations such as Ctrl + C")).clicked() {
+                draft.steps.push(Step::Down(draft.pick));
+            }
+            if ui.add(Button::secondary(t("Let go")).small()).clicked() {
+                draft.steps.push(Step::Up(draft.pick));
+            }
+            if ui.add(Button::secondary(t("Pause")).icon(icon::TIMER).small()).clicked() {
+                draft.steps.push(Step::Wait(100));
+            }
+            if ui.add(Button::ghost(t("Clear")).icon(icon::CLEAR).small().enabled(!draft.steps.is_empty())).clicked() {
+                draft.steps.clear();
+            }
+        });
+    });
+    let held: Vec<u8> = {
+        let mut down: Vec<u8> = Vec::new();
+        for step in &draft.steps {
+            match step {
+                Step::Down(vk) => down.push(*vk),
+                Step::Up(vk) => down.retain(|d| d != vk),
+                _ => {}
+            }
+        }
+        down
+    };
+    if !held.is_empty() {
+        ui.horizontal(|ui| {
+            widgets::icon(ui, icon::WARNING, 13.0, theme::WARN);
+            ui.label(RichText::new(tf("Still held down at the end: {}", &[&held.iter().map(|vk| key_name(*vk)).collect::<Vec<_>>().join(", ")])).size(12.5).color(theme::WARN));
+        });
+    }
+}
+
 /// Every device with macro keys, and what each key does.
 fn assign(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
     let with_keys: Vec<Device> = snap
@@ -520,18 +576,18 @@ fn assign(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
         .collect();
     if with_keys.is_empty() {
         widgets::panel(ui, t("Macro keys"), |ui| {
-            ui.label(widgets::dim(t("None of the devices here has macro keys the port can handle. Macros made in the library can be put on a keyboard's macro keys once one is plugged in.")));
-            ui.label(widgets::faint(t("Mouse buttons cannot be reassigned yet.")));
+            widgets::help(ui, t("None of the devices here has macro keys the port can handle. Macros made in the library can be put on a keyboard's macro keys once one is plugged in."));
+            widgets::help(ui, t("Mouse buttons cannot be reassigned yet."));
         });
         return;
     }
     for device in with_keys {
         device_keys(app, ui, &device, snap);
-        ui.add_space(12.0);
     }
 }
 
-/// The macro keys of one device: what each does, and changing it.
+/// The macro keys of one device: what each does, and changing it. Every row
+/// has the same buttons in the same places, greyed where they do not apply.
 pub fn device_keys(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
     let Some(info) = snap.details.get(&device.serial).and_then(|d| d.macros.clone()) else { return };
     let serial = device.serial.clone();
@@ -541,78 +597,85 @@ pub fn device_keys(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Sna
     let recording = &snap.keys["recording"];
     let recording_here = recording["serial"] == serial.as_str();
 
-    widgets::card(ui, |ui| {
-        ui.horizontal(|ui| {
-            widgets::heading(ui, &tf("{} · macro keys", &[&super::app::title(device, snap)]));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if handled {
-                    widgets::badge(ui, t("Live"), ACCENT);
-                } else if snap.keys["running"] == true {
-                    widgets::badge(ui, t("Idle"), theme::WARN).on_hover_text(t("The daemon could not read this keyboard's key report, so its macro keys do nothing. Bindings can still be set up."));
-                } else {
-                    widgets::badge(ui, t("Off"), theme::WARN).on_hover_text(t("The daemon runs without key handling (--no-keys). Restart it normally to use macro keys."));
-                }
-            });
-        });
-        for key in &keys {
-            let action = bindings.get(key);
-            let (text, bound) = summary(action, key);
-            Frame::new().fill(theme::SURFACE_HI).corner_radius(CornerRadius::same(theme::RADIUS)).inner_margin(Margin::symmetric(12, 7)).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    Frame::new().fill(if bound { ACCENT } else { theme::BORDER_HI }).corner_radius(CornerRadius::same(4)).inner_margin(Margin::symmetric(9, 3)).show(ui, |ui| {
-                        ui.label(RichText::new(key).font(theme::bold(13.0)).color(if bound { theme::ON_ACCENT } else { TEXT }));
-                    });
-                    let live = recording_here && recording["key"] == key.as_str();
-                    if live {
-                        ui.label(RichText::new(tf("Recording… {} keys so far", &[&recording["events"].as_u64().unwrap_or(0)])).color(theme::DANGER));
-                    } else {
-                        ui.add(egui::Label::new(RichText::new(text).color(if bound { TEXT } else { TEXT_DIM })).truncate());
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if live {
-                            if widgets::danger_button(ui, t("Stop recording")).clicked() {
-                                app.send(Command::MacroRecordStop { serial: serial.clone() });
+    widgets::panel_with(
+        ui,
+        &tf("{} · macro keys", &[&super::app::title(device, snap)]),
+        |ui| {
+            if handled {
+                widgets::badge(ui, t("Live"), ACCENT);
+            } else if snap.keys["running"] == true {
+                widgets::badge(ui, t("Idle"), theme::WARN).on_hover_text(t("The daemon could not read this keyboard's key report, so its macro keys do nothing. Bindings can still be set up."));
+            } else {
+                widgets::badge(ui, t("Off"), theme::WARN).on_hover_text(t("The daemon runs without key handling (--no-keys). Restart it normally to use macro keys."));
+            }
+        },
+        |ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+            for key in &keys {
+                let action = bindings.get(key);
+                let (text, bound) = summary(action, key);
+                let live = recording_here && recording["key"] == key.as_str();
+                Frame::new().fill(theme::SURFACE_HI).corner_radius(CornerRadius::same(theme::RADIUS_SM)).inner_margin(Margin::symmetric(10, 6)).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
+                        widgets::keycap(ui, key, 56.0, bound);
+                        let tools = 200.0 + 4.0 * 34.0;
+                        let room = (ui.available_width() - tools).max(60.0);
+                        let (rect, response) = ui.allocate_exact_size(vec2(room, 32.0), Sense::hover());
+                        let (line, colour) = if live {
+                            (tf("Recording… {} keys so far", &[&recording["events"].as_u64().unwrap_or(0)]), theme::DANGER)
+                        } else {
+                            (text.clone(), if bound { TEXT } else { TEXT_DIM })
+                        };
+                        let galley = widgets::galley_fit(ui, &line, theme::body(13.5), colour, room);
+                        ui.painter().galley(egui::pos2(rect.left(), rect.center().y - galley.size().y / 2.0), galley, colour);
+                        response.on_hover_text(&line);
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            if ui.add(IconButton::new(icon::DELETE, t("Back to the default")).danger().size(30.0).enabled(bound && !live)).clicked() {
+                                app.send(Command::MacroDelete { serial: serial.clone(), key: key.clone() });
                             }
-                            return;
-                        }
-                        if bound && widgets::ghost(ui, icon::DELETE, t("Back to the default")).clicked() {
-                            app.send(Command::MacroDelete { serial: serial.clone(), key: key.clone() });
-                        }
-                        if bound && widgets::ghost(ui, icon::PLAY, t("Run it now")).clicked() {
-                            app.send(Command::MacroPlay { serial: serial.clone(), key: key.clone() });
-                        }
-                        if handled && !recording_here && ui.add(egui::Button::new(RichText::new(icon::RECORD).font(theme::icon_font(13.0)).color(theme::DANGER)).frame(false)).on_hover_text(t("Record on the keyboard: type the macro anywhere, then stop")).clicked() {
-                            app.send(Command::MacroRecordStart { serial: serial.clone(), key: key.clone() });
-                        }
-                        let mut chosen: Option<usize> = None;
-                        egui::ComboBox::from_id_salt(("assign", &serial, key)).selected_text(t("Put a macro on it")).width(170.0).show_ui(ui, |ui| {
-                            if app.settings.macros.is_empty() {
-                                ui.label(widgets::faint(t("The library is empty")));
-                            }
-                            for (i, item) in app.settings.macros.iter().enumerate() {
-                                if ui.selectable_label(false, &item.name).clicked() {
-                                    chosen = Some(i);
+                            if ui.add(IconButton::new(icon::SAVE, t("Copy into the library")).size(30.0).enabled(bound && !live)).clicked() {
+                                if let Some(action) = action {
+                                    app.settings.macros.push(LibraryMacro { name: tf("{} of {}", &[key, &short_name(&device.name)]), action: action.clone() });
+                                    app.save_settings();
+                                    app.toast(t("Copied into the library"), false);
                                 }
                             }
-                        });
-                        if let Some(i) = chosen {
-                            let action = app.settings.macros[i].action.clone();
-                            app.send(Command::MacroSet { serial: serial.clone(), key: key.clone(), action });
-                        }
-                        if bound && widgets::ghost(ui, icon::SAVE, t("Copy into the library")).clicked() {
-                            if let Some(action) = action {
-                                app.settings.macros.push(LibraryMacro { name: tf("{} of {}", &[key, &short_name(&device.name)]), action: action.clone() });
-                                app.save_settings();
-                                app.toast(t("Copied into the library"), false);
+                            if ui.add(IconButton::new(icon::PLAY, t("Run it now")).size(30.0).enabled(bound && !live)).clicked() {
+                                app.send(Command::MacroPlay { serial: serial.clone(), key: key.clone() });
                             }
-                        }
+                            if live {
+                                if ui.add(IconButton::new(icon::STOP, t("Stop recording")).danger().on(true).size(30.0)).clicked() {
+                                    app.send(Command::MacroRecordStop { serial: serial.clone() });
+                                }
+                            } else if ui.add(IconButton::new(icon::RECORD, t("Record on the keyboard: type the macro anywhere, then stop")).size(30.0).enabled(handled && !recording_here)).clicked() {
+                                app.send(Command::MacroRecordStart { serial: serial.clone(), key: key.clone() });
+                            }
+                            let mut chosen: Option<usize> = None;
+                            ui.add_enabled_ui(!live, |ui| {
+                                widgets::select(ui, ("assign", &serial, key), RichText::new(t("Put a macro on it")).color(TEXT_DIM), 190.0, |ui| {
+                                    if app.settings.macros.is_empty() {
+                                        ui.label(widgets::faint(t("The library is empty")));
+                                    }
+                                    for (i, item) in app.settings.macros.iter().enumerate() {
+                                        if widgets::option(ui, false, &item.name).clicked() {
+                                            chosen = Some(i);
+                                        }
+                                    }
+                                });
+                            });
+                            if let Some(i) = chosen {
+                                let action = app.settings.macros[i].action.clone();
+                                app.send(Command::MacroSet { serial: serial.clone(), key: key.clone(), action });
+                            }
+                        });
                     });
                 });
-            });
-            ui.add_space(2.0);
-        }
-    });
+            }
+        },
+    );
 }
 
 /// One line saying what a binding does.

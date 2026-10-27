@@ -1,33 +1,37 @@
-//! Lighting, two ways.
+//! Lighting, two ways, as a tab of the device page.
 //!
-//! Quick: pick a part of the device on its drawing, pick an effect, pick a
-//! colour -- the device's own effects, the way most people want them.
+//! Quick effects: pick a part of the device on its drawing, pick an effect,
+//! pick a colour -- the device's own effects, the way most people want them.
 //!
 //! Studio: per-key lighting in layers. Each layer is one effect painted onto
 //! the keys chosen for it; upper layers cover lower ones, and the ones that
 //! react to typing let what is below show through. The daemon draws the
 //! result, so it keeps running with this window closed.
 
-use super::app::App;
+use super::app::{scroll, stage_frame, App};
 use super::canvas::{self, View};
 use super::edit::{light_up, order_zones};
 use super::effects::{self, colour_count, effects_for, speeds, zone_label};
 use crate::art::{Art, Region, Shape};
 use crate::preview::{self, Kind, Layer};
 use crate::worker::{Command, Device, Snapshot, Then};
-use egui::{vec2, Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke};
-use openrazer_studio_core::theme::{self, icon, ACCENT, BORDER, TEXT, TEXT_DIM, TEXT_FAINT};
-use openrazer_studio_core::{t, tf, widgets};
+use egui::{vec2, Align, Color32, CornerRadius, Layout, RichText, Sense};
+use openrazer_studio_core::theme::{self, icon, ACCENT, TEXT, TEXT_DIM, TEXT_FAINT};
+use openrazer_studio_core::widgets::{self, Button, IconButton};
+use openrazer_studio_core::{t, tf};
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// The width of the layer list and of the layer's settings beside the canvas.
+const LAYERS_WIDTH: f32 = 240.0;
+const PROPERTIES_WIDTH: f32 = 284.0;
+
 #[derive(Default)]
 pub struct LightingUi {
     pub studio: bool,
     stacks: HashMap<String, Stack>,
-    hex: String,
 }
 
 /// The layers being edited for one device.
@@ -39,54 +43,53 @@ struct Stack {
     dirty: bool,
     started: Instant,
     presses: Vec<(Instant, (u8, u8))>,
+    /// Which of the chosen layer's colours is being edited.
+    slot: usize,
 }
 
 impl Default for Stack {
     fn default() -> Self {
-        Stack { layers: Vec::new(), current: 0, generation: u64::MAX, dirty: false, started: Instant::now(), presses: Vec::new() }
+        Stack { layers: Vec::new(), current: 0, generation: u64::MAX, dirty: false, started: Instant::now(), presses: Vec::new(), slot: 0 }
     }
 }
 
-pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
-    let Some(device) = app.device(snap).cloned() else {
-        return super::app::empty_state(ui, t("No device chosen"), "", None::<fn(&mut egui::Ui)>);
-    };
+pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot, device: &Device) {
     let Some(caps) = snap.details.get(&device.serial).and_then(|d| d.caps.clone()) else {
         ui.add(egui::Spinner::new().color(ACCENT));
         return;
     };
     let per_key = caps["software_effects"] == true;
 
+    // The two ways, and what the chosen one is for.
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 12.0;
         let mut studio = app.lighting.studio;
-        let options = vec![(false, t("Quick").to_string()), (true, t("Studio · per key").to_string())];
+        let options = vec![(false, t("Quick effects").to_string()), (true, t("Studio · per key").to_string())];
         if widgets::segmented(ui, &options, &mut studio) {
             app.lighting.studio = studio;
         }
-        ui.add_space(8.0);
-        ui.label(widgets::faint(if app.lighting.studio { t("Effects in layers, painted onto the keys you choose.") } else { t("The device's own effects, zone by zone.") }));
+        let hint = if app.lighting.studio { t("Effects in layers, painted onto the keys you choose.") } else { t("The device's own effects, zone by zone.") };
+        ui.label(RichText::new(hint).size(13.0).color(TEXT_DIM));
     });
-    ui.add_space(10.0);
+    ui.add_space(theme::GAP);
 
-    let Some(art) = canvas::art_for(app, ui.ctx(), &device, &caps) else {
-        canvas::waiting(ui, vec2(ui.available_width(), 300.0));
+    let Some(art) = canvas::art_for(app, ui.ctx(), device, &caps) else {
+        widgets::plain_panel(ui, |ui| canvas::waiting(ui, vec2(ui.available_width(), 300.0)));
         return;
     };
-    if app.lighting.studio && !per_key {
-        widgets::banner(ui, theme::INFO, icon::INFO, t("This device has no per-key lighting"), t("Its lights are set zone by zone, in Quick mode."), |ui| {
-            if ui.button(t("Go to Quick mode")).clicked() {
-                app.lighting.studio = false;
-            }
-        });
-        ui.add_space(10.0);
-    }
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        if app.lighting.studio && per_key {
-            studio(app, ui, &device, &caps, snap, art);
-        } else {
-            quick(app, ui, &device, &caps, snap, art);
+    scroll(ui, "lighting", |ui| {
+        if app.lighting.studio && !per_key {
+            widgets::banner(ui, theme::INFO, icon::INFO, t("This device has no per-key lighting"), t("Its lights are set zone by zone, in Quick effects."), |ui| {
+                if ui.add(Button::secondary(t("Go to Quick effects")).small()).clicked() {
+                    app.lighting.studio = false;
+                }
+            });
         }
-        ui.add_space(16.0);
+        if app.lighting.studio && per_key {
+            studio(app, ui, device, &caps, snap, art);
+        } else {
+            quick(app, ui, device, &caps, snap, art);
+        }
     });
 }
 
@@ -145,7 +148,7 @@ pub fn now_showing(app: &mut App, art: &Art, device: &Device, caps: &Value, snap
 fn quick(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value, snap: &Snapshot, art: Arc<Art>) {
     let zones = order_zones(&caps["zones"].as_object().map(|z| z.keys().cloned().collect::<Vec<_>>()).unwrap_or_default());
     if zones.is_empty() {
-        ui.label(widgets::dim(t("This device has no lighting the port can control.")));
+        widgets::plain_panel(ui, |ui| widgets::empty_state(ui, t("This device has no lighting the port can control."), "", |_| {}));
         return;
     }
     let serial = device.serial.clone();
@@ -157,158 +160,176 @@ fn quick(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value, snap: 
 
     let look = now_showing(app, &art, device, caps, snap, time);
     let (colours, cells_for_backlight) = (look.colours.clone(), look.cells_for_backlight);
-    let edit = app.edits.entry(serial.clone()).or_default();
-    let animated = edit.zones.values().any(|z| preview::hardware_animated(&z.effect)) || software.is_some();
+    let animated = app.edits.entry(serial.clone()).or_default().zones.values().any(|z| preview::hardware_animated(&z.effect)) || software.is_some();
 
-    let wide = ui.available_width() > 1000.0;
-    let width = if wide { ui.available_width() * 0.5 } else { ui.available_width() };
-    let canvas_size = vec2(width, (width * art.h as f32 / art.w as f32 + 40.0).clamp(220.0, 460.0));
     let mut sync: Option<super::edit::ZoneEdit> = None;
     let mut commands: Vec<Command> = Vec::new();
     let mut debounced: Vec<(String, Command, u64)> = Vec::new();
 
-    let layout = if wide { egui::Layout::left_to_right(egui::Align::Min) } else { egui::Layout::top_down(egui::Align::Min) };
-    ui.with_layout(layout, |ui| {
-        // -- the device ----------------------------------------------------------------
-        ui.vertical(|ui| {
-            ui.set_width(canvas_size.x);
-            Frame::new().fill(theme::WELL).stroke(Stroke::new(1.0_f32, BORDER)).corner_radius(CornerRadius::same(theme::RADIUS)).show(ui, |ui| {
-                let zone_now = zone.clone();
-                let visible = |s: &Shape| match s.region {
-                    Region::Zone("backlight") => !layers_running && !cells_for_backlight,
-                    Region::Zone(_) => true,
-                    Region::Cell(..) => layers_running || cells_for_backlight,
-                };
-                let selected = |s: &Shape| match s.region {
-                    Region::Zone(z) => z == zone_now && zones.len() > 1,
-                    Region::Cell(..) => zone_now == "backlight" && zones.len() > 1,
-                };
-                let picked = canvas::show(app, ui, &serial, &art, &colours, canvas_size, View { visible: &visible, selected: &selected, labels: !art.photo });
-                if let Some(index) = picked.clicked {
-                    zone = match art.shapes[index].region {
-                        Region::Zone(z) => z.to_string(),
-                        Region::Cell(..) => "backlight".to_string(),
+    widgets::columns(ui, 0.56, 900.0, |ui, column| {
+        if column == 0 {
+            // -- the device ----------------------------------------------------------------
+            widgets::panel(ui, t("Device"), |ui| {
+                stage_frame().show(ui, |ui| {
+                    let width = ui.available_width();
+                    // Lower when the panels stack, so the effects are not far below.
+                    let tallest = if width > 600.0 { 240.0 } else { 300.0 };
+                    let height = (width * art.h as f32 / art.w as f32 + 40.0).clamp(200.0, tallest);
+                    let zone_now = zone.clone();
+                    let visible = |s: &Shape| match s.region {
+                        Region::Zone("backlight") => !layers_running && !cells_for_backlight,
+                        Region::Zone(_) => true,
+                        Region::Cell(..) => layers_running || cells_for_backlight,
                     };
-                    app.lighting.hex.clear();
+                    let selected = |s: &Shape| match s.region {
+                        Region::Zone(z) => z == zone_now && zones.len() > 1,
+                        Region::Cell(..) => zone_now == "backlight" && zones.len() > 1,
+                    };
+                    let picked = canvas::show(app, ui, &serial, &art, &colours, vec2(width, height), View { visible: &visible, selected: &selected, labels: !art.photo });
+                    if let Some(index) = picked.clicked {
+                        zone = match art.shapes[index].region {
+                            Region::Zone(z) => z.to_string(),
+                            Region::Cell(..) => "backlight".to_string(),
+                        };
+                    }
+                });
+                if zones.len() > 1 {
+                    ui.add_space(4.0);
+                    widgets::row(ui, t("Part"), t("Click a part of the device, or choose it here."), |ui| {
+                        let options: Vec<(String, String)> = zones.iter().map(|z| (z.clone(), zone_label(z, &device.kind).to_string())).collect();
+                        let widest = options.iter().map(|(_, l)| widgets::galley(ui, l, theme::body(13.5), TEXT, 0.0).size().x).fold(0.0_f32, f32::max);
+                        if (widest + 28.0).max(52.0) * options.len() as f32 + 4.0 <= ui.available_width() {
+                            widgets::segmented(ui, &options, &mut zone);
+                        } else {
+                            let mut chosen = None;
+                            widgets::select(ui, ("zone", &serial), zone_label(&zone, &device.kind), ui.available_width().min(240.0), |ui| {
+                                for (value, label) in &options {
+                                    if widgets::option(ui, *value == zone, label).clicked() {
+                                        chosen = Some(value.clone());
+                                    }
+                                }
+                            });
+                            if let Some(chosen) = chosen {
+                                zone = chosen;
+                            }
+                        }
+                    });
                 }
             });
-            if zones.len() > 1 {
-                ui.add_space(6.0);
-                let options: Vec<(String, String)> = zones.iter().map(|z| (z.clone(), zone_label(z, &device.kind).to_string())).collect();
-                if widgets::segmented(ui, &options, &mut zone) {
-                    app.lighting.hex.clear();
-                }
-                ui.label(widgets::faint(t("Click a part of the device, or choose it here.")));
-            }
-        });
-        if wide {
-            ui.add_space(18.0);
-        }
 
-        // -- the controls ------------------------------------------------------------------
-        ui.vertical(|ui| {
-            ui.set_max_width(ui.available_width() - 4.0);
+            // -- the effect ----------------------------------------------------------------
             let edit = app.edits.entry(serial.clone()).or_default();
             edit.zone = Some(zone.clone());
             let offered = effects_for(caps, &zone);
             let current = edit.zones.entry(zone.clone()).or_default();
             let running_here = zone == "backlight" && software.is_some();
-
-            widgets::heading(ui, &tf("Effect · {}", &[&zone_label(&zone, &device.kind)]));
-            if running_here {
-                ui.label(widgets::faint(tf("Showing now: {}, drawn by the daemon.", &[&effects::label(software.as_deref().unwrap_or(""))])));
-            }
-            let mut preview_zone = current.clone();
-            light_up(&mut preview_zone, 3);
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-                for effect in &offered {
-                    let selected = if running_here { software.as_deref() == Some(effect.as_str()) } else { current.effect == *effect };
-                    let colours = if selected { current.colours } else { preview_zone.colours };
-                    if super::widgets::effect_tile(ui, effect, &colours, selected, time).clicked() {
-                        current.effect = effect.clone();
-                        light_up(current, colour_count(effect));
-                        commands.extend(effects::apply_commands(&serial, &zone, current, software.is_some()));
-                    }
+            widgets::panel(ui, &tf("Effect · {}", &[&zone_label(&zone, &device.kind)]), |ui| {
+                if running_here {
+                    widgets::help(ui, &tf("Showing now: {}, drawn by the daemon.", &[&effects::label(software.as_deref().unwrap_or(""))]));
+                }
+                if offered.is_empty() {
+                    ui.label(widgets::dim(t("Only brightness can be set here.")));
+                    return;
+                }
+                let mut preview_zone = current.clone();
+                light_up(&mut preview_zone, 3);
+                let shown = current.effect.clone();
+                let clicked = super::widgets::effect_grid(
+                    ui,
+                    &offered,
+                    |effect| if effect == shown { current.colours } else { preview_zone.colours },
+                    |effect| if running_here { software.as_deref() == Some(effect) } else { shown == effect },
+                    time,
+                );
+                if let Some(effect) = clicked {
+                    current.effect = effect.clone();
+                    light_up(current, colour_count(&effect));
+                    commands.extend(effects::apply_commands(&serial, &zone, current, software.is_some()));
                 }
             });
-            if offered.is_empty() {
-                ui.label(widgets::dim(t("Only brightness can be set here.")));
-            }
+            return;
+        }
 
-            let effect = current.effect.clone();
-            let count = colour_count(&effect);
-            if count > 0 && !running_here || software.as_deref().is_some_and(|s| colour_count(s) > 0) && running_here {
-                ui.add_space(10.0);
-                widgets::heading(ui, if count > 1 { t("Colours") } else { t("Colour") });
-                if count > 1 {
-                    ui.horizontal(|ui| {
-                        for slot in 0..count {
-                            if widgets::swatch(ui, current.colours[slot], 34.0, current.active == slot).clicked() {
-                                current.active = slot;
-                                app.lighting.hex.clear();
-                            }
-                        }
-                    });
-                }
-                let active = current.active.min(count.max(1) - 1);
-                current.active = active;
-                let mut colour = current.colours[active];
-                if super::widgets::colour_chooser(ui, &mut colour, &mut app.lighting.hex, &app.settings.recent_colours) {
-                    current.colours[active] = colour;
-                    debounced.push((format!("light:{serial}:{zone}"), Command::Refresh, 0));
-                }
-            }
+        let edit = app.edits.entry(serial.clone()).or_default();
+        let current = edit.zones.entry(zone.clone()).or_default();
+        let running_here = zone == "backlight" && software.is_some();
+        let effect = current.effect.clone();
 
-            let speed_options = speeds(&effect);
-            let has_direction = matches!(effect.as_str(), "wave" | "wheel");
-            if (speed_options.is_some() || has_direction) && !running_here {
-                ui.add_space(10.0);
-                if let Some(options) = &speed_options {
-                    ui.horizontal(|ui| {
-                        widgets::section(ui, if effect == "reactive" { t("Afterglow") } else { t("Speed") });
-                        let mut speed = current.speed.min(options.len() as i64);
-                        if widgets::segmented(ui, options, &mut speed) {
-                            current.speed = speed;
-                            commands.extend(effects::apply_commands(&serial, &zone, current, software.is_some()));
-                        }
-                    });
-                }
-                if has_direction {
-                    ui.horizontal(|ui| {
-                        widgets::section(ui, t("Direction"));
-                        let options = vec![(1i64, format!("← {}", t("Left"))), (2i64, format!("{} →", t("Right")))];
-                        if widgets::segmented(ui, &options, &mut current.direction) {
-                            commands.extend(effects::apply_commands(&serial, &zone, current, software.is_some()));
-                        }
-                    });
-                }
-            }
-
-            if caps["zones"][&zone]["brightness"] == true {
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    widgets::icon(ui, icon::BRIGHTNESS, 15.0, TEXT_DIM);
-                    widgets::section(ui, t("Brightness"));
-                    let mut value = current.brightness.unwrap_or(75.0);
-                    ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(120.0);
-                    let slider = ui.add(egui::Slider::new(&mut value, 0.0..=100.0).show_value(false));
-                    ui.label(RichText::new(format!("{value:.0}%")).font(theme::bold(14.0)));
-                    if slider.changed() {
-                        current.brightness = Some(value);
+        // -- how it runs: always the same three rows, greyed where they do not apply --
+        widgets::panel(ui, t("Adjustments"), |ui| {
+            widgets::row(ui, t("Brightness"), "", |ui| {
+                if caps["zones"][&zone]["brightness"] == true {
+                    let mut value = current.brightness.unwrap_or(75.0) as f64;
+                    if widgets::slider_field(ui, ("brightness", &serial, &zone), &mut value, 0.0..=100.0, 1.0, 0, "%", 72.0) {
+                        current.brightness = Some(value as f32);
                         debounced.push((
                             format!("brightness:{serial}:{zone}"),
                             Command::Call { serial: serial.clone(), method: "set_brightness".into(), args: vec![json!((value * 10.0).round() / 10.0)], zone: Some(zone.clone()), then: Then::Nothing },
                             120,
                         ));
                     }
-                });
-            }
-
-            ui.add_space(14.0);
-            ui.horizontal(|ui| {
-                if widgets::icon_button(ui, icon::SYNC, t("Apply to all devices")).on_hover_text(t("Every device, every zone that has this effect")).clicked() {
+                } else {
+                    ui.label(widgets::faint(t("Not adjustable on this part")));
+                }
+            });
+            widgets::divider(ui);
+            let speed_label = if effect == "reactive" { t("Afterglow") } else { t("Speed") };
+            widgets::row(ui, speed_label, "", |ui| match speeds(&effect).filter(|_| !running_here) {
+                Some(options) => {
+                    let mut speed = current.speed.min(options.len() as i64);
+                    if widgets::segmented(ui, &options, &mut speed) {
+                        current.speed = speed;
+                        commands.extend(effects::apply_commands(&serial, &zone, current, software.is_some()));
+                    }
+                }
+                None => {
+                    ui.label(widgets::faint(t("Not used by this effect")));
+                }
+            });
+            widgets::divider(ui);
+            widgets::row(ui, t("Direction"), "", |ui| {
+                if matches!(effect.as_str(), "wave" | "wheel") && !running_here {
+                    let options = vec![(1i64, format!("← {}", t("Left"))), (2i64, format!("{} →", t("Right")))];
+                    if widgets::segmented(ui, &options, &mut current.direction) {
+                        commands.extend(effects::apply_commands(&serial, &zone, current, software.is_some()));
+                    }
+                } else {
+                    ui.label(widgets::faint(t("Not used by this effect")));
+                }
+            });
+            widgets::divider(ui);
+            widgets::row(ui, t("Every device"), t("The same effect and colours wherever it is offered."), |ui| {
+                if ui.add(Button::secondary(t("Apply to all devices")).icon(icon::SYNC)).clicked() {
                     sync = Some(current.clone());
+                }
+            });
+        });
+
+        // -- colours ---------------------------------------------------------------------
+        let count = colour_count(&effect);
+        widgets::panel(ui, if count > 1 { t("Colours") } else { t("Colour") }, |ui| {
+            if count == 0 {
+                widgets::help(ui, t("This effect picks its own colours."));
+            }
+            if count > 1 {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    for slot in 0..count {
+                        if widgets::swatch(ui, current.colours[slot], 32.0, current.active == slot).on_hover_text(tf("Colour {}", &[&(slot + 1)])).clicked() {
+                            current.active = slot;
+                        }
+                    }
+                    ui.label(widgets::faint(t("Pick which colour to change.")));
+                });
+                ui.add_space(4.0);
+            }
+            let active = current.active.min(count.max(1) - 1);
+            current.active = active;
+            let mut colour = current.colours[active];
+            ui.add_enabled_ui(count > 0, |ui| {
+                if super::widgets::colour_chooser(ui, &format!("quick-{serial}-{zone}-{active}"), &mut colour, &app.settings.recent_colours) {
+                    current.colours[active] = colour;
+                    debounced.push((format!("light:{serial}:{zone}"), Command::Refresh, 0));
                 }
             });
         });
@@ -321,6 +342,7 @@ fn quick(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value, snap: 
         ui.ctx().request_repaint_after(Duration::from_millis(33));
     }
     let edit = app.edits.entry(serial.clone()).or_default();
+    edit.zone = Some(zone.clone());
     let zone_now = edit.zones.get(&zone).cloned().unwrap_or_default();
     if !commands.is_empty() || !debounced.is_empty() {
         edit.touch();
@@ -420,6 +442,10 @@ fn groups(art: &Art) -> Vec<(&'static str, Vec<(u8, u8)>)> {
 
 /// The cell of the key labelled like the key just pressed in this window.
 fn pressed_cells(ui: &egui::Ui, art: &Art) -> Vec<(u8, u8)> {
+    // Typing a layer's name is not playing the keyboard.
+    if ui.ctx().wants_keyboard_input() {
+        return Vec::new();
+    }
     let names: Vec<String> = ui.input(|i| {
         i.events
             .iter()
@@ -489,338 +515,396 @@ fn studio(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value, snap:
         ui.ctx().request_repaint_after(Duration::from_millis(33));
     }
 
-    let wide = ui.available_width() > 1100.0;
+    // Layers on the left, the keys in the middle, the chosen layer on the
+    // right; with less room, the chosen layer goes under the list.
+    let gap = theme::GAP;
+    let width = ui.available_width();
+    let three = width >= LAYERS_WIDTH + PROPERTIES_WIDTH + 2.0 * gap + 440.0;
+    let side = if three { LAYERS_WIDTH } else { LAYERS_WIDTH + 30.0 };
+    let middle = if three { width - LAYERS_WIDTH - PROPERTIES_WIDTH - 2.0 * gap } else { width - side - gap };
     ui.horizontal_top(|ui| {
-        // -- layers ------------------------------------------------------------------------
-        ui.vertical(|ui| {
-            ui.set_width(250.0);
-            widgets::card(ui, |ui| {
-                ui.horizontal(|ui| {
-                    widgets::heading(ui, t("Layers"));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.menu_button(RichText::new(format!("+ {}", t("Add"))).strong(), |ui| {
-                            ui.set_min_width(260.0);
-                            for kind in Kind::ALL {
-                                let response = ui.add(egui::Button::new(RichText::new(kind.label()).strong()).frame(false)).on_hover_text(kind.hint());
-                                if response.clicked() {
-                                    let stack = app.lighting.stacks.get_mut(&serial).expect("made above");
-                                    let mut layer = Layer::new(kind, Vec::new(), fallback);
-                                    layer.name = kind.label().to_string();
-                                    stack.layers.push(layer);
-                                    stack.current = stack.layers.len() - 1;
-                                    changed = true;
-                                    ui.close_menu();
-                                }
-                            }
-                        });
-                    });
-                });
-                ui.label(widgets::faint(t("Top covers bottom. Pick a layer, then click keys to paint it on.")));
-                ui.add_space(4.0);
-                let stack = app.lighting.stacks.get_mut(&serial).expect("made above");
-                let mut action: Option<(usize, &str)> = None;
-                // Listed top first, as they stack.
-                for index in (0..stack.layers.len()).rev() {
-                    let layer = &mut stack.layers[index];
-                    let selected = stack.current == index;
-                    Frame::new()
-                        .fill(if selected { theme::SURFACE_ACTIVE } else { theme::SURFACE_HI })
-                        .stroke(Stroke::new(1.0_f32, if selected { ACCENT } else { BORDER }))
-                        .corner_radius(CornerRadius::same(theme::RADIUS))
-                        .inner_margin(Margin::symmetric(8, 6))
-                        .show(ui, |ui| {
-                            ui.set_width(ui.available_width());
-                            ui.horizontal(|ui| {
-                                let eye = if layer.enabled { icon::EYE } else { icon::EYE_OFF };
-                                if widgets::ghost(ui, eye, t("Show or hide")).clicked() {
-                                    layer.enabled = !layer.enabled;
-                                    changed = true;
-                                }
-                                let (swatch, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
-                                let colour = if layer.kind.colours() == 0 { preview::hue(time / 4.0) } else { layer.colour(0) };
-                                ui.painter().rect_filled(swatch, CornerRadius::same(3), colour);
-                                let name = if layer.name.is_empty() { layer.kind.label().to_string() } else { layer.name.clone() };
-                                let label = ui.add(egui::Label::new(RichText::new(name).color(if layer.enabled { TEXT } else { TEXT_FAINT })).sense(Sense::click()).truncate());
-                                if label.clicked() {
-                                    action = Some((index, "select"));
-                                }
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    ui.label(widgets::faint(layer.cells.len().to_string()));
-                                });
-                            });
-                            if selected {
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 2.0;
-                                    if widgets::ghost(ui, icon::UP, t("Move up")).clicked() {
-                                        action = Some((index, "up"));
-                                    }
-                                    if widgets::ghost(ui, icon::DOWN, t("Move down")).clicked() {
-                                        action = Some((index, "down"));
-                                    }
-                                    if widgets::ghost(ui, icon::COPY, t("Duplicate")).clicked() {
-                                        action = Some((index, "copy"));
-                                    }
-                                    if widgets::ghost(ui, icon::DELETE, t("Delete")).clicked() {
-                                        action = Some((index, "delete"));
-                                    }
-                                });
-                            }
-                        });
-                    ui.add_space(2.0);
-                }
-                if let Some((index, what)) = action {
-                    match what {
-                        "select" => stack.current = index,
-                        "up" if index + 1 < stack.layers.len() => {
-                            stack.layers.swap(index, index + 1);
-                            stack.current = index + 1;
-                            changed = true;
-                        }
-                        "down" if index > 0 => {
-                            stack.layers.swap(index, index - 1);
-                            stack.current = index - 1;
-                            changed = true;
-                        }
-                        "copy" => {
-                            let copy = stack.layers[index].clone();
-                            stack.layers.insert(index + 1, copy);
-                            stack.current = index + 1;
-                            changed = true;
-                        }
-                        "delete" => {
-                            stack.layers.remove(index);
-                            stack.current = stack.current.min(stack.layers.len().saturating_sub(1));
-                            changed = true;
-                        }
-                        _ => {}
-                    }
-                }
-                if stack.layers.is_empty() {
-                    ui.label(widgets::dim(t("No layers: the keys are dark. Add one above.")));
-                }
-            });
-        });
-
-        // -- the device ------------------------------------------------------------------------
-        ui.vertical(|ui| {
-            let canvas_width = if wide { ui.available_width() - 300.0 } else { ui.available_width() };
-            ui.set_width(canvas_width);
-            let stack = app.lighting.stacks.get_mut(&serial).expect("made above");
-            let current: BTreeSet<(u8, u8)> = stack.layers.get(stack.current).map(|l| l.cells.iter().copied().collect()).unwrap_or_default();
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-                let mut set: Option<Vec<(u8, u8)>> = None;
-                if ui.button(t("All")).clicked() {
-                    set = Some(all.clone());
-                }
-                if ui.button(t("None")).clicked() {
-                    set = Some(Vec::new());
-                }
-                if ui.button(t("Invert")).clicked() {
-                    set = Some(all.iter().copied().filter(|c| !current.contains(c)).collect());
-                }
-                for (name, cells) in groups(&art) {
-                    if ui.button(name).on_hover_text(t("Add these keys to the layer")).clicked() {
-                        let mut merged = current.clone();
-                        merged.extend(cells);
-                        set = Some(merged.into_iter().collect());
-                    }
-                }
-                if let (Some(cells), Some(layer)) = (set, stack.layers.get_mut(stack.current)) {
-                    layer.cells = cells;
-                    changed = true;
-                }
-            });
-            ui.add_space(4.0);
-            let height = (canvas_width * art.h as f32 / art.w as f32 + 40.0).clamp(240.0, (ui.available_height() - 90.0).max(240.0));
-            Frame::new().fill(theme::WELL).stroke(Stroke::new(1.0_f32, BORDER)).corner_radius(CornerRadius::same(theme::RADIUS)).show(ui, |ui| {
-                let visible = |s: &Shape| matches!(s.region, Region::Cell(..));
-                let selected = |s: &Shape| matches!(s.region, Region::Cell(r, c) if current.contains(&(r, c)));
-                let picked = canvas::show(app, ui, &serial, &art, &colours, vec2(canvas_width, height), View { visible: &visible, selected: &selected, labels: !art.photo });
-                let stack = app.lighting.stacks.get_mut(&serial).expect("made above");
-                if let Some(layer) = stack.layers.get_mut(stack.current) {
-                    if let Some(index) = picked.clicked {
-                        if let Region::Cell(r, c) = art.shapes[index].region {
-                            if let Some(at) = layer.cells.iter().position(|cell| *cell == (r, c)) {
-                                layer.cells.remove(at);
-                            } else if !picked.secondary {
-                                layer.cells.push((r, c));
-                            }
-                            changed = true;
-                        }
-                    }
-                    if let Some(swept) = picked.swept {
-                        let remove = picked.modifiers.alt;
-                        for index in swept {
-                            if let Region::Cell(r, c) = art.shapes[index].region {
-                                let at = layer.cells.iter().position(|cell| *cell == (r, c));
-                                match (remove, at) {
-                                    (true, Some(at)) => {
-                                        layer.cells.remove(at);
-                                    }
-                                    (false, None) => layer.cells.push((r, c)),
-                                    _ => {}
-                                }
-                            }
-                        }
-                        changed = true;
-                    }
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label(widgets::faint(t("Click keys to add or remove them; drag to add many, Alt+drag to remove. Type here to try reactive layers.")));
-            });
-            let (dirty, empty) = app.lighting.stacks.get(&serial).map(|s| (s.dirty, s.layers.is_empty())).unwrap_or((false, true));
-            ui.horizontal(|ui| {
-                let (colour, text) = if dirty {
-                    (theme::WARN, t("Applying…"))
-                } else if running {
-                    (ACCENT, t("On the device: the daemon keeps drawing it with this window closed"))
-                } else {
-                    (TEXT_FAINT, t("Not on the device yet: change anything to apply it"))
-                };
-                let (dot, _) = ui.allocate_exact_size(vec2(8.0, 8.0), Sense::hover());
-                ui.painter().circle_filled(dot.center(), 4.0, colour);
-                ui.label(RichText::new(text).size(12.5).color(TEXT_DIM));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if running && widgets::danger_button(ui, t("Turn per-key lighting off")).clicked() {
-                        app.send(Command::Software { serial: serial.clone(), effect: "none".into(), options: json!({}) });
-                        let edit = app.edits.entry(serial.clone()).or_default();
-                        let back = edit.zones.get("backlight").cloned().unwrap_or_default();
-                        let mut back = back;
-                        if back.effect.is_empty() || back.effect == "custom" {
-                            back.effect = "spectrum".into();
-                        }
-                        for command in effects::apply_commands(&serial, "backlight", &back, false) {
-                            app.send(command);
-                        }
-                    } else if !running && !empty && widgets::primary_button(ui, t("Apply")).clicked() {
-                        changed = true;
-                    }
-                });
-            });
-            if caps["type"] == "keyboard" {
-                let mut variant = art.variant.unwrap_or(crate::layout::Variant::Ansi);
-                ui.horizontal(|ui| {
-                    ui.label(widgets::faint(t("Key layout")));
-                    let options = vec![(crate::layout::Variant::Ansi, canvas::variant_label(crate::layout::Variant::Ansi).to_string()), (crate::layout::Variant::Iso, canvas::variant_label(crate::layout::Variant::Iso).to_string())];
-                    if widgets::segmented(ui, &options, &mut variant) {
-                        app.settings.key_layouts.insert(serial.clone(), variant);
-                        app.save_settings();
-                        app.arts.forget(&serial);
-                    }
-                });
+        ui.spacing_mut().item_spacing.x = gap;
+        ui.allocate_ui_with_layout(vec2(side, 0.0), Layout::top_down(Align::Min), |ui| {
+            ui.set_width(side);
+            ui.spacing_mut().item_spacing = vec2(theme::SPACING, gap);
+            changed |= layers_panel(app, ui, &serial, fallback, time);
+            if !three {
+                changed |= layer_panel(app, ui, &serial);
             }
         });
-
-        // -- the chosen layer -------------------------------------------------------------------
-        if wide {
-            ui.vertical(|ui| {
-                ui.set_width(280.0);
+        ui.allocate_ui_with_layout(vec2(middle, 0.0), Layout::top_down(Align::Min), |ui| {
+            ui.set_width(middle);
+            ui.spacing_mut().item_spacing.x = theme::SPACING;
+            changed |= keys_panel(app, ui, &serial, caps, &art, &all, &colours, running);
+        });
+        if three {
+            ui.allocate_ui_with_layout(vec2(PROPERTIES_WIDTH, 0.0), Layout::top_down(Align::Min), |ui| {
+                ui.set_width(PROPERTIES_WIDTH);
+                ui.spacing_mut().item_spacing.x = theme::SPACING;
                 changed |= layer_panel(app, ui, &serial);
             });
         }
     });
-    if !wide {
-        ui.add_space(10.0);
-        changed |= layer_panel(app, ui, &serial);
-    }
 
+    let pending = app.is_pending(&format!("layers:{serial}"));
     let stack = app.lighting.stacks.get_mut(&serial).expect("made above");
     if changed {
         stack.dirty = true;
         let layers = serde_json::to_value(&stack.layers).unwrap_or(Value::Null);
         app.debounce(format!("layers:{serial}"), Command::Software { serial: serial.clone(), effect: "layers".into(), options: json!({ "layers": layers }) }, 300);
-    } else if stack.dirty && !app_pending(app, &serial) {
+    } else if stack.dirty && !pending {
         // Sent: the daemon's copy is the one to load from again.
-        if let Some(stack) = app.lighting.stacks.get_mut(&serial) {
-            stack.dirty = false;
-        }
+        stack.dirty = false;
     }
 }
 
-fn app_pending(app: &App, serial: &str) -> bool {
-    app.is_pending(&format!("layers:{serial}"))
+/// The list of layers, top first, with buttons to add, move, copy and delete.
+/// True if the layers changed.
+fn layers_panel(app: &mut App, ui: &mut egui::Ui, serial: &str, fallback: Color32, time: f32) -> bool {
+    let mut changed = false;
+    let mut added: Option<Kind> = None;
+    let stack = app.lighting.stacks.get_mut(serial).expect("made above");
+    widgets::panel_with(
+        ui,
+        t("Layers"),
+        |ui| {
+            widgets::menu_button(ui, icon::ADD, t("Add"), |ui| {
+                for kind in Kind::ALL {
+                    if widgets::option(ui, false, kind.label()).on_hover_text(kind.hint()).clicked() {
+                        added = Some(kind);
+                        ui.close_menu();
+                    }
+                }
+            });
+        },
+        |ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            let mut action: Option<(usize, &str)> = None;
+            if stack.layers.is_empty() {
+                widgets::help(ui, t("No layers: the keys are dark. Add one above."));
+            }
+            // Listed top first, as they stack.
+            for index in (0..stack.layers.len()).rev() {
+                let selected = stack.current == index;
+                let layer = &mut stack.layers[index];
+                let (row, _) = widgets::list_row(ui, selected, 40.0, |ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    let eye = if layer.enabled { icon::EYE } else { icon::EYE_OFF };
+                    if ui.add(IconButton::new(eye, t("Show or hide")).size(24.0)).clicked() {
+                        layer.enabled = !layer.enabled;
+                        changed = true;
+                    }
+                    let (swatch, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+                    let colour = if layer.kind.colours() == 0 { preview::hue(time / 4.0) } else { layer.colour(0) };
+                    ui.painter().rect_filled(swatch, CornerRadius::same(3), colour);
+                    let count = layer.cells.len().to_string();
+                    let name = if layer.name.is_empty() { layer.kind.label().to_string() } else { layer.name.clone() };
+                    let room = ui.available_width() - 30.0;
+                    let text = widgets::galley_fit(ui, &name, theme::body(13.5), if layer.enabled { TEXT } else { TEXT_FAINT }, room);
+                    let (rect, _) = ui.allocate_exact_size(vec2(room, 20.0), Sense::hover());
+                    ui.painter().galley(egui::pos2(rect.left(), rect.center().y - text.size().y / 2.0), text, TEXT);
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(RichText::new(count).size(12.0).color(TEXT_FAINT)).on_hover_text(t("Keys in this layer"));
+                    });
+                });
+                if row.clicked() {
+                    action = Some((index, "select"));
+                }
+            }
+            ui.add_space(4.0);
+            // What to do with the chosen layer: always the same four buttons.
+            let current = stack.current;
+            let count = stack.layers.len();
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                if ui.add(IconButton::new(icon::UP, t("Move up")).size(30.0).enabled(current + 1 < count)).clicked() {
+                    action = Some((current, "up"));
+                }
+                if ui.add(IconButton::new(icon::DOWN, t("Move down")).size(30.0).enabled(current > 0 && count > 0)).clicked() {
+                    action = Some((current, "down"));
+                }
+                if ui.add(IconButton::new(icon::COPY, t("Duplicate")).size(30.0).enabled(count > 0)).clicked() {
+                    action = Some((current, "copy"));
+                }
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.add(IconButton::new(icon::DELETE, t("Delete")).danger().size(30.0).enabled(count > 0)).clicked() {
+                        action = Some((current, "delete"));
+                    }
+                });
+            });
+            widgets::help(ui, t("Top covers bottom. Pick a layer, then click keys to paint it on."));
+            if let Some((index, what)) = action {
+                match what {
+                    "select" => {
+                        stack.current = index;
+                        stack.slot = 0;
+                    }
+                    "up" if index + 1 < stack.layers.len() => {
+                        stack.layers.swap(index, index + 1);
+                        stack.current = index + 1;
+                        changed = true;
+                    }
+                    "down" if index > 0 => {
+                        stack.layers.swap(index, index - 1);
+                        stack.current = index - 1;
+                        changed = true;
+                    }
+                    "copy" if index < stack.layers.len() => {
+                        let copy = stack.layers[index].clone();
+                        stack.layers.insert(index + 1, copy);
+                        stack.current = index + 1;
+                        changed = true;
+                    }
+                    "delete" if index < stack.layers.len() => {
+                        stack.layers.remove(index);
+                        stack.current = stack.current.min(stack.layers.len().saturating_sub(1));
+                        changed = true;
+                    }
+                    _ => {}
+                }
+            }
+        },
+    );
+    if let Some(kind) = added {
+        let stack = app.lighting.stacks.get_mut(serial).expect("made above");
+        let mut layer = Layer::new(kind, Vec::new(), fallback);
+        layer.name = kind.label().to_string();
+        stack.layers.push(layer);
+        stack.current = stack.layers.len() - 1;
+        stack.slot = 0;
+        changed = true;
+    }
+    changed
+}
+
+/// The keyboard to paint the chosen layer onto, a selection toolbar above it
+/// and whether it is on the device below. True if the layers changed.
+#[allow(clippy::too_many_arguments)]
+fn keys_panel(app: &mut App, ui: &mut egui::Ui, serial: &str, caps: &Value, art: &Arc<Art>, all: &[(u8, u8)], colours: &[Color32], running: bool) -> bool {
+    let mut changed = false;
+    let mut turn_off = false;
+    let in_layer = app.lighting.stacks.get(serial).and_then(|s| s.layers.get(s.current)).map_or(0, |l| l.cells.len());
+    widgets::panel_with(ui, t("Keys"), |ui| {
+        widgets::chip(ui, &tf("{} keys", &[&in_layer])).on_hover_text(t("Keys in this layer"));
+    }, |ui| {
+        let stack = app.lighting.stacks.get_mut(serial).expect("made above");
+        let current: BTreeSet<(u8, u8)> = stack.layers.get(stack.current).map(|l| l.cells.iter().copied().collect()).unwrap_or_default();
+        let has_layer = stack.layers.get(stack.current).is_some();
+        // -- selection toolbar ---------------------------------------------------------
+        let mut set: Option<Vec<(u8, u8)>> = None;
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+            ui.add_enabled_ui(has_layer, |ui| {
+                if ui.add(Button::ghost(t("All")).icon(icon::SELECT_ALL).small()).clicked() {
+                    set = Some(all.to_vec());
+                }
+                if ui.add(Button::ghost(t("None")).icon(icon::CLEAR).small()).clicked() {
+                    set = Some(Vec::new());
+                }
+                if ui.add(Button::ghost(t("Invert")).icon(icon::SYNC).small()).clicked() {
+                    set = Some(all.iter().copied().filter(|c| !current.contains(c)).collect());
+                }
+                widgets::menu_button(ui, icon::ADD, t("Groups"), |ui| {
+                    for (name, cells) in groups(art) {
+                        if widgets::option(ui, false, name).on_hover_text(t("Add these keys to the layer")).clicked() {
+                            let mut merged = current.clone();
+                            merged.extend(cells);
+                            set = Some(merged.into_iter().collect());
+                            ui.close_menu();
+                        }
+                    }
+                });
+            });
+        });
+        if let (Some(cells), Some(layer)) = (set, stack.layers.get_mut(stack.current)) {
+            layer.cells = cells;
+            changed = true;
+        }
+
+        // -- the canvas ------------------------------------------------------------------
+        stage_frame().show(ui, |ui| {
+            let width = ui.available_width();
+            let height = (width * art.h as f32 / art.w as f32 + 40.0).clamp(220.0, 420.0);
+            let visible = |s: &Shape| matches!(s.region, Region::Cell(..));
+            let selected = |s: &Shape| matches!(s.region, Region::Cell(r, c) if current.contains(&(r, c)));
+            let picked = canvas::show(app, ui, serial, art, colours, vec2(width, height), View { visible: &visible, selected: &selected, labels: !art.photo });
+            let stack = app.lighting.stacks.get_mut(serial).expect("made above");
+            if let Some(layer) = stack.layers.get_mut(stack.current) {
+                if let Some(index) = picked.clicked {
+                    if let Region::Cell(r, c) = art.shapes[index].region {
+                        if let Some(at) = layer.cells.iter().position(|cell| *cell == (r, c)) {
+                            layer.cells.remove(at);
+                        } else if !picked.secondary {
+                            layer.cells.push((r, c));
+                        }
+                        changed = true;
+                    }
+                }
+                if let Some(swept) = picked.swept {
+                    let remove = picked.modifiers.alt;
+                    for index in swept {
+                        if let Region::Cell(r, c) = art.shapes[index].region {
+                            let at = layer.cells.iter().position(|cell| *cell == (r, c));
+                            match (remove, at) {
+                                (true, Some(at)) => {
+                                    layer.cells.remove(at);
+                                }
+                                (false, None) => layer.cells.push((r, c)),
+                                _ => {}
+                            }
+                        }
+                    }
+                    changed = true;
+                }
+            }
+        });
+        widgets::help(ui, t("Click keys to add or remove them; drag to add many, Alt+drag to remove. Type here to try reactive layers."));
+        widgets::divider(ui);
+
+        // -- on the device? ----------------------------------------------------------------
+        // The state on one line, what to do about it on the next: a long
+        // translation of either never runs into the other.
+        let (dirty, empty) = app.lighting.stacks.get(serial).map(|s| (s.dirty, s.layers.is_empty())).unwrap_or((false, true));
+        let (colour, text) = if dirty {
+            (theme::WARN, t("Applying…"))
+        } else if running {
+            (ACCENT, t("On the device: the daemon keeps drawing it with this window closed"))
+        } else {
+            (TEXT_FAINT, t("Not on the device yet: change anything to apply it"))
+        };
+        ui.horizontal_top(|ui| {
+            let (dot, _) = ui.allocate_exact_size(vec2(8.0, 18.0), Sense::hover());
+            ui.painter().circle_filled(dot.center(), 4.0, colour);
+            ui.add(egui::Label::new(RichText::new(text).size(12.5).color(TEXT_DIM)).wrap());
+        });
+        if running {
+            turn_off = ui.add(Button::danger(t("Turn per-key lighting off")).icon(icon::POWER).small()).clicked();
+        } else if ui.add(Button::primary(t("Apply")).icon(icon::CHECK).small().min_width(110.0).enabled(!empty)).clicked() {
+            changed = true;
+        }
+        if caps["type"] == "keyboard" {
+            widgets::divider(ui);
+            let mut variant = art.variant.unwrap_or(crate::layout::Variant::Ansi);
+            widgets::row(ui, t("Key layout"), t("The shape of Enter and left Shift."), |ui| {
+                let options = vec![(crate::layout::Variant::Ansi, canvas::variant_label(crate::layout::Variant::Ansi).to_string()), (crate::layout::Variant::Iso, canvas::variant_label(crate::layout::Variant::Iso).to_string())];
+                if widgets::segmented(ui, &options, &mut variant) {
+                    app.settings.key_layouts.insert(serial.to_string(), variant);
+                    app.save_settings();
+                    app.arts.forget(serial);
+                }
+            });
+        }
+    });
+    if turn_off {
+        app.send(Command::Software { serial: serial.to_string(), effect: "none".into(), options: json!({}) });
+        let edit = app.edits.entry(serial.to_string()).or_default();
+        let mut back = edit.zones.get("backlight").cloned().unwrap_or_default();
+        if back.effect.is_empty() || back.effect == "custom" || back.effect == "layers" {
+            back.effect = "spectrum".into();
+        }
+        for command in effects::apply_commands(serial, "backlight", &back, false) {
+            app.send(command);
+        }
+    }
+    changed
 }
 
 /// Settings of the chosen layer.  True if anything changed.
 fn layer_panel(app: &mut App, ui: &mut egui::Ui, serial: &str) -> bool {
     let recent = app.settings.recent_colours.clone();
     let Some(stack) = app.lighting.stacks.get_mut(serial) else { return false };
-    let Some(layer) = stack.layers.get_mut(stack.current) else { return false };
+    let slot_now = stack.slot;
+    let Some(layer) = stack.layers.get_mut(stack.current) else {
+        widgets::panel(ui, t("Layer"), |ui| widgets::help(ui, t("No layers: the keys are dark. Add one above.")));
+        return false;
+    };
     let mut changed = false;
     let mut remember: Option<Color32> = None;
-    widgets::card(ui, |ui| {
-        widgets::heading(ui, t("Layer"));
-        if ui.add(egui::TextEdit::singleline(&mut layer.name).hint_text(layer.kind.label()).desired_width(f32::INFINITY)).changed() {
-            changed = true;
-        }
+    let mut slot = slot_now.min(layer.colours.len().saturating_sub(1));
+    widgets::panel(ui, t("Layer"), |ui| {
+        ui.spacing_mut().item_spacing.y = 12.0;
+        widgets::stacked(ui, t("Name"), |ui| {
+            if widgets::text_field(ui, &mut layer.name, layer.kind.label(), ui.available_width()).changed() {
+                changed = true;
+            }
+        });
         let mut kind = layer.kind;
-        egui::ComboBox::from_id_salt(("kind", serial)).selected_text(kind.label()).width(ui.available_width() - 4.0).show_ui(ui, |ui| {
-            for option in Kind::ALL {
-                ui.selectable_value(&mut kind, option, option.label()).on_hover_text(option.hint());
+        widgets::stacked(ui, t("Effect"), |ui| {
+            widgets::select(ui, ("kind", serial), kind.label(), ui.available_width(), |ui| {
+                for option in Kind::ALL {
+                    if widgets::option(ui, option == kind, option.label()).on_hover_text(option.hint()).clicked() {
+                        kind = option;
+                    }
+                }
+            });
+            widgets::help(ui, layer.kind.hint());
+            if layer.kind.key_driven() {
+                widgets::help(ui, t("Lights up as you type anywhere, not just in this window."));
             }
         });
         if kind != layer.kind {
             let first = layer.colour(0);
             *layer = Layer { kind, cells: std::mem::take(&mut layer.cells), name: std::mem::take(&mut layer.name), ..Layer::new(kind, Vec::new(), first) };
+            slot = 0;
             changed = true;
         }
-        ui.label(widgets::faint(layer.kind.hint()));
-        if layer.kind.key_driven() {
-            ui.label(widgets::faint(t("Lights up as you type anywhere, not just in this window.")));
-        }
-
-        let most = layer.kind.colours();
-        if most > 0 {
-            ui.add_space(4.0);
-            widgets::section(ui, t("Colours"));
-            ui.horizontal(|ui| {
-                for (i, colour) in layer.colours.clone().iter().enumerate() {
-                    let response = widgets::swatch(ui, *colour, 30.0, ui.data(|d| d.get_temp::<usize>(egui::Id::new(("slot", serial)))).unwrap_or(0) == i);
-                    if response.clicked() {
-                        ui.data_mut(|d| d.insert_temp(egui::Id::new(("slot", serial)), i));
-                        app.lighting.hex.clear();
-                    }
-                    if response.secondary_clicked() && layer.colours.len() > 1 {
-                        layer.colours.remove(i);
-                        changed = true;
-                    }
-                }
-                if layer.colours.len() < most && ui.button("+").on_hover_text(t("Another colour")).clicked() {
-                    layer.colours.push(preview::hue(layer.colours.len() as f32 * 0.33));
+        // Speed and direction are always here, greyed where the effect has none.
+        widgets::stacked(ui, t("Speed"), |ui| {
+            ui.add_enabled_ui(layer.kind.has_speed(), |ui| {
+                let mut speed = layer.speed as f64;
+                if widgets::slider_field(ui, ("layer-speed", serial), &mut speed, 0.25..=3.0, 0.25, 2, "×", 76.0) {
+                    layer.speed = speed as f32;
                     changed = true;
                 }
             });
-            let slot = ui.data(|d| d.get_temp::<usize>(egui::Id::new(("slot", serial)))).unwrap_or(0).min(layer.colours.len().saturating_sub(1));
-            if let Some(colour) = layer.colours.get_mut(slot) {
-                if super::widgets::colour_chooser(ui, colour, &mut app.lighting.hex, &recent) {
-                    remember = Some(*colour);
-                    changed = true;
-                }
-            }
-        }
-        if layer.kind.has_speed() {
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                widgets::section(ui, t("Speed"));
-                ui.spacing_mut().slider_width = (ui.available_width() - 50.0).max(80.0);
-                if ui.add(egui::Slider::new(&mut layer.speed, 0.25..=3.0).step_by(0.25).show_value(false)).changed() {
-                    changed = true;
-                }
-                ui.label(RichText::new(format!("{:.2}×", layer.speed)).size(12.5));
-            });
-        }
-        if layer.kind.has_direction() {
-            ui.horizontal(|ui| {
-                widgets::section(ui, t("Direction"));
+        });
+        widgets::stacked(ui, t("Direction"), |ui| {
+            ui.add_enabled_ui(layer.kind.has_direction(), |ui| {
                 let options = vec![(1u8, format!("{} →", t("Right"))), (2u8, format!("← {}", t("Left")))];
                 if widgets::segmented(ui, &options, &mut layer.direction) {
                     changed = true;
                 }
             });
-        }
+        });
+        widgets::divider(ui);
+        let most = layer.kind.colours();
+        widgets::stacked(ui, if most > 1 { t("Colours") } else { t("Colour") }, |ui| {
+            if most == 0 {
+                widgets::help(ui, t("This effect picks its own colours."));
+                return;
+            }
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                let mut remove: Option<usize> = None;
+                for (i, colour) in layer.colours.iter().enumerate() {
+                    let response = widgets::swatch(ui, *colour, 28.0, slot == i).on_hover_text(t("Click to edit; right-click to remove"));
+                    if response.clicked() {
+                        slot = i;
+                    }
+                    if response.secondary_clicked() && layer.colours.len() > 1 {
+                        remove = Some(i);
+                    }
+                }
+                if let Some(i) = remove {
+                    layer.colours.remove(i);
+                    slot = slot.min(layer.colours.len() - 1);
+                    changed = true;
+                }
+                if layer.colours.len() < most && ui.add(IconButton::new(icon::ADD, t("Another colour")).size(28.0)).clicked() {
+                    layer.colours.push(preview::hue(layer.colours.len() as f32 * 0.33));
+                    slot = layer.colours.len() - 1;
+                    changed = true;
+                }
+            });
+            if let Some(colour) = layer.colours.get_mut(slot) {
+                if super::widgets::colour_chooser(ui, &format!("layer-{serial}-{slot}"), colour, &recent) {
+                    remember = Some(*colour);
+                    changed = true;
+                }
+            }
+        });
     });
+    stack.slot = slot;
     if let Some(colour) = remember {
         app.settings.remember_colour(colour);
     }

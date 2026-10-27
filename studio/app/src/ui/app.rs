@@ -1,6 +1,7 @@
-//! The window: a rail of sections on the left, a bar of devices along the
-//! top, the page in between, and the daemon's state along the bottom.
+//! The window: a navigation column on the left -- the app, Home, each
+//! device, the tools, Settings and the daemon's state -- and the page beside it.
 
+use super::device::Tab;
 use super::edit::{DeviceEdit, Pending};
 use crate::appwatch::Rules;
 use crate::images::Images;
@@ -8,7 +9,7 @@ use crate::settings::Settings;
 use crate::shell::{self, Tray, TrayAction};
 use crate::worker::{self, Command, DaemonState, Device, Shared, Snapshot};
 use egui::{pos2, vec2, Align, Align2, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, StrokeKind};
-use openrazer_studio_core::theme::{self, icon, ACCENT, BAR, BG, BORDER, RAIL, SURFACE_HI, TEXT, TEXT_DIM, TEXT_FAINT};
+use openrazer_studio_core::theme::{self, icon, ACCENT, BORDER_HI, NAV, SURFACE, SURFACE_HI, TEXT, TEXT_DIM, TEXT_FAINT};
 use openrazer_studio_core::{install, t, tf, widgets};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -22,22 +23,24 @@ thread_local! {
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
 }
 
+/// The width of the navigation column.
+const NAV_WIDTH: f32 = 224.0;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Page {
     Home,
-    Devices,
-    Lighting,
+    /// One device, the one in `App::selected`.
+    Device,
     Macros,
     Integrations,
     Settings,
 }
 
 impl Page {
-    fn title(self) -> &'static str {
+    pub fn title(self) -> &'static str {
         match self {
             Page::Home => t("Home"),
-            Page::Devices => t("Devices"),
-            Page::Lighting => t("Lighting"),
+            Page::Device => t("Devices"),
             Page::Macros => t("Macros"),
             Page::Integrations => t("Integrations"),
             Page::Settings => t("Settings"),
@@ -46,16 +49,11 @@ impl Page {
     fn glyph(self) -> &'static str {
         match self {
             Page::Home => icon::HOME,
-            Page::Devices => icon::DEVICES,
-            Page::Lighting => icon::LIGHTING,
+            Page::Device => icon::DEVICES,
             Page::Macros => icon::MACROS,
             Page::Integrations => icon::INTEGRATIONS,
             Page::Settings => icon::SETTINGS,
         }
-    }
-    /// Whether the page is about one device, chosen in the bar along the top.
-    fn per_device(self) -> bool {
-        matches!(self, Page::Devices | Page::Lighting)
     }
 }
 
@@ -64,7 +62,7 @@ pub struct App {
     pub tx: Sender<Command>,
     pub images: Images,
     pub page: Page,
-    /// The device the per-device pages show.
+    /// The device the device page shows.
     pub selected: Option<String>,
     pub edits: HashMap<String, DeviceEdit>,
     pending: Vec<Pending>,
@@ -82,6 +80,8 @@ pub struct App {
     pub started: Instant,
     tray_ok: bool,
     capture: Option<Capture>,
+    /// The library macro the screenshot hook opened, so it is opened once.
+    macros_opened: Option<usize>,
     /// eframe shows the window after its first frame whatever the viewport
     /// asked for, so a background start hides it again for a few frames.
     hide_frames: u8,
@@ -90,7 +90,8 @@ pub struct App {
 /// For checking the design: `OPENRAZER_STUDIO_CAPTURE=path.png` saves one
 /// screenshot of the window once the daemon has answered, then exits.
 /// `OPENRAZER_STUDIO_PAGE` picks the page: `home`, `devices:0:performance`,
-/// `lighting:0:studio`, `macros`, `integrations`, `settings`.
+/// `lighting:0:studio`, `macros` (`macros:0` with the first library macro
+/// open), `integrations`, `settings`.
 struct Capture {
     path: std::path::PathBuf,
     page: String,
@@ -103,6 +104,13 @@ impl App {
         let settings = Settings::load();
         openrazer_studio_core::i18n::set(settings.language);
         theme::apply(&cc.egui_ctx);
+        #[cfg(debug_assertions)]
+        if std::env::var_os("OPENRAZER_STUDIO_DEBUG").is_some() {
+            cc.egui_ctx.style_mut(|s| {
+                s.debug.show_expand_width = true;
+                s.debug.show_expand_height = false;
+            });
+        }
         let shared: Shared = Default::default();
         let ctx = cc.egui_ctx.clone();
         let tx = worker::spawn(shared.clone(), move || ctx.request_repaint());
@@ -166,6 +174,7 @@ impl App {
             tray_ok,
             hide_frames: if background && tray_ok { 4 } else { 0 },
             capture,
+            macros_opened: None,
         }
     }
 
@@ -193,9 +202,12 @@ impl App {
         snap.devices.iter().find(|d| &d.serial == serial)
     }
 
-    /// Open `page` about the device `serial`.
-    pub fn open(&mut self, page: Page, serial: &str) {
-        self.page = page;
+    /// Open the page of the device `serial`, on `tab` if given.
+    pub fn open_device(&mut self, serial: &str, tab: Option<Tab>) {
+        self.page = Page::Device;
+        if let Some(tab) = tab {
+            self.device_ui.tab = tab;
+        }
         if self.selected.as_deref() != Some(serial) {
             self.selected = Some(serial.to_string());
             // Re-read what may have changed on the device itself.
@@ -254,18 +266,16 @@ impl eframe::App for App {
         self.sync(&snap);
         self.flush_pending(ctx);
 
-        // One backdrop behind everything; the panels over it are see-through.
-        theme::backdrop(&ctx.layer_painter(egui::LayerId::background()), ctx.screen_rect());
-        egui::SidePanel::left("rail")
-            .exact_width(88.0)
+        egui::SidePanel::left("nav")
+            .exact_width(NAV_WIDTH)
             .resizable(false)
-            .show_separator_line(false)
-            .frame(Frame::new().fill(RAIL.gamma_multiply(0.92)).inner_margin(Margin::symmetric(0, 16)))
-            .show(ctx, |ui| self.rail(ui, &snap));
-        egui::TopBottomPanel::bottom("status").exact_height(30.0).show_separator_line(false).frame(Frame::new().inner_margin(Margin::symmetric(30, 0))).show(ctx, |ui| self.status(ui, &snap));
-        egui::TopBottomPanel::top("bar").exact_height(78.0).show_separator_line(false).frame(Frame::new().inner_margin(Margin { left: 34, right: 30, top: 0, bottom: 0 })).show(ctx, |ui| self.bar(ui, &snap));
-        egui::CentralPanel::default().frame(Frame::new().inner_margin(Margin { left: 34, right: 30, top: 10, bottom: 6 })).show(ctx, |ui| self.page(ui, &snap));
-        let _ = (BG, BAR);
+            .show_separator_line(true)
+            .frame(Frame::new().fill(NAV).inner_margin(Margin { left: 12, right: 12, top: 18, bottom: 14 }))
+            .show(ctx, |ui| self.nav(ui, &snap));
+        egui::CentralPanel::default().frame(Frame::new().fill(theme::BG).inner_margin(Margin { left: 32, right: 28, top: 20, bottom: 0 })).show(ctx, |ui| {
+            ui.set_max_width(ui.available_width().min(1480.0));
+            self.page(ui, &snap)
+        });
 
         self.toast_area(ctx, &snap);
         self.capture(ctx, &snap);
@@ -292,146 +302,150 @@ impl App {
         *self.serials.lock().unwrap() = snap.devices.iter().map(|d| d.serial.clone()).collect();
     }
 
-    // -- the rail ----------------------------------------------------------------
-    fn rail(&mut self, ui: &mut egui::Ui, snap: &Snapshot) {
-        ui.vertical_centered(|ui| {
-            let (rect, _) = ui.allocate_exact_size(vec2(40.0, 40.0), Sense::hover());
-            let painter = ui.painter();
-            theme::glow(painter, rect.center(), vec2(30.0, 30.0), ACCENT.gamma_multiply(0.35));
-            painter.circle_stroke(rect.center(), 14.0, Stroke::new(4.5_f32, ACCENT));
-            painter.circle_filled(rect.center(), 5.5, Color32::from_rgb(0xC8, 0xFF, 0xB8));
-            ui.add_space(22.0);
-            for page in [Page::Home, Page::Devices, Page::Lighting, Page::Macros, Page::Integrations] {
-                self.rail_item(ui, page);
+    // -- the navigation column ------------------------------------------------------------
+    fn nav(&mut self, ui: &mut egui::Ui, snap: &Snapshot) {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        // Who we are.
+        ui.horizontal(|ui| {
+            ui.add_space(4.0);
+            let (rect, _) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::hover());
+            theme::logo(ui.painter(), rect.center(), 30.0);
+            ui.add_space(4.0);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.label(RichText::new("OpenRazer").font(theme::bold(15.5)).color(TEXT));
+                ui.label(RichText::new("STUDIO").font(theme::bold(10.0)).color(ACCENT).extra_letter_spacing(2.6));
+            });
+        });
+        ui.add_space(20.0);
+        if nav_item(ui, Page::Home.glyph(), Page::Home.title(), self.page == Page::Home) {
+            self.page = Page::Home;
+        }
+
+        // The devices, one item each.
+        ui.add_space(14.0);
+        nav_section(ui, t("Devices"), &snap.devices.len().to_string());
+        // What the bottom of the column needs; the devices scroll in the rest.
+        let tools = 2.0 * 42.0 + 40.0;
+        let bottom = 42.0 + 56.0 + if self.update.lock().unwrap().is_some() { 44.0 } else { 0.0 } + if snap.synapse.is_empty() { 0.0 } else { 20.0 };
+        let room = (ui.available_height() - tools - bottom - 24.0).max(52.0);
+        egui::ScrollArea::vertical().id_salt("nav-devices").max_height(room).auto_shrink([false, true]).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            if snap.devices.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.add_space(12.0);
+                    ui.label(widgets::faint(match snap.daemon {
+                        DaemonState::Running(_) => t("None found"),
+                        _ => "—",
+                    }));
+                });
             }
-        });
-        ui.with_layout(Layout::bottom_up(Align::Center), |ui| {
-            let (colour, hint) = match &snap.daemon {
-                DaemonState::Running(info) if info["state"] == "starting" => (theme::WARN, t("Daemon starting…")),
-                DaemonState::Running(_) => (ACCENT, t("Daemon running")),
-                DaemonState::Connecting => (TEXT_FAINT, t("Connecting…")),
-                DaemonState::NotRunning(_) => (theme::DANGER, t("Daemon not running")),
-            };
-            let (rect, response) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
-            ui.painter().circle_filled(rect.center(), 4.5, colour);
-            response.on_hover_text(hint);
-            ui.add_space(6.0);
-            self.rail_item(ui, Page::Settings);
-        });
-    }
-
-    fn rail_item(&mut self, ui: &mut egui::Ui, page: Page) {
-        let selected = self.page == page;
-        let (slot, response) = ui.allocate_exact_size(vec2(88.0, 64.0), Sense::click());
-        let rect = Rect::from_center_size(slot.center(), vec2(68.0, 58.0));
-        let painter = ui.painter();
-        let hover = ui.ctx().animate_bool_responsive(response.id, response.hovered() || selected);
-        if selected {
-            theme::glow(painter, rect.center() - vec2(0.0, 8.0), vec2(34.0, 26.0), ACCENT.gamma_multiply(0.22));
-            painter.rect_filled(rect, CornerRadius::same(16), theme::ACCENT_DEEP.gamma_multiply(0.9));
-            painter.rect_stroke(rect, CornerRadius::same(16), Stroke::new(1.0_f32, ACCENT.gamma_multiply(0.35)), StrokeKind::Inside);
-        } else if hover > 0.0 {
-            painter.rect_filled(rect, CornerRadius::same(16), SURFACE_HI.gamma_multiply(hover));
-        }
-        let colour = if selected { theme::ACCENT_HI } else if response.hovered() { TEXT } else { TEXT_DIM };
-        painter.text(rect.center() - vec2(0.0, 8.0), Align2::CENTER_CENTER, page.glyph(), theme::icon_font(20.0), colour);
-        painter.text(rect.center() + vec2(0.0, 15.0), Align2::CENTER_CENTER, page.title(), theme::bold(10.5), if selected { TEXT } else { TEXT_FAINT });
-        if response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-            self.page = page;
-        }
-    }
-
-    // -- the bar along the top ----------------------------------------------------------
-    fn bar(&mut self, ui: &mut egui::Ui, snap: &Snapshot) {
-        ui.horizontal_centered(|ui| {
-            ui.label(RichText::new(self.page.title()).font(theme::heavy(28.0)));
-            ui.add_space(26.0);
-            if self.page.per_device() && !snap.devices.is_empty() {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                for device in &snap.devices {
-                    let selected = self.selected.as_deref() == Some(device.serial.as_str());
-                    if self.device_chip(ui, device, &title(device, snap), selected).clicked() {
-                        let page = self.page;
-                        self.open(page, &device.serial.clone());
-                    }
+            for device in &snap.devices {
+                let selected = self.page == Page::Device && self.selected.as_deref() == Some(device.serial.as_str());
+                if self.nav_device(ui, device, snap, selected) {
+                    self.open_device(&device.serial.clone(), None);
                 }
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        });
+
+        ui.add_space(14.0);
+        nav_section(ui, t("Tools"), "");
+        for page in [Page::Macros, Page::Integrations] {
+            if nav_item(ui, page.glyph(), page.title(), self.page == page) {
+                self.page = page;
+            }
+        }
+
+        ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            self.daemon_status(ui, snap);
+            ui.add_space(8.0);
+            if nav_item(ui, Page::Settings.glyph(), Page::Settings.title(), self.page == Page::Settings) {
+                self.page = Page::Settings;
+            }
+            let update = self.update.lock().unwrap().clone();
+            if let Some(update) = update {
+                let response = ui.add(widgets::Button::primary(&tf("Update {} is out", &[&update.version])).icon(icon::DOWNLOAD).width(ui.available_width()));
+                if response.on_hover_text(t("Open the release page")).clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(update.url));
+                }
+                ui.add_space(6.0);
+            }
+        });
+    }
+
+    fn nav_device(&mut self, ui: &mut egui::Ui, device: &Device, snap: &Snapshot, selected: bool) -> bool {
+        let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
+        paint_nav_item(ui, rect, selected, response.hovered());
+        let thumb = Rect::from_min_size(pos2(rect.left() + 10.0, rect.center().y - 15.0), vec2(38.0, 30.0));
+        draw_picture(self, ui, device, thumb);
+        let painter = ui.painter_at(rect);
+        let x = thumb.right() + 10.0;
+        let width = rect.right() - x - 8.0;
+        let name = widgets::galley_fit(ui, &title(device, snap), theme::body(13.5), TEXT, width);
+        painter.galley(pos2(x, rect.center().y - name.size().y + 1.0), name, if selected || response.hovered() { TEXT } else { TEXT_DIM });
+        let detail = snap.details.get(&device.serial);
+        let mut line = kind_label(&device.kind).to_string();
+        if let Some(level) = detail.and_then(|d| d.battery) {
+            line = format!("{line} · {level:.0}%");
+        }
+        let sub = widgets::galley_fit(ui, &line, theme::body(11.5), TEXT_FAINT, width);
+        painter.galley(pos2(x, rect.center().y + 1.0), sub, TEXT_FAINT);
+        response.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(&device.name).clicked()
+    }
+
+    fn daemon_status(&mut self, ui: &mut egui::Ui, snap: &Snapshot) {
+        let (colour, text) = match &snap.daemon {
+            DaemonState::Running(info) if info["state"] == "starting" => (theme::WARN, t("Daemon starting…").to_string()),
+            DaemonState::Running(info) => (ACCENT, tf("Daemon {}", &[&info["version"].as_str().unwrap_or("?")])),
+            DaemonState::Connecting => (TEXT_FAINT, t("Connecting…").to_string()),
+            DaemonState::NotRunning(_) => (theme::DANGER, t("Daemon not running").to_string()),
+        };
+        let width = ui.available_width();
+        ui.allocate_ui_with_layout(vec2(width, 52.0), Layout::top_down(Align::Min), |ui| {
+            ui.set_min_size(vec2(width, 52.0));
+            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                widgets::status_dot(ui, colour, &text);
                 if snap.busy {
-                    ui.add(egui::Spinner::new().size(14.0).color(TEXT_FAINT));
-                }
-                let update = self.update.lock().unwrap().clone();
-                if let Some(update) = update {
-                    let response = ui.add(egui::Button::new(RichText::new(tf("Update {} is out", &[&update.version])).font(theme::bold(12.0)).color(theme::ON_ACCENT)).fill(ACCENT));
-                    if response.on_hover_text(t("Open the release page")).clicked() {
-                        ui.ctx().open_url(egui::OpenUrl::new_tab(update.url));
-                    }
-                }
-                if self.page.per_device() {
-                    if let Some(device) = self.device(snap).cloned() {
-                        super::device::profile_switcher(self, ui, &device, snap);
-                    }
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.add_space(8.0);
+                        ui.add(egui::Spinner::new().size(12.0).color(TEXT_FAINT));
+                    });
                 }
             });
-        });
-    }
-
-    fn device_chip(&mut self, ui: &mut egui::Ui, device: &Device, name: &str, selected: bool) -> egui::Response {
-        let name = name.to_string();
-        let galley = ui.painter().layout_no_wrap(name, theme::bold(12.5), TEXT);
-        let (rect, response) = ui.allocate_exact_size(vec2(galley.size().x + 58.0, 42.0), Sense::click());
-        let painter = ui.painter_at(rect.expand(12.0));
-        if selected {
-            theme::glow(&painter, rect.center(), vec2(rect.width() * 0.6, 26.0), ACCENT.gamma_multiply(0.14));
-            painter.rect_filled(rect, CornerRadius::same(255), SURFACE_HI);
-            painter.rect_stroke(rect, CornerRadius::same(255), Stroke::new(1.0_f32, ACCENT.gamma_multiply(0.6)), StrokeKind::Inside);
-        } else {
-            painter.rect_filled(rect, CornerRadius::same(255), if response.hovered() { SURFACE_HI } else { theme::SURFACE.gamma_multiply(0.7) });
-            painter.rect_stroke(rect, CornerRadius::same(255), Stroke::new(1.0_f32, BORDER), StrokeKind::Inside);
-        }
-        let thumb = Rect::from_min_size(rect.min + vec2(10.0, 5.0), vec2(32.0, 32.0));
-        match self.picture(device).and_then(|url| self.images.get(ui.ctx(), &url)) {
-            Some(texture) => {
-                let size = fit(texture.size_vec2(), thumb.size());
-                painter.image(texture.id(), Rect::from_center_size(thumb.center(), size), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
-            }
-            None => super::widgets::device_glyph(&painter, thumb.shrink(4.0), &device.kind, TEXT_DIM),
-        }
-        painter.galley(pos2(thumb.right() + 6.0, rect.center().y - galley.size().y / 2.0), galley, if selected { TEXT } else { TEXT_DIM });
-        response.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(&device.name)
-    }
-
-    // -- the status line ----------------------------------------------------------------
-    fn status(&mut self, ui: &mut egui::Ui, snap: &Snapshot) {
-        ui.horizontal_centered(|ui| {
-            ui.spacing_mut().item_spacing.x = 14.0;
-            let text = match &snap.daemon {
-                DaemonState::Running(info) => tf("Daemon {} · {} device(s)", &[&info["version"].as_str().unwrap_or("?"), &snap.devices.len()]),
-                DaemonState::Connecting => t("Connecting to the daemon…").to_string(),
-                DaemonState::NotRunning(_) => t("Daemon not running").to_string(),
-            };
-            ui.label(RichText::new(text).size(11.5).color(TEXT_FAINT));
             if !snap.synapse.is_empty() {
-                ui.label(RichText::new(t("Razer Synapse is running")).size(11.5).color(theme::WARN));
+                ui.horizontal(|ui| {
+                    ui.add_space(12.0);
+                    widgets::status_dot(ui, theme::WARN, t("Razer Synapse is running"));
+                });
             }
-            if let Some(effects) = Some(snap.software.len()).filter(|n| *n > 0) {
-                ui.label(RichText::new(tf("{} live effect(s)", &[&effects])).size(11.5).color(TEXT_FAINT));
-            }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(RichText::new(format!("OpenRazer Studio {}", env!("CARGO_PKG_VERSION"))).size(11.5).color(TEXT_FAINT));
+            ui.horizontal(|ui| {
+                ui.add_space(28.0);
+                ui.label(RichText::new(format!("Studio {}", env!("CARGO_PKG_VERSION"))).size(11.5).color(TEXT_FAINT));
             });
         });
+        ui.add_space(4.0);
+        let (line, _) = ui.allocate_exact_size(vec2(width, 1.0), Sense::hover());
+        ui.painter().hline(line.x_range(), line.center().y, Stroke::new(1.0_f32, theme::BORDER));
     }
 
     // -- the page -----------------------------------------------------------------------
     fn page(&mut self, ui: &mut egui::Ui, snap: &Snapshot) {
-        let needs_daemon = matches!(self.page, Page::Home | Page::Devices | Page::Lighting | Page::Macros);
+        let needs_daemon = matches!(self.page, Page::Home | Page::Device | Page::Macros);
         if needs_daemon {
             match &snap.daemon {
-                DaemonState::Connecting => return empty_state(ui, t("Connecting to the daemon…"), "", None::<fn(&mut egui::Ui)>),
+                DaemonState::Connecting => {
+                    widgets::page_header(ui, self.page.title(), "", |_| {});
+                    widgets::empty_state(ui, t("Connecting to the daemon…"), "", |ui| {
+                        ui.add(egui::Spinner::new().size(18.0).color(ACCENT));
+                    });
+                    return;
+                }
                 DaemonState::NotRunning(reason) => {
                     let reason = reason.clone();
-                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| super::setup::page(self, ui, snap, &reason));
+                    super::setup::page(self, ui, snap, &reason);
                     return;
                 }
                 DaemonState::Running(_) => {}
@@ -439,8 +453,7 @@ impl App {
         }
         match self.page {
             Page::Home => super::home::page(self, ui, snap),
-            Page::Devices => super::device::page(self, ui, snap),
-            Page::Lighting => super::lighting::page(self, ui, snap),
+            Page::Device => super::device::page(self, ui, snap),
             Page::Macros => super::macros::page(self, ui, snap),
             Page::Integrations => super::integrations::page(self, ui, snap),
             Page::Settings => super::settings::page(self, ui, snap),
@@ -456,36 +469,41 @@ impl App {
         }
         let fade = ((life - age) / 0.4).clamp(0.0, 1.0);
         let colour = if toast.error { theme::DANGER } else { ACCENT };
-        egui::Area::new(egui::Id::new("toast")).anchor(Align2::RIGHT_BOTTOM, vec2(-24.0, -40.0)).order(egui::Order::Foreground).show(ctx, |ui| {
-            Frame::new()
-                .fill(theme::SURFACE_HI.gamma_multiply(fade))
-                .stroke(Stroke::new(1.0_f32, colour.gamma_multiply(0.6 * fade)))
+        egui::Area::new(egui::Id::new("toast")).anchor(Align2::RIGHT_BOTTOM, vec2(-24.0, -24.0)).order(egui::Order::Foreground).show(ctx, |ui| {
+            let response = Frame::new()
+                .fill(SURFACE_HI.gamma_multiply(fade))
+                .stroke(Stroke::new(1.0_f32, BORDER_HI.gamma_multiply(fade)))
                 .corner_radius(CornerRadius::same(theme::RADIUS))
-                .inner_margin(Margin::symmetric(16, 11))
+                .shadow(theme::shadow())
+                .inner_margin(Margin { left: 18, right: 16, top: 12, bottom: 12 })
                 .show(ui, |ui| {
-                    ui.set_max_width(440.0);
+                    ui.set_max_width(420.0);
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
                         let glyph = if toast.error { icon::WARNING } else { icon::CHECK };
                         widgets::icon(ui, glyph, 14.0, colour.gamma_multiply(fade));
                         ui.add(egui::Label::new(RichText::new(&toast.text).color(TEXT.gamma_multiply(fade))).wrap());
                     });
-                });
+                })
+                .response;
+            let bar = Rect::from_min_size(response.rect.min + vec2(0.0, 8.0), vec2(3.0, response.rect.height() - 16.0));
+            ui.painter().rect_filled(bar, CornerRadius::same(2), colour.gamma_multiply(fade));
         });
         ctx.request_repaint_after(Duration::from_millis(50));
     }
 
     fn capture(&mut self, ctx: &egui::Context, snap: &Snapshot) {
-        let Some(capture) = self.capture.as_mut() else { return };
+        let Some(capture) = self.capture.as_ref() else { return };
+        let (spec, started, requested, path) = (capture.page.clone(), capture.started, capture.requested, capture.path.clone());
         let settled = match &snap.daemon {
             DaemonState::Running(info) => !snap.devices.is_empty() || info["state"] == "ready",
             _ => snap.start_error.is_some(),
         };
-        let ready = settled && !snap.busy && capture.started.elapsed() > Duration::from_secs(6);
-        if !capture.requested {
-            let parts: Vec<&str> = capture.page.split(':').collect();
+        let ready = settled && !snap.busy && started.elapsed() > Duration::from_secs(6);
+        if !requested {
+            let parts: Vec<&str> = spec.split(':').collect();
             let page = match parts.first().copied().unwrap_or("home") {
-                "devices" => Page::Devices,
-                "lighting" => Page::Lighting,
+                "devices" | "lighting" => Page::Device,
                 "macros" => Page::Macros,
                 "integrations" => Page::Integrations,
                 "settings" => Page::Settings,
@@ -495,15 +513,22 @@ impl App {
             if let Some(device) = parts.get(1).and_then(|i| i.parse::<usize>().ok()).and_then(|i| snap.devices.get(i)) {
                 self.selected = Some(device.serial.clone());
             }
-            if let Some(sub) = parts.get(2) {
-                match page {
-                    Page::Devices => self.device_ui.tab = super::device::Tab::from_name(sub),
-                    Page::Lighting => self.lighting.studio = *sub == "studio",
-                    _ => {}
+            if let (Page::Macros, Some(index)) = (page, parts.get(1).and_then(|i| i.parse::<usize>().ok())) {
+                if self.macros_opened.is_none() {
+                    super::macros::open(self, index);
+                    self.macros_opened = Some(index);
                 }
             }
+            if parts.first() == Some(&"lighting") {
+                self.device_ui.tab = Tab::Lighting;
+                self.lighting.studio = parts.get(2) == Some(&"studio");
+            } else if let (Page::Device, Some(sub)) = (page, parts.get(2)) {
+                self.device_ui.tab = Tab::from_name(sub);
+            }
             if ready {
-                capture.requested = true;
+                if let Some(capture) = self.capture.as_mut() {
+                    capture.requested = true;
+                }
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
             }
             ctx.request_repaint_after(Duration::from_millis(200));
@@ -519,11 +544,44 @@ impl App {
             let [w, h] = image.size;
             let bytes: Vec<u8> = image.pixels.iter().flat_map(|p| p.to_array()).collect();
             if let Some(buffer) = image::RgbaImage::from_raw(w as u32, h as u32, bytes) {
-                let _ = buffer.save(&capture.path);
+                let _ = buffer.save(&path);
             }
             quit();
         }
         ctx.request_repaint();
+    }
+}
+
+/// The fill and green edge of a navigation item.
+fn paint_nav_item(ui: &egui::Ui, rect: Rect, selected: bool, hovered: bool) {
+    let painter = ui.painter();
+    if selected {
+        painter.rect_filled(rect, CornerRadius::same(theme::RADIUS_SM), SURFACE_HI);
+        painter.rect_filled(Rect::from_min_size(rect.min + vec2(0.0, 8.0), vec2(3.0, rect.height() - 16.0)), CornerRadius::same(2), ACCENT);
+    } else if hovered {
+        painter.rect_filled(rect, CornerRadius::same(theme::RADIUS_SM), SURFACE);
+    }
+}
+
+/// An icon and a name in the navigation column. True when clicked.
+fn nav_item(ui: &mut egui::Ui, glyph: &str, label: &str, selected: bool) -> bool {
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
+    let hovered = response.hovered();
+    paint_nav_item(ui, rect, selected, hovered);
+    let painter = ui.painter();
+    painter.text(pos2(rect.left() + 22.0, rect.center().y), Align2::CENTER_CENTER, glyph, theme::icon_font(16.0), if selected { ACCENT } else if hovered { TEXT } else { TEXT_DIM });
+    let text = widgets::galley_fit(ui, label, theme::body(14.0), TEXT, rect.width() - 52.0);
+    painter.galley_with_override_text_color(pos2(rect.left() + 44.0, rect.center().y - text.size().y / 2.0), text, if selected || hovered { TEXT } else { TEXT_DIM });
+    response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+}
+
+/// A small heading in the navigation column, with a count on the right.
+fn nav_section(ui: &mut egui::Ui, title: &str, count: &str) {
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
+    let text = widgets::galley(ui, &title.to_uppercase(), theme::bold(10.5), TEXT_FAINT, 1.4);
+    ui.painter().galley(pos2(rect.left() + 12.0, rect.center().y - text.size().y / 2.0), text, TEXT_FAINT);
+    if !count.is_empty() {
+        ui.painter().text(pos2(rect.right() - 10.0, rect.center().y), Align2::RIGHT_CENTER, count, theme::bold(10.5), TEXT_FAINT);
     }
 }
 
@@ -562,23 +620,12 @@ pub fn fit(size: egui::Vec2, bounds: egui::Vec2) -> egui::Vec2 {
     size * scale
 }
 
-pub fn empty_state(ui: &mut egui::Ui, title: &str, text: &str, action: Option<impl FnOnce(&mut egui::Ui)>) {
-    ui.with_layout(Layout::top_down(Align::Center), |ui| {
-        ui.add_space(ui.available_height() * 0.26);
-        let (rect, _) = ui.allocate_exact_size(vec2(64.0, 64.0), Sense::hover());
-        let painter = ui.painter();
-        painter.circle_stroke(rect.center(), 28.0, Stroke::new(3.0_f32, BORDER));
-        painter.circle_filled(rect.center(), 8.0, BORDER);
-        ui.add_space(10.0);
-        ui.label(RichText::new(title.to_uppercase()).font(theme::heavy(18.0)).extra_letter_spacing(1.0));
-        if !text.is_empty() {
-            ui.set_max_width(520.0);
-            ui.add(egui::Label::new(RichText::new(text).color(TEXT_DIM)).wrap());
-        }
-        ui.add_space(8.0);
-        if let Some(action) = action {
-            action(ui);
-        }
+/// A scrolling page body, with room at the bottom.
+pub fn scroll(ui: &mut egui::Ui, id: &str, add: impl FnOnce(&mut egui::Ui)) {
+    egui::ScrollArea::vertical().id_salt(id).auto_shrink([false, false]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = theme::GAP;
+        add(ui);
+        ui.add_space(12.0);
     });
 }
 
@@ -590,8 +637,13 @@ pub fn draw_picture(app: &mut App, ui: &egui::Ui, device: &Device, rect: Rect) {
             let size = fit(texture.size_vec2(), rect.size());
             painter.image(texture.id(), Rect::from_center_size(rect.center(), size), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
         }
-        None => super::widgets::device_glyph(&painter, rect.shrink(rect.width() * 0.2), &device.kind, TEXT_FAINT),
+        None => super::widgets::device_glyph(&painter, rect.shrink(rect.width().min(rect.height()) * 0.15), &device.kind, TEXT_FAINT),
     }
+}
+
+/// A frame in the colour of the canvas: where a device is drawn.
+pub fn stage_frame() -> Frame {
+    Frame::new().fill(theme::WELL).stroke(Stroke::new(1.0_f32, theme::BORDER)).corner_radius(CornerRadius::same(theme::RADIUS_SM))
 }
 
 #[allow(dead_code)]
