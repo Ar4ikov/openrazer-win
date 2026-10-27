@@ -26,6 +26,21 @@ from openrazer_win.ble import Advertiser, BleUnavailable  # noqa: E402
 from openrazer_win.core.ble_device import BleDevice  # noqa: E402
 from openrazer_win.protocol import razer_ble  # noqa: E402
 
+@pytest.fixture(autouse=True, scope='session')
+def _remove_scratch_run_key():
+    """Take the scratch key away again once the run is over."""
+    yield
+    try:
+        import winreg
+    except ImportError:
+        return
+    for path in (r'Software\openrazer-win-tests\Run', r'Software\openrazer-win-tests'):
+        try:
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, path)
+        except OSError:
+            pass
+
+
 @pytest.fixture(autouse=True)
 def _scratch_run_key(monkeypatch):
     """Autostart tests write a throwaway key, never the real Run key.

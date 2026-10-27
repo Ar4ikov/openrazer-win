@@ -312,11 +312,14 @@ headset.set_colour_zones([(<span class="c-str">255</span>, <span class="c-str">0
     </div>
 
     <div class="panel" id="p-gui" role="tabpanel" hidden>
-<pre><code><span class="c-cmd">openrazer-win-gui</span></code></pre>
+<pre><code><span class="c-cmd">openrazer-win-gui.exe</span></code></pre>
       <p class="sub" style="margin:0">
-        A small Tk window: device list, zone and effect pickers, colour swatches, brightness, DPI
-        and polling rate. Tk ships with Python on Windows, so this needs no extra install either.
+        A native control panel, from the release: lighting effects with previews, colours,
+        brightness, DPI and its stages, polling rate, battery, macro keys and profiles. It starts
+        the daemon itself and can live in the tray from sign-in. After <code>pip install</code>,
+        <code>openrazer-win-gui</code> opens the older Tk panel instead.
       </p>
+      <img src="images/control-panel.png" alt="The control panel" style="width:100%;margin-top:14px;border-radius:12px">
     </div>
   </div>
 </section>

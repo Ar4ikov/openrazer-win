@@ -11,7 +11,7 @@ pip install -e ".[dev]"
 ## Before opening a pull request
 
 ```bash
-pytest                              # 387 tests, no hardware required
+pytest                              # 391 tests, no hardware required
 ruff check .
 python tools/simulate_devices.py    # every capability of all 274 USB devices
 ```
@@ -49,6 +49,7 @@ pytest && python tools/simulate_devices.py
 | `openrazer_win/client/` | The public Python API |
 | `openrazer_win/effects/` | Frame buffer, keyboard hook, host-rendered effects |
 | `openrazer_win/keys/` | Macro keys and the Fn layer of keyboards in driver mode |
+| `gui/` | The control panel, in Rust (`cargo run`; `openrazer-win-daemon --emulate` for devices) |
 | `tools/` | The transpiler, the database extractor, the fleet simulator |
 
 ## Style

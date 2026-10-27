@@ -27,6 +27,8 @@ D-Bus is replaced by a loopback JSON-RPC daemon, and **every device quirk is tra
 the upstream C sources** — so all 274 USB devices OpenRazer knows about behave the same way here as they
 do on Linux, plus one Bluetooth headset upstream cannot reach at all.
 
+<p align="center"><img src="docs/images/control-panel.png" alt="The control panel: devices on the left, lighting effects, colours and brightness on the right" width="820"></p>
+
 ```console
 $ openrazer-win list
 Razer BlackWidow Chroma  keyboard   PM1523E01801234     v1.10
@@ -68,9 +70,10 @@ pip install "openrazer-win[ble]"
 That pulls in PyWinRT, because Windows exposes Bluetooth LE through WinRT. Everything on the USB
 side keeps working without it.
 
-Prefer a single file? Grab `openrazer-win.exe` from the
-[latest release](https://github.com/Ar4ikov/openrazer-win/releases/latest) and run it directly; it
-needs no Python at all.
+No Python? Download `openrazer-win-gui.exe` (the control panel) and `openrazer-win.exe` (the
+command line, and the daemon the panel starts) from the
+[latest release](https://github.com/Ar4ikov/openrazer-win/releases/latest), put them in one folder
+and run the control panel. Neither needs an installer.
 
 > **Close Razer Synapse before using this.** Synapse holds the device open and will fight you for
 > control of the LEDs. `openrazer-win doctor` tells you if that is happening.
@@ -199,14 +202,28 @@ No daemon running? Pass `direct=True` and the library opens the HID handles itse
 DeviceManager(direct=True)
 ```
 
-### Graphical control panel
+### Control panel
 
-```bash
-openrazer-win-gui
-```
+`openrazer-win-gui.exe` from the release is a native Windows app, written in Rust. Pick a device
+on the left; on the right:
 
-A small Tk window — device list, zone and effect pickers, colour swatches, brightness, DPI and
-polling rate. Tk ships with Python on Windows, so this needs no extra install either.
+- **Lighting** — every effect the device has, as tiles with a preview; colours from a picker,
+  presets or hex; speed, direction and brightness. Live, host-drawn effects (ripple, smooth wave)
+  sit beside the device's own.
+- **Performance** — DPI with presets, the DPI stages the mouse button cycles, polling rate.
+- **Power** — battery, charging, sleep timer, low-battery warning.
+- **Macro keys** — what each key does, editing, recording and trying it out.
+- **Profiles** — save what is showing under a name, apply it later.
+
+It starts the daemon itself if it is not running, and *Settings → Start with Windows* has it come
+up in the tray at sign-in, keeping the daemon running; closing the window leaves it in the tray.
+Settings also shows the daemon's state — version, devices still being set up — with start, stop and
+restart.
+
+<p align="center"><img src="docs/images/control-panel-macros.png" alt="The macro keys page: M1 to M5 with what each one does" width="720"></p>
+
+After `pip install`, `openrazer-win-gui` opens the older, Tk-based panel, which needs nothing
+beyond Python.
 
 ## How it works
 
@@ -375,10 +392,20 @@ git clone https://github.com/Ar4ikov/openrazer-win
 cd openrazer-win
 pip install -e ".[dev]"
 
-pytest                              # 387 tests, no hardware needed
+pytest                              # 391 tests, no hardware needed
 ruff check .
 python tools/simulate_devices.py    # every capability of all 274 USB devices
 ```
+
+The control panel is a Rust crate in `gui/`:
+
+```bash
+cd gui
+cargo run                           # talks to whichever daemon is running
+cargo clippy -- -D warnings && cargo test
+```
+
+`openrazer-win-daemon --emulate` gives it emulated devices to show.
 
 The test suite runs against a built-in device emulator that validates CRCs and answers the protocol,
 so the whole stack — transport, recipes, daemon, client, CLI — is exercised without plugging anything

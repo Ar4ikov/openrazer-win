@@ -4,6 +4,53 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [semantic versioning](https://semver.org/).
 
+## [1.4.0] - 2026-10-27
+
+### Added
+
+- **A new control panel, written in Rust.** `openrazer-win-gui.exe` in the
+  release is now a native Windows app rather than the Tk window:
+
+  - a device list with product pictures, and per device **Lighting** --
+    every effect as a tile with a preview, a colour picker with presets and
+    hex, speed, direction and brightness, live effects beside the device's
+    own -- **Performance** (DPI with presets, DPI stages, polling rate),
+    **Power** (battery, sleep timer, low-battery warning), **Macro keys**
+    (bind, record, try out), **Profiles** and the device's details;
+  - **Settings** shows the daemon's state -- version, devices still being
+    set up, whether macro keys are handled -- with start, stop and restart,
+    and warns when the daemon is from another version;
+  - it starts the daemon itself, without a console window, from beside it,
+    from `PATH` or as a Python module, so the two release files in one
+    folder are all there is to it;
+  - **Start with Windows** brings it up in the tray at sign-in, keeping the
+    daemon running, and closing the window leaves it there. A second launch
+    brings the running one forward instead of starting another;
+  - every daemon call runs off the UI thread, so a slow Bluetooth call never
+    freezes the window.
+
+  The Tk panel is still what `openrazer-win-gui` opens after `pip install`.
+
+- `macro.set` accepts a written key sequence (`{"type": "keys", "sequence":
+  "ctrl+c"}`), so every client shares the daemon's table of key names.
+
+- The emulated keyboard of `--emulate` has a key report, so macro keys can
+  be tried without hardware.
+
+### Fixed
+
+- **Breathing, reactive, blinking and starlight forgot their colours.** Only
+  a static colour was saved, so after a replug or a sleep these effects came
+  back in whatever colours an earlier static had left, and profiles recorded
+  the same stale colours. Each effect now saves its colours, speed and
+  direction, and every one of them is restored, including wheel, triple
+  breathing and starlight, which restore skipped.
+
+- A frozen `autostart enable` registers the control panel in the tray rather
+  than the console build, whose window closed the daemon with it.
+
+- The test suite no longer leaves a scratch registry key behind.
+
 ## [1.3.1] - 2026-10-27
 
 ### Added
@@ -418,6 +465,7 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
 - The Kraken headset family uses a separate protocol that is not covered.
 - Razer Synapse must be closed: it holds the device open and competes for the LEDs.
 
+[1.4.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.4.0
 [1.3.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.3.1
 [1.1.2]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.1.2
 [1.1.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.1.0
