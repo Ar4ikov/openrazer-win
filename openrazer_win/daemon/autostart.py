@@ -14,7 +14,7 @@ from typing import Optional
 RUN_KEY = r'Software\Microsoft\Windows\CurrentVersion\Run'
 VALUE_NAME = 'OpenRazerWin'
 
-#: The windowless build that sits beside the console one in a release.
+#: The control panel that sits beside the console build in a release.
 WINDOWED_EXE = 'openrazer-win-gui.exe'
 
 
@@ -36,11 +36,13 @@ def daemon_launch_command(no_effects: bool = False) -> str:
         executable = sys.executable
         # The console build opens a console window at logon, and closing that
         # window -- the obvious thing to do with it -- takes the daemon down
-        # with it.  The windowed build accepts the same command line.
+        # with it.  The control panel beside it starts in the tray instead
+        # and keeps the daemon running from there.
         windowed = os.path.join(os.path.dirname(executable), WINDOWED_EXE)
         if os.path.basename(executable).lower() != WINDOWED_EXE and os.path.exists(windowed):
-            executable = windowed
-        parts = [executable, 'daemon', 'run']
+            parts = [windowed, '--background']
+        else:
+            parts = [executable, 'daemon', 'run']
     else:
         # pythonw.exe keeps the daemon from flashing a console window.
         interpreter = sys.executable

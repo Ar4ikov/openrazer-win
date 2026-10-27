@@ -373,6 +373,18 @@ class RazerDevice:
         self.run(attribute, payload, **variables)
         self.persistence.set(self.serial, zone, 'effect', effect)
 
+    def _remember_colours(self, zone: str, *colours) -> None:
+        """Save the colours an effect was given, so restore() and profiles see them.
+
+        Slots the effect did not use keep what they held, the way upstream's
+        persistence keeps a zone's three colours.
+        """
+        saved = list(self.persistence.get(self.serial, zone, 'colors') or [])
+        saved = (saved + [0] * 9)[:9]
+        for index, colour in enumerate(colours[:3]):
+            saved[index * 3:index * 3 + 3] = [int(c) for c in colour]
+        self.persistence.set(self.serial, zone, 'colors', saved)
+
     def set_none(self, zone: str = 'backlight') -> None:
         self._apply(zone, 'none')
 
@@ -382,8 +394,7 @@ class RazerDevice:
     def set_static(self, red: int, green: int, blue: int,
                    zone: str = 'backlight') -> None:
         self._apply(zone, 'static', _rgb_bytes(red, green, blue))
-        self.persistence.set(self.serial, zone, 'colors',
-                             [red, green, blue, 0, 255, 255, 0, 0, 255])
+        self._remember_colours(zone, (red, green, blue))
 
     def set_spectrum(self, zone: str = 'backlight') -> None:
         self._apply(zone, 'spectrum')
@@ -392,10 +403,12 @@ class RazerDevice:
         direction = _clamp(int(direction), 0, 2)
         self._apply(zone, 'wave', str(direction).encode('ascii'), direction=direction)
         self.persistence.set(self.serial, zone, 'wave_dir', direction)
+        self.persistence.set(self.serial, zone, 'wave_dir', direction)
 
     def set_wheel(self, direction: int = 1, zone: str = 'backlight') -> None:
         direction = _clamp(int(direction), 1, 2)
         self._apply(zone, 'wheel', str(direction).encode('ascii'), direction=direction)
+        self.persistence.set(self.serial, zone, 'wave_dir', direction)
 
     def set_reactive(self, red: int, green: int, blue: int, speed: int = 1,
                      zone: str = 'backlight') -> None:
@@ -403,6 +416,7 @@ class RazerDevice:
         payload = bytes((speed,)) + _rgb_bytes(red, green, blue)
         self._apply(zone, 'reactive', payload, speed=speed)
         self.persistence.set(self.serial, zone, 'speed', speed)
+        self._remember_colours(zone, (red, green, blue))
 
     def trigger_reactive(self) -> None:
         self.run('write:matrix_reactive_trigger', b'1')
@@ -410,6 +424,7 @@ class RazerDevice:
     def set_blinking(self, red: int, green: int, blue: int,
                      zone: str = 'backlight') -> None:
         self._apply(zone, 'blinking', _rgb_bytes(red, green, blue))
+        self._remember_colours(zone, (red, green, blue))
 
     def set_breath_random(self, zone: str = 'backlight') -> None:
         self._apply(zone, 'breath_random', b'1')
@@ -417,12 +432,14 @@ class RazerDevice:
     def set_breath_single(self, red: int, green: int, blue: int,
                           zone: str = 'backlight') -> None:
         self._apply(zone, 'breath_single', _rgb_bytes(red, green, blue))
+        self._remember_colours(zone, (red, green, blue))
 
     def set_breath_dual(self, red1: int, green1: int, blue1: int,
                         red2: int, green2: int, blue2: int,
                         zone: str = 'backlight') -> None:
         self._apply(zone, 'breath_dual',
                     _rgb_bytes(red1, green1, blue1) + _rgb_bytes(red2, green2, blue2))
+        self._remember_colours(zone, (red1, green1, blue1), (red2, green2, blue2))
 
     def set_breath_triple(self, red1: int, green1: int, blue1: int,
                           red2: int, green2: int, blue2: int,
@@ -431,16 +448,21 @@ class RazerDevice:
         self._apply(zone, 'breath_triple',
                     _rgb_bytes(red1, green1, blue1) + _rgb_bytes(red2, green2, blue2)
                     + _rgb_bytes(red3, green3, blue3))
+        self._remember_colours(zone, (red1, green1, blue1), (red2, green2, blue2),
+                               (red3, green3, blue3))
 
     def set_starlight_random(self, speed: int = 1, zone: str = 'backlight') -> None:
         speed = _clamp(int(speed), 1, 3)
         self._apply(zone, 'starlight_random', bytes((speed,)), speed=speed)
+        self.persistence.set(self.serial, zone, 'speed', speed)
 
     def set_starlight_single(self, red: int, green: int, blue: int, speed: int = 1,
                              zone: str = 'backlight') -> None:
         speed = _clamp(int(speed), 1, 3)
         self._apply(zone, 'starlight_single',
                     bytes((speed,)) + _rgb_bytes(red, green, blue), speed=speed)
+        self.persistence.set(self.serial, zone, 'speed', speed)
+        self._remember_colours(zone, (red, green, blue))
 
     def set_starlight_dual(self, red1: int, green1: int, blue1: int,
                            red2: int, green2: int, blue2: int, speed: int = 1,
@@ -449,6 +471,8 @@ class RazerDevice:
         payload = (bytes((speed,)) + _rgb_bytes(red1, green1, blue1)
                    + _rgb_bytes(red2, green2, blue2))
         self._apply(zone, 'starlight_dual', payload, speed=speed)
+        self.persistence.set(self.serial, zone, 'speed', speed)
+        self._remember_colours(zone, (red1, green1, blue1), (red2, green2, blue2))
 
     # -- custom frames -----------------------------------------------------
     @property
@@ -729,13 +753,27 @@ class RazerDevice:
                     self.set_breath_single(colours[0], colours[1], colours[2], zone)
                 elif effect == 'breath_dual':
                     self.set_breath_dual(*colours[:6], zone=zone)
+                elif effect == 'breath_triple':
+                    self.set_breath_triple(*colours[:9], zone=zone)
                 elif effect == 'breath_random':
                     self.set_breath_random(zone)
+                elif effect == 'blinking':
+                    self.set_blinking(colours[0], colours[1], colours[2], zone)
                 elif effect == 'wave':
                     self.set_wave(state.get('wave_dir', 1), zone)
+                elif effect == 'wheel':
+                    self.set_wheel(state.get('wave_dir', 1), zone)
                 elif effect == 'reactive':
                     self.set_reactive(colours[0], colours[1], colours[2],
                                       state.get('speed', 1), zone)
+                elif effect == 'starlight_random':
+                    self.set_starlight_random(state.get('speed', 1), zone)
+                elif effect == 'starlight_single':
+                    self.set_starlight_single(colours[0], colours[1], colours[2],
+                                              state.get('speed', 1), zone)
+                elif effect == 'starlight_dual':
+                    self.set_starlight_dual(*colours[:6], speed=state.get('speed', 1),
+                                            zone=zone)
                 elif effect == 'none':
                     self.set_none(zone)
                 elif effect == 'spectrum':

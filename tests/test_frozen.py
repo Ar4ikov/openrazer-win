@@ -47,23 +47,8 @@ def test_running_from_source_uses_the_module_entry_point(monkeypatch):
     assert daemon_command()[1:] == ['-m', 'openrazer_win.daemon.main']
 
 
-def test_the_gui_entry_point_dispatches_arguments_to_the_cli():
-    """``openrazer-win-gui.exe daemon run`` must run a daemon, not a window.
-
-    When it opened the control panel instead, the panel found no daemon,
-    offered to start one, relaunched itself, and looped forever.
-    """
-    source = open(os.path.join(PACKAGING, 'entry_gui.py'), encoding='utf-8').read()
-    assert 'len(sys.argv) > 1' in source
-    assert 'openrazer_win.cli' in source
-    # The GUI import must be reached only in the no-arguments branch.
-    cli_at = source.index('openrazer_win.cli')
-    gui_at = source.index('openrazer_win.tray.gui')
-    assert cli_at < gui_at
-
-
-def test_both_entry_points_compile():
-    for name in ('entry_cli.py', 'entry_gui.py'):
+def test_the_entry_point_compiles():
+    for name in ('entry_cli.py',):
         path = os.path.join(PACKAGING, name)
         subprocess.run([sys.executable, '-m', 'py_compile', path], check=True)
 

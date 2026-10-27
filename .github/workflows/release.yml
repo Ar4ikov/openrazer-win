@@ -75,6 +75,32 @@ jobs:
             dist/*.exe
           if-no-files-found: error
 
+  gui:
+    name: Build the control panel
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Build
+        working-directory: gui
+        run: cargo build --release --locked
+      - name: Smoke-test the executable
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath gui/target/release/openrazer-win-gui.exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item gui/target/release/openrazer-win-gui.exe dist/
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gui
+          path: dist/openrazer-win-gui.exe
+          if-no-files-found: error
+
   pypi:
     name: Publish to PyPI
     needs: build
@@ -97,7 +123,7 @@ jobs:
 
   release:
     name: Publish the release
-    needs: build
+    needs: [build, gui]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -122,7 +148,9 @@ jobs:
             pip install openrazer-win
             ```
 
-            Or download `openrazer-win.exe` below and run it without Python at all.
+            Or download `openrazer-win-gui.exe` (the control panel) and
+            `openrazer-win.exe` (the command line and the daemon) below, put them
+            in the same folder, and run the control panel -- no Python needed.
 
             Device data generated from upstream OpenRazer. See the
             [documentation](https://ar4ikov.github.io/openrazer-win/) for details.

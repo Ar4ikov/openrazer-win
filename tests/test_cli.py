@@ -257,7 +257,7 @@ def test_a_frozen_autostart_uses_the_windowless_build(tmp_path, monkeypatch):
     assert 'openrazer-win.exe' in daemon_launch_command()
     windowed.write_bytes(b'')
     command = daemon_launch_command()
-    assert 'openrazer-win-gui.exe' in command and command.endswith('daemon run')
+    assert 'openrazer-win-gui.exe' in command and command.endswith('--background')
 
 
 def test_the_launch_command_is_quoted_and_windowless():

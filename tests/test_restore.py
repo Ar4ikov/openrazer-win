@@ -8,6 +8,8 @@ into an effect on the wire.
 """
 from __future__ import annotations
 
+import pytest
+
 from openrazer_win.core.persistence import DEFAULT_ZONE_STATE, Persistence
 
 from .conftest import KEYBOARD_PID, make_device
@@ -79,3 +81,34 @@ def test_a_bluetooth_headset_that_was_never_set_is_left_alone(headset):
     device, transport = headset
     device.restore()
     assert transport.colour_writes == []
+
+
+@pytest.mark.parametrize('effect, args, colours', [
+    ('breath_dual', (1, 2, 3, 4, 5, 6), [1, 2, 3, 4, 5, 6]),
+    ('breath_single', (7, 8, 9), [7, 8, 9]),
+    ('reactive', (10, 11, 12, 2), [10, 11, 12]),
+])
+def test_every_coloured_effect_saves_its_colours(persistence, effect, args, colours):
+    device, fake = make_device(KEYBOARD_PID, persistence)
+    try:
+        getattr(device, 'set_' + effect)(*args)
+        saved = persistence.saved_zone(device.serial, 'backlight')
+        assert saved['effect'] == effect
+        assert saved['colors'][:len(colours)] == colours
+        # ...and puts them back: the last report on the wire carries them.
+        fake.state.sent.clear()
+        device.restore()
+        sent = [bytes(r.arguments) for r in fake.sent_reports if r.command_class == 0x03]
+        assert any(bytes(colours[:3]) in payload for payload in sent)
+    finally:
+        device.close()
+
+
+def test_the_unused_colour_slots_keep_what_they_held(persistence):
+    device, _ = make_device(KEYBOARD_PID, persistence)
+    try:
+        device.set_breath_dual(1, 2, 3, 4, 5, 6)
+        device.set_static(9, 9, 9)
+        assert persistence.saved_zone(device.serial, 'backlight')['colors'][:6] == [9, 9, 9, 4, 5, 6]
+    finally:
+        device.close()

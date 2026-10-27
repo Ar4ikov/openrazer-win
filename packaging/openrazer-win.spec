@@ -1,10 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller recipe for the standalone Windows executables.
 
-Produces two one-file binaries:
-
-* ``openrazer-win.exe``     -- the CLI, which also starts and stops the daemon
-* ``openrazer-win-gui.exe`` -- the Tk control panel, without a console window
+Produces ``openrazer-win.exe``, a one-file binary holding the CLI and the
+daemon.  The control panel in the release, ``openrazer-win-gui.exe``, is the
+Rust program in ``gui/``, built separately.
 
 Build with::
 
@@ -69,20 +68,7 @@ cli_analysis = Analysis(
     noarchive=False,
 )
 
-gui_analysis = Analysis(
-    [os.path.join(SPECPATH, 'entry_gui.py')],
-    pathex=[PROJECT_ROOT],
-    binaries=[],
-    datas=datas,
-    hiddenimports=hidden_imports,
-    hookspath=[],
-    runtime_hooks=[],
-    excludes=EXCLUDES,
-    noarchive=False,
-)
-
 cli_pyz = PYZ(cli_analysis.pure)
-gui_pyz = PYZ(gui_analysis.pure)
 
 cli_exe = EXE(
     cli_pyz,
@@ -96,24 +82,6 @@ cli_exe = EXE(
     strip=False,
     upx=False,
     console=True,
-    disable_windowed_traceback=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-)
-
-gui_exe = EXE(
-    gui_pyz,
-    gui_analysis.scripts,
-    gui_analysis.binaries,
-    gui_analysis.datas,
-    [],
-    name='openrazer-win-gui',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,
-    console=False,
     disable_windowed_traceback=False,
     target_arch=None,
     codesign_identity=None,
