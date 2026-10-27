@@ -14,6 +14,7 @@ from ..client.rpc import RpcClient, is_daemon_running
 from ..daemon.protocol import RpcError, endpoint_path
 from ..devices.database import get_database
 from ..devices.recipes import NotSupported
+from ..hid.base import HidError
 
 COLOURS = {
     'red': (255, 0, 0), 'green': (0, 255, 0), 'blue': (0, 0, 255),
@@ -339,6 +340,187 @@ def cmd_profile(args) -> int:
     return 1 if failures else 0
 
 
+MACRO_HELP = """\
+Macro keys -- M1-M5 on a BlackWidow and the like -- work while the daemon runs.
+Unbound, a macro key sends F13-F17 (M1-M5), which any program that takes
+hotkeys can use.  Bound, it plays its macro instead:
+
+  openrazer-win macro                              what is bound, per keyboard
+  openrazer-win macro set M1 --keys "ctrl+shift+esc"
+  openrazer-win macro set M2 --text "Hello"
+  openrazer-win macro set M3 --launch "C:\\Windows\\notepad.exe"
+  openrazer-win macro set M4 --disable             make the key do nothing
+  openrazer-win macro record M5                    type the macro, then Enter
+  openrazer-win macro clear M1                     back to sending F13
+
+On the keyboard itself, Fn+F9 records a macro: press it, press a macro key,
+type, then Fn+F9 again.  "macro watch" prints the raw key reports, for
+working out a keyboard that does not respond.
+"""
+
+
+def _macro_client():
+    try:
+        return RpcClient(timeout=10.0)
+    except DaemonUnavailable as error:
+        raise CliError('{0}\n\nMacro keys need the daemon:  openrazer-win daemon start'.format(
+            error)) from error
+
+
+def _macro_devices(client, selector) -> list:
+    devices = client.call('devices.list')
+    if selector:
+        needle = selector.lower()
+        chosen = [d for d in devices if needle in (d['serial'].lower(), '{0:04x}'.format(d['pid']))
+                  or needle in d['name'].lower()]
+        if not chosen:
+            raise CliError('no device matches {0!r}'.format(selector))
+        return chosen
+    listed = []
+    for device in devices:
+        info = client.call('macro.list', serial=device['serial'])
+        if info['keys'] or info['bindings']:
+            listed.append(device)
+    if not listed:
+        raise CliError('no keyboard with macro keys is connected')
+    return listed
+
+
+def cmd_macro(args) -> int:
+    from ..keys.codes import describe_event, parse_sequence
+
+    if args.action == 'watch':
+        return _macro_watch(args)
+    client = _macro_client()
+    try:
+        devices = _macro_devices(client, args.device)
+        if args.action == 'list':
+            status = client.call('keys.status')
+            for device in devices:
+                info = client.call('macro.list', serial=device['serial'])
+                state = 'handled' if info['handled'] else (
+                    'not handled -- keys are idle' if status['running'] else
+                    'not handled (the daemon runs with --no-keys)')
+                print('{0}  ({1})'.format(device['name'], state))
+                for key in info['keys'] or sorted(info['bindings']):
+                    action = info['bindings'].get(key)
+                    if action is None:
+                        what = 'default'
+                    elif action['type'] == 'keys':
+                        downs = [describe_event(e) for e in action['events'] if e['down']]
+                        what = 'keys: {0}'.format(' '.join(downs[:12]) + (
+                            ' ...' if len(downs) > 12 else ''))
+                    elif action['type'] == 'text':
+                        what = 'text: {0!r}'.format(action['text'])
+                    elif action['type'] == 'launch':
+                        what = 'launch: {0}'.format(action['target'])
+                    else:
+                        what = 'disabled'
+                    print('  {0:<6} {1}'.format(key, what))
+            return 0
+
+        if not args.key:
+            raise CliError('"macro {0}" needs a key, such as M1'.format(args.action))
+        key = args.key.upper()
+        if len(devices) > 1:
+            raise CliError('several keyboards match; pick one with --device')
+        serial = devices[0]['serial']
+
+        if args.action == 'clear':
+            client.call('macro.delete', serial=serial, key=key)
+            print('{0}: back to its default'.format(key))
+            return 0
+        if args.action == 'set':
+            if args.keys:
+                try:
+                    action = {'type': 'keys', 'events': parse_sequence(args.keys)}
+                except ValueError as error:
+                    raise CliError(str(error)) from error
+            elif args.text:
+                action = {'type': 'text', 'text': args.text}
+            elif args.launch:
+                action = {'type': 'launch', 'target': args.launch}
+            elif args.disable:
+                action = {'type': 'disabled'}
+            else:
+                raise CliError('say what the key does: --keys, --text, --launch or --disable')
+            client.call('macro.set', serial=serial, key=key, action=action)
+            print('{0}: bound'.format(key))
+            return 0
+        if args.action == 'record':
+            client.call('macro.record_start', serial=serial, key=key)
+            print('Recording {0}: type the macro, then press Enter here.'.format(key))
+            try:
+                input()
+            finally:
+                saved = client.call('macro.record_stop')
+            if saved:
+                print('{0}: recorded {1} key events'.format(key, len(saved['events'])))
+            else:
+                print('{0}: nothing recorded; it is back to its default'.format(key))
+            return 0
+        if args.action == 'play':
+            client.call('macro.play', serial=serial, key=key)
+            return 0
+    except RpcError as error:
+        raise CliError(str(error)) from error
+    finally:
+        client.close()
+    return 0
+
+
+def _macro_watch(args) -> int:
+    """Print every vendor key report, straight from the hardware."""
+    import threading
+
+    from ..hid import get_backend
+    from ..keys.service import is_event_collection, parse_report
+    from ..protocol.report import VENDOR_ID
+
+    backend = get_backend()
+    infos = [i for i in backend.enumerate(vendor_id=VENDOR_ID) if is_event_collection(i)]
+    if args.device:
+        infos = [i for i in infos if args.device.lower() in '{0:04x}'.format(i.product_id)]
+    readers = []
+    for info in infos:
+        try:
+            readers.append(backend.open_input(info))
+            print('listening on {0}'.format(info.describe()))
+        except (HidError, OSError) as error:
+            print('cannot read {0}: {1}'.format(info.describe(), error))
+    if not readers:
+        print('No readable Razer key collections.  Is the keyboard plugged in?')
+        return 1
+    print('Press macro keys and Fn combinations; Ctrl+C to stop.  A keyboard only '
+          'reports these in driver mode, so keep the daemon running.')
+    stop = threading.Event()
+
+    def follow(reader):
+        while not stop.is_set():
+            try:
+                report = reader.read(0.5)
+            except (HidError, OSError):
+                return
+            if report:
+                codes = parse_report(report)
+                print('{0:04x}  {1}  {2}'.format(
+                    reader.info.product_id, report.hex(' '),
+                    '' if codes is None else 'held: ' + (
+                        ' '.join('{0:02x}'.format(c) for c in sorted(codes)) or 'nothing')))
+
+    threads = [threading.Thread(target=follow, args=(r,), daemon=True) for r in readers]
+    for thread in threads:
+        thread.start()
+    try:
+        while True:
+            stop.wait(1.0)
+    except KeyboardInterrupt:
+        stop.set()
+    for reader in readers:
+        reader.close()
+    return 0
+
+
 def _print_profiles(device, args) -> None:
     profiles = device.profiles
     if args.json:
@@ -447,7 +629,8 @@ def cmd_daemon(args) -> int:
         from ..daemon import logs
         from ..daemon.server import serve
         logs.configure(getattr(args, 'verbose', False))
-        serve(enable_effects=not args.no_effects)
+        serve(enable_effects=not args.no_effects,
+              enable_keys=not getattr(args, 'no_keys', False))
         return 0
     return _daemon_start(args)
 
@@ -557,7 +740,8 @@ def child_environment() -> dict:
     return environment
 
 
-def start_daemon_detached(no_effects: bool = False, timeout: float = 15.0) -> bool:
+def start_daemon_detached(no_effects: bool = False, timeout: float = 15.0,
+                          no_keys: bool = False) -> bool:
     """Spawn the daemon so it outlives this process.  True once it answers.
 
     Shared with the GUI, which needs the same behaviour without an argparse
@@ -568,6 +752,8 @@ def start_daemon_detached(no_effects: bool = False, timeout: float = 15.0) -> bo
     command = daemon_command()
     if no_effects:
         command.append('--no-effects')
+    if no_keys:
+        command.append('--no-keys')
     creationflags = 0
     if sys.platform == 'win32':
         # Detach so the daemon outlives this console.
@@ -603,7 +789,8 @@ def _daemon_start(args) -> int:
             print('it is version {0}, this is {1}; restart it to use this one:\n'
                   '  openrazer-win daemon restart'.format(running, __version__))
         return 0
-    if start_daemon_detached(getattr(args, 'no_effects', False)):
+    if start_daemon_detached(getattr(args, 'no_effects', False),
+                             no_keys=getattr(args, 'no_keys', False)):
         print('daemon started')
         return 0
     from ..daemon.logs import log_path
@@ -850,6 +1037,18 @@ def build_parser() -> argparse.ArgumentParser:
     profile.add_argument('name', nargs='?')
     profile.add_argument('--device', '-d')
 
+    macro = add('macro', cmd_macro, 'bind, record and test macro keys',
+                formatter_class=argparse.RawDescriptionHelpFormatter, epilog=MACRO_HELP)
+    macro.add_argument('action', nargs='?', default='list',
+                       choices=('list', 'set', 'clear', 'record', 'play', 'watch'))
+    macro.add_argument('key', nargs='?', help='M1-M5, or another macro key the keyboard has')
+    macro.add_argument('--device', '-d')
+    what = macro.add_mutually_exclusive_group()
+    what.add_argument('--keys', help='keys to press, e.g. "ctrl+c" or "win+e, enter"')
+    what.add_argument('--text', help='text to type')
+    what.add_argument('--launch', help='a program, document or URL to open')
+    what.add_argument('--disable', action='store_true', help='make the key do nothing')
+
     brightness = add('brightness', cmd_brightness, 'get or set brightness')
     brightness.add_argument('value', nargs='?', type=float)
     brightness.add_argument('--device', '-d')
@@ -875,6 +1074,9 @@ def build_parser() -> argparse.ArgumentParser:
                         choices=('start', 'stop', 'restart', 'status', 'run'))
     daemon.add_argument('--no-effects', action='store_true',
                         help='disable host-rendered effects and the keyboard hook')
+    daemon.add_argument('--no-keys', action='store_true',
+                        help='leave keyboards in normal mode: no macro keys, Fn handled '
+                             'by the keyboard itself')
     daemon.add_argument('--verbose', '-v', action='store_true')
 
     autostart = add('autostart', cmd_autostart,

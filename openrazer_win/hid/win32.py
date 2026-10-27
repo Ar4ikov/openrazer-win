@@ -157,6 +157,21 @@ def _configure_prototypes() -> None:
     _kernel32.CloseHandle.argtypes = [HANDLE]
     _kernel32.CloseHandle.restype = BOOL
 
+    _kernel32.CreateEventW.argtypes = [ctypes.c_void_p, BOOL, BOOL, LPCWSTR]
+    _kernel32.CreateEventW.restype = HANDLE
+    _kernel32.ResetEvent.argtypes = [HANDLE]
+    _kernel32.ResetEvent.restype = BOOL
+    _kernel32.ReadFile.argtypes = [HANDLE, ctypes.c_void_p, DWORD,
+                                   ctypes.POINTER(DWORD), ctypes.c_void_p]
+    _kernel32.ReadFile.restype = BOOL
+    _kernel32.WaitForSingleObject.argtypes = [HANDLE, DWORD]
+    _kernel32.WaitForSingleObject.restype = DWORD
+    _kernel32.GetOverlappedResult.argtypes = [HANDLE, ctypes.c_void_p,
+                                              ctypes.POINTER(DWORD), BOOL]
+    _kernel32.GetOverlappedResult.restype = BOOL
+    _kernel32.CancelIoEx.argtypes = [HANDLE, ctypes.c_void_p]
+    _kernel32.CancelIoEx.restype = BOOL
+
 
 if _hid is not None:
     _configure_prototypes()
@@ -234,6 +249,67 @@ class Win32HidHandle:
 
     def __exit__(self, *exc):
         self.close()
+
+
+class _OVERLAPPED(ctypes.Structure):
+    _fields_ = [('Internal', ctypes.c_size_t), ('InternalHigh', ctypes.c_size_t),
+                ('Offset', DWORD), ('OffsetHigh', DWORD), ('hEvent', HANDLE)]
+
+
+ERROR_IO_PENDING = 997
+WAIT_OBJECT_0 = 0
+WAIT_TIMEOUT = 0x102
+
+
+class Win32InputReader:
+    """Reads input reports from one collection, with a timeout.
+
+    Overlapped I/O rather than a plain blocking read, so a reader can be told
+    to stop: a thread parked in a synchronous ReadFile on a device that sends
+    nothing would never come back.
+    """
+
+    def __init__(self, info: HidDeviceInfo, handle):
+        self.info = info
+        self._handle = handle
+        self._event = _kernel32.CreateEventW(None, True, False, None)
+        self._length = max(info.input_length, 1)
+
+    def read(self, timeout: float = 0.5) -> Optional[bytes]:
+        """One input report, report id first; ``None`` if none came in time."""
+        if not self._handle:
+            raise HidError('reader is closed')
+        _kernel32.ResetEvent(self._event)
+        overlapped = _OVERLAPPED()
+        overlapped.hEvent = self._event
+        buffer = ctypes.create_string_buffer(self._length)
+        transferred = DWORD(0)
+        if not _kernel32.ReadFile(self._handle, buffer, self._length, None,
+                                  ctypes.byref(overlapped)):
+            error = ctypes.get_last_error()
+            if error != ERROR_IO_PENDING:
+                raise HidError('ReadFile failed: WinError {0}'.format(error))
+        waited = _kernel32.WaitForSingleObject(self._event, int(timeout * 1000))
+        if waited == WAIT_TIMEOUT:
+            _kernel32.CancelIoEx(self._handle, ctypes.byref(overlapped))
+            # The buffer must outlive the read, cancelled or not.
+            _kernel32.GetOverlappedResult(self._handle, ctypes.byref(overlapped),
+                                          ctypes.byref(transferred), True)
+            return None
+        if not _kernel32.GetOverlappedResult(self._handle, ctypes.byref(overlapped),
+                                             ctypes.byref(transferred), False):
+            raise HidError('reading input failed: WinError {0}'.format(
+                ctypes.get_last_error()))
+        return bytes(buffer.raw[:transferred.value])
+
+    def close(self) -> None:
+        if self._handle:
+            _kernel32.CancelIoEx(self._handle, None)
+            _kernel32.CloseHandle(self._handle)
+            self._handle = None
+        if self._event:
+            _kernel32.CloseHandle(self._event)
+            self._event = None
 
 
 class Win32HidBackend:
@@ -349,3 +425,20 @@ class Win32HidBackend:
 
     def open(self, info: HidDeviceInfo) -> Win32HidHandle:
         return Win32HidHandle(info, _open_handle(info.path, writable=True))
+
+    def open_input(self, info: HidDeviceInfo) -> Win32InputReader:
+        """Open a collection for reading its input reports.
+
+        Unlike the control channel this needs real read access, which Windows
+        refuses on the keyboard and mouse collections it owns -- the vendor
+        collections the macro keys report on are not among them.
+        """
+        for access in (GENERIC_READ | GENERIC_WRITE, GENERIC_READ):
+            handle = _kernel32.CreateFileW(
+                info.path, access, FILE_SHARE_READ | FILE_SHARE_WRITE, None,
+                OPEN_EXISTING, FILE_FLAG_OVERLAPPED, None)
+            if handle and handle != INVALID_HANDLE_VALUE:
+                _hid.HidD_SetNumInputBuffers(handle, 64)
+                return Win32InputReader(info, handle)
+        raise HidError('cannot read {0}: WinError {1}'.format(
+            info.path, ctypes.get_last_error()))

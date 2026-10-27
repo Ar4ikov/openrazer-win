@@ -115,7 +115,35 @@ openrazer-win autostart disable
 ```
 
 This writes one entry under `HKCU\...\CurrentVersion\Run`, so it also appears in Task Manager's
-Startup tab and can be removed from there.
+Startup tab and can be removed from there. Only one daemon runs per Windows session: a second
+start, from autostart or anywhere else, steps aside for the one already running.
+
+### Macro keys and the Fn layer
+
+Keyboards with macro keys — M1–M5 on a BlackWidow and the like — work while the daemon runs.
+An unbound macro key sends F13–F17, which any program that takes hotkeys can use; a bound one
+plays its macro instead:
+
+```bash
+openrazer-win macro                               # what each key does
+openrazer-win macro set M1 --keys "ctrl+shift+esc"
+openrazer-win macro set M2 --text "Hello"
+openrazer-win macro set M3 --launch "C:\Windows\notepad.exe"
+openrazer-win macro record M4                     # type it, then press Enter
+openrazer-win macro clear M1                      # back to F13
+```
+
+On the keyboard itself, **Fn+F9** records a macro (press it, press a macro key, type, press Fn+F9
+again), **Fn+F10** toggles game mode, which holds back the Windows key, and **Fn+F11/F12** step
+the backlight.
+
+This works the way upstream's kernel driver does it: the daemon puts the keyboard in *driver
+mode*, where it hands its macro keys and its whole Fn layer to the host, and then does the Fn
+layer itself — Fn+F1 is still Mute — with the same per-keyboard tables, generated from the
+driver's C. A keyboard is only switched over once all of that is in place for it; if the daemon
+cannot read its key report, or runs with `--no-keys`, the keyboard stays in normal mode and keeps
+its Fn layer to itself. `openrazer-win macro watch` prints the raw key reports, for working out a
+keyboard that does not respond.
 
 ### Python
 
@@ -337,6 +365,8 @@ each product id is in the database.
 | Device is connected but nothing is listed | It may be on a charge-only cable, or be a Bluetooth-only model. `doctor` names what Windows sees it as, and says which of the two it is. |
 | A Bluetooth device is powered on but not listed | Install the extra: `pip install "openrazer-win[ble]"`. `doctor` ends with a Bluetooth section that says whether support is present and what the radio can hear. |
 | Nothing at all listed | Only Razer devices (vendor `1532`) are handled. |
+| Devices do nothing after the daemon starts with Windows | `openrazer-win daemon status` lists devices still waiting to be set up; the daemon keeps retrying them. If it reports an older version, `openrazer-win daemon restart`. |
+| Macro keys do nothing | `openrazer-win macro` says whether the keyboard's keys are being handled; `openrazer-win macro watch` shows whether its key report arrives at all. |
 
 ## Development
 
@@ -345,7 +375,7 @@ git clone https://github.com/Ar4ikov/openrazer-win
 cd openrazer-win
 pip install -e ".[dev]"
 
-pytest                              # 315 tests, no hardware needed
+pytest                              # 387 tests, no hardware needed
 ruff check .
 python tools/simulate_devices.py    # every capability of all 274 USB devices
 ```
@@ -364,6 +394,7 @@ openrazer-win-daemon --emulate
 git clone --depth 1 https://github.com/openrazer/openrazer /tmp/openrazer
 python tools/extract_device_db.py  /tmp/openrazer openrazer_win/devices/data/devices.json
 python tools/transpile_recipes.py  /tmp/openrazer openrazer_win/devices/data/recipes.json
+python tools/transpile_keys.py     /tmp/openrazer openrazer_win/devices/data/keys.json
 pytest && python tools/simulate_devices.py
 ```
 

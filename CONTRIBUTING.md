@@ -11,7 +11,7 @@ pip install -e ".[dev]"
 ## Before opening a pull request
 
 ```bash
-pytest                              # 208 tests, no hardware required
+pytest                              # 387 tests, no hardware required
 ruff check .
 python tools/simulate_devices.py    # every capability of all 274 USB devices
 ```
@@ -32,6 +32,7 @@ re-syncing here is mechanical:
 git clone --depth 1 https://github.com/openrazer/openrazer /tmp/openrazer
 python tools/extract_device_db.py  /tmp/openrazer openrazer_win/devices/data/devices.json
 python tools/transpile_recipes.py  /tmp/openrazer openrazer_win/devices/data/recipes.json
+python tools/transpile_keys.py     /tmp/openrazer openrazer_win/devices/data/keys.json
 python tools/build_docs_data.py
 pytest && python tools/simulate_devices.py
 ```
@@ -47,6 +48,7 @@ pytest && python tools/simulate_devices.py
 | `openrazer_win/daemon/` | The JSON-RPC service |
 | `openrazer_win/client/` | The public Python API |
 | `openrazer_win/effects/` | Frame buffer, keyboard hook, host-rendered effects |
+| `openrazer_win/keys/` | Macro keys and the Fn layer of keyboards in driver mode |
 | `tools/` | The transpiler, the database extractor, the fleet simulator |
 
 ## Style

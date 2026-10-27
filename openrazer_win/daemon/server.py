@@ -89,11 +89,19 @@ class DaemonService:
 
     def __init__(self, backend=None, persistence: Optional[Persistence] = None,
                  enable_effects: bool = True,
-                 profiles: Optional[ProfileStore] = None):
+                 profiles: Optional[ProfileStore] = None,
+                 enable_keys: bool = False, keys=None, macros=None):
         self.persistence = persistence or Persistence()
         self.profiles = profiles if profiles is not None else ProfileStore()
         self.manager = DeviceManager(backend=backend, persistence=self.persistence)
         self.effects = EffectEngine(self.manager) if enable_effects else None
+        from ..keys import KeyService, MacroStore
+        #: Bindings can be edited whether or not keys are being handled.
+        self.macros = macros if macros is not None else MacroStore()
+        #: Off unless asked for: it installs a system-wide keyboard hook.
+        self.keys = keys
+        if self.keys is None and enable_keys:
+            self.keys = KeyService(self.manager.backend, macros=self.macros)
         self.started_at = time.time()
         self._lock = threading.RLock()
         #: ``starting`` until the first scan and set-up have finished; the
@@ -104,6 +112,8 @@ class DaemonService:
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
+        if self.keys is not None:
+            self.keys.start()
         self.manager.scan()
         for device in self.manager.devices:
             self._initialise(device)
@@ -121,7 +131,8 @@ class DaemonService:
         device is tried again on a back-off until it takes.
         """
         try:
-            device.enter_driver_mode(keys_handled=False)
+            handled = self.keys is not None and self.keys.attach(device)
+            device.enter_driver_mode(keys_handled=handled)
             device.restore()
         except Exception as error:  # noqa: BLE001 - reported, then retried
             attempts = self._pending.get(device, (0, 0.0))[0] + 1
@@ -146,6 +157,8 @@ class DaemonService:
             except Exception:  # noqa: BLE001 - shutting down regardless
                 logger.debug('could not hand %s back to its firmware', device.name,
                              exc_info=True)
+        if self.keys is not None:
+            self.keys.stop()
         self.manager.close()
 
     def poll_hotplug(self, force_bluetooth: bool = False) -> None:
@@ -163,6 +176,10 @@ class DaemonService:
                 del self._pending[device]
             elif now >= retry_at:
                 self._initialise(device)
+        if self.keys is not None:
+            for device in before:
+                if device not in current:
+                    self.keys.detach(device)
         if self.effects is not None:
             # A host-rendered effect outlives its device otherwise: the thread
             # keeps writing to hardware that is no longer listed, which cannot
@@ -243,6 +260,55 @@ class DaemonService:
 
     def rpc_persistence(self) -> dict:
         return self.persistence.as_dict()
+
+    # -- macro keys ----------------------------------------------------------
+    def rpc_keys_status(self) -> dict:
+        if self.keys is None:
+            return {'running': False, 'devices': [], 'recording': None}
+        return self.keys.status(self.manager.devices)
+
+    def rpc_macro_list(self, serial: str) -> dict:
+        device = self._device(serial)
+        keys = self.keys.macro_keys(device) if self.keys is not None else []
+        if not keys and getattr(getattr(device, 'info', None), 'dedicated_macro_keys', False):
+            keys = ['M1', 'M2', 'M3', 'M4', 'M5']
+        return {'keys': keys, 'bindings': self.macros.bindings(device.serial),
+                'handled': bool(self.keys is not None and self.keys.handles(device))}
+
+    def rpc_macro_set(self, serial: str, key: str, action: dict) -> dict:
+        from ..keys import MacroError
+        device = self._device(serial)
+        try:
+            return self.macros.set(device.serial, str(key), action)
+        except MacroError as error:
+            raise RpcError(INVALID_PARAMS, str(error)) from error
+
+    def rpc_macro_delete(self, serial: str, key: str) -> dict:
+        device = self._device(serial)
+        return {'deleted': self.macros.delete(device.serial, str(key))}
+
+    def rpc_macro_record_start(self, serial: str, key: str) -> dict:
+        device = self._device(serial)
+        if self.keys is None or not self.keys.handles(device):
+            raise RpcError(NOT_SUPPORTED,
+                           'keys of {0} are not being handled'.format(device.name))
+        self.keys.start_recording(device.serial, str(key))
+        return {'recording': str(key)}
+
+    def rpc_macro_record_stop(self) -> Optional[dict]:
+        if self.keys is None:
+            return None
+        return self.keys.stop_recording()
+
+    def rpc_macro_play(self, serial: str, key: str) -> dict:
+        device = self._device(serial)
+        action = self.macros.get(device.serial, str(key))
+        if action is None:
+            raise RpcError(INVALID_PARAMS, 'nothing is bound to {0}'.format(key))
+        if self.keys is None:
+            raise RpcError(NOT_SUPPORTED, 'macro keys are not being handled')
+        self.keys._play_async(device.serial, str(key), action)
+        return {'playing': str(key)}
 
     # -- profiles ----------------------------------------------------------
     def rpc_profile_list(self, serial: str) -> list:
@@ -388,6 +454,13 @@ class DaemonServer(socketserver.ThreadingTCPServer):
             'profile.save': service.rpc_profile_save,
             'profile.load': service.rpc_profile_load,
             'profile.delete': service.rpc_profile_delete,
+            'keys.status': service.rpc_keys_status,
+            'macro.list': service.rpc_macro_list,
+            'macro.set': service.rpc_macro_set,
+            'macro.delete': service.rpc_macro_delete,
+            'macro.record_start': service.rpc_macro_record_start,
+            'macro.record_stop': service.rpc_macro_record_stop,
+            'macro.play': service.rpc_macro_play,
         }
         self._shutdown_requested = threading.Event()
 
@@ -401,7 +474,7 @@ class DaemonServer(socketserver.ThreadingTCPServer):
 
 
 def serve(backend=None, host: str = '127.0.0.1', port: int = 0,
-          enable_effects: bool = True) -> bool:
+          enable_effects: bool = True, enable_keys: bool = True) -> bool:
     """Run the daemon until it is asked to stop.
 
     Returns ``False`` without doing anything if this session already has a
@@ -417,7 +490,8 @@ def serve(backend=None, host: str = '127.0.0.1', port: int = 0,
         logger.info('another openrazer-win daemon is already running in this session')
         return False
 
-    service = DaemonService(backend=backend, enable_effects=enable_effects)
+    service = DaemonService(backend=backend, enable_effects=enable_effects,
+                            enable_keys=enable_keys)
     server = DaemonServer(service, host=host, port=port)
     endpoint_file = server.endpoint.write()
     logger.info('openrazer-win %s listening on %s:%d (endpoint file: %s)', __version__,

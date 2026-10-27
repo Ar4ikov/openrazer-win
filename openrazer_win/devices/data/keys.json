@@ -1,0 +1,686 @@
+{
+ "default_table": "chroma_keys",
+ "fn_code": 1,
+ "no_translation_pids": [
+  "0205",
+  "020f",
+  "0210",
+  "0220",
+  "0224",
+  "0225",
+  "022d",
+  "022f",
+  "0232",
+  "0233",
+  "0234",
+  "0239",
+  "023a",
+  "023b",
+  "0240",
+  "0245",
+  "0246",
+  "024a",
+  "024b",
+  "024c",
+  "024d",
+  "0252",
+  "0253",
+  "0255",
+  "0256",
+  "0259",
+  "0268",
+  "026a",
+  "026d",
+  "026e",
+  "026f",
+  "0270",
+  "0276",
+  "0279",
+  "027a",
+  "028a",
+  "028b",
+  "028c",
+  "029d",
+  "029e",
+  "029f",
+  "02a0",
+  "02b6",
+  "02b8",
+  "02c5",
+  "02c6",
+  "02c7",
+  "02e0",
+  "02e1"
+ ],
+ "report_id": 4,
+ "schema": 1,
+ "source": "openrazer/openrazer driver/razerkbd_driver.c",
+ "tables": {
+  "chroma_keys": [
+   [
+    "KEY_F1",
+    "KEY_MUTE"
+   ],
+   [
+    "KEY_F2",
+    "KEY_VOLUMEDOWN"
+   ],
+   [
+    "KEY_F3",
+    "KEY_VOLUMEUP"
+   ],
+   [
+    "KEY_F5",
+    "KEY_PREVIOUSSONG"
+   ],
+   [
+    "KEY_F6",
+    "KEY_PLAYPAUSE"
+   ],
+   [
+    "KEY_F7",
+    "KEY_NEXTSONG"
+   ],
+   [
+    "KEY_F9",
+    "RAZER_MACRO_KEY"
+   ],
+   [
+    "KEY_F10",
+    "RAZER_GAME_KEY"
+   ],
+   [
+    "KEY_F11",
+    "RAZER_BRIGHTNESS_DOWN"
+   ],
+   [
+    "KEY_F12",
+    "RAZER_BRIGHTNESS_UP"
+   ],
+   [
+    "KEY_PAUSE",
+    "KEY_SLEEP"
+   ],
+   [
+    "KEY_KPENTER",
+    "KEY_CALC"
+   ]
+  ],
+  "chroma_keys_2": [
+   [
+    "KEY_F1",
+    "KEY_MUTE"
+   ],
+   [
+    "KEY_F2",
+    "KEY_VOLUMEDOWN"
+   ],
+   [
+    "KEY_F3",
+    "KEY_VOLUMEUP"
+   ],
+   [
+    "KEY_F5",
+    "KEY_PLAYPAUSE"
+   ],
+   [
+    "KEY_F6",
+    "KEY_STOPCD"
+   ],
+   [
+    "KEY_F7",
+    "KEY_PREVIOUSSONG"
+   ],
+   [
+    "KEY_F8",
+    "KEY_NEXTSONG"
+   ],
+   [
+    "KEY_F11",
+    "RAZER_GAME_KEY"
+   ],
+   [
+    "KEY_RIGHTALT",
+    "RAZER_MACRO_KEY"
+   ],
+   [
+    "KEY_PAUSE",
+    "KEY_SLEEP"
+   ]
+  ],
+  "chroma_keys_3": [
+   [
+    "KEY_ESC",
+    "KEY_GRAVE"
+   ],
+   [
+    "KEY_1",
+    "KEY_F1"
+   ],
+   [
+    "KEY_2",
+    "KEY_F2"
+   ],
+   [
+    "KEY_3",
+    "KEY_F3"
+   ],
+   [
+    "KEY_4",
+    "KEY_F4"
+   ],
+   [
+    "KEY_5",
+    "KEY_F5"
+   ],
+   [
+    "KEY_6",
+    "KEY_F6"
+   ],
+   [
+    "KEY_7",
+    "KEY_F7"
+   ],
+   [
+    "KEY_8",
+    "KEY_F8"
+   ],
+   [
+    "KEY_9",
+    "KEY_F9"
+   ],
+   [
+    "KEY_0",
+    "KEY_F10"
+   ],
+   [
+    "KEY_MINUS",
+    "KEY_F11"
+   ],
+   [
+    "KEY_EQUAL",
+    "KEY_F12"
+   ],
+   [
+    "KEY_BACKSPACE",
+    "KEY_DELETE"
+   ],
+   [
+    "KEY_TAB",
+    "KEY_MUTE"
+   ],
+   [
+    "KEY_Q",
+    "KEY_VOLUMEDOWN"
+   ],
+   [
+    "KEY_W",
+    "KEY_VOLUMEUP"
+   ],
+   [
+    "KEY_E",
+    "KEY_PREVIOUSSONG"
+   ],
+   [
+    "KEY_R",
+    "KEY_PLAYPAUSE"
+   ],
+   [
+    "KEY_T",
+    "KEY_NEXTSONG"
+   ],
+   [
+    "KEY_Y",
+    "RAZER_MACRO_KEY"
+   ],
+   [
+    "KEY_U",
+    "RAZER_GAME_KEY"
+   ],
+   [
+    "KEY_I",
+    "KEY_UP"
+   ],
+   [
+    "KEY_O",
+    "KEY_SCROLLLOCK"
+   ],
+   [
+    "KEY_P",
+    "KEY_SYSRQ"
+   ],
+   [
+    "KEY_LEFTBRACE",
+    "KEY_PAGEUP"
+   ],
+   [
+    "KEY_RIGHTBRACE",
+    "KEY_HOME"
+   ],
+   [
+    "KEY_G",
+    "RAZER_BRIGHTNESS_DOWN"
+   ],
+   [
+    "KEY_H",
+    "RAZER_BRIGHTNESS_UP"
+   ],
+   [
+    "KEY_J",
+    "KEY_LEFT"
+   ],
+   [
+    "KEY_K",
+    "KEY_DOWN"
+   ],
+   [
+    "KEY_L",
+    "KEY_RIGHT"
+   ],
+   [
+    "KEY_SEMICOLON",
+    "KEY_PAGEDOWN"
+   ],
+   [
+    "KEY_APOSTROPHE",
+    "KEY_END"
+   ],
+   [
+    "KEY_Z",
+    "KEY_SLEEP"
+   ],
+   [
+    "KEY_DOT",
+    "KEY_PAUSE"
+   ],
+   [
+    "KEY_SLASH",
+    "KEY_INSERT"
+   ]
+  ],
+  "chroma_keys_4": [
+   [
+    "KEY_ESC",
+    "KEY_GRAVE"
+   ],
+   [
+    "KEY_1",
+    "KEY_F1"
+   ],
+   [
+    "KEY_2",
+    "KEY_F2"
+   ],
+   [
+    "KEY_3",
+    "KEY_F3"
+   ],
+   [
+    "KEY_4",
+    "KEY_F4"
+   ],
+   [
+    "KEY_5",
+    "KEY_F5"
+   ],
+   [
+    "KEY_6",
+    "KEY_F6"
+   ],
+   [
+    "KEY_7",
+    "KEY_F7"
+   ],
+   [
+    "KEY_8",
+    "KEY_F8"
+   ],
+   [
+    "KEY_9",
+    "KEY_F9"
+   ],
+   [
+    "KEY_0",
+    "KEY_F10"
+   ],
+   [
+    "KEY_MINUS",
+    "KEY_F11"
+   ],
+   [
+    "KEY_EQUAL",
+    "KEY_F12"
+   ],
+   [
+    "KEY_DELETE",
+    "KEY_MACRO1"
+   ],
+   [
+    "KEY_Y",
+    "RAZER_MACRO_KEY"
+   ],
+   [
+    "KEY_U",
+    "RAZER_GAME_KEY"
+   ],
+   [
+    "KEY_I",
+    "KEY_UP"
+   ],
+   [
+    "KEY_O",
+    "KEY_SYSRQ"
+   ],
+   [
+    "KEY_P",
+    "KEY_SCROLLLOCK"
+   ],
+   [
+    "KEY_LEFTBRACE",
+    "KEY_PAUSE"
+   ],
+   [
+    "KEY_RIGHTBRACE",
+    "KEY_SLEEP"
+   ],
+   [
+    "KEY_PAGEUP",
+    "KEY_MACRO2"
+   ],
+   [
+    "KEY_G",
+    "RAZER_BRIGHTNESS_DOWN"
+   ],
+   [
+    "KEY_H",
+    "RAZER_BRIGHTNESS_UP"
+   ],
+   [
+    "KEY_APOSTROPHE",
+    "KEY_HOME"
+   ],
+   [
+    "KEY_PAGEDOWN",
+    "KEY_MACRO3"
+   ],
+   [
+    "KEY_V",
+    "KEY_MUTE"
+   ],
+   [
+    "KEY_B",
+    "KEY_VOLUMEDOWN"
+   ],
+   [
+    "KEY_N",
+    "KEY_VOLUMEUP"
+   ],
+   [
+    "KEY_M",
+    "KEY_PREVIOUSSONG"
+   ],
+   [
+    "KEY_COMMA",
+    "KEY_PLAYPAUSE"
+   ],
+   [
+    "KEY_DOT",
+    "KEY_NEXTSONG"
+   ],
+   [
+    "KEY_SLASH",
+    "KEY_END"
+   ],
+   [
+    "KEY_INSERT",
+    "KEY_MACRO4"
+   ],
+   [
+    "KEY_RIGHTALT",
+    "KEY_BLUETOOTH"
+   ]
+  ],
+  "chroma_keys_5": [
+   [
+    "KEY_F9",
+    "RAZER_MACRO_KEY"
+   ],
+   [
+    "KEY_F10",
+    "RAZER_GAME_KEY"
+   ],
+   [
+    "KEY_F11",
+    "RAZER_BRIGHTNESS_DOWN"
+   ],
+   [
+    "KEY_F12",
+    "RAZER_BRIGHTNESS_UP"
+   ],
+   [
+    "KEY_PAUSE",
+    "KEY_SLEEP"
+   ]
+  ],
+  "chroma_keys_6": [
+   [
+    "KEY_F9",
+    "RAZER_MACRO_KEY"
+   ],
+   [
+    "KEY_F10",
+    "RAZER_GAME_KEY"
+   ],
+   [
+    "KEY_F11",
+    "RAZER_BRIGHTNESS_DOWN"
+   ],
+   [
+    "KEY_F12",
+    "RAZER_BRIGHTNESS_UP"
+   ],
+   [
+    "KEY_P",
+    "KEY_SYSRQ"
+   ],
+   [
+    "KEY_PAGEUP",
+    "KEY_HOME"
+   ],
+   [
+    "KEY_PAGEDOWN",
+    "KEY_END"
+   ],
+   [
+    "KEY_INSERT",
+    "KEY_PAUSE"
+   ],
+   [
+    "KEY_DELETE",
+    "KEY_SLEEP"
+   ]
+  ],
+  "chroma_keys_7": [
+   [
+    "KEY_F9",
+    "RAZER_MACRO_KEY"
+   ],
+   [
+    "KEY_F10",
+    "RAZER_GAME_KEY"
+   ],
+   [
+    "KEY_F11",
+    "RAZER_BRIGHTNESS_DOWN"
+   ],
+   [
+    "KEY_F12",
+    "RAZER_BRIGHTNESS_UP"
+   ],
+   [
+    "KEY_INSERT",
+    "KEY_SYSRQ"
+   ],
+   [
+    "KEY_HOME",
+    "KEY_SCROLLLOCK"
+   ],
+   [
+    "KEY_PAGEUP",
+    "KEY_PAUSE"
+   ],
+   [
+    "KEY_PAGEDOWN",
+    "KEY_SLEEP"
+   ]
+  ],
+  "chroma_keys_8": [
+   [
+    "KEY_F9",
+    "RAZER_MACRO_KEY"
+   ],
+   [
+    "KEY_F10",
+    "RAZER_GAME_KEY"
+   ],
+   [
+    "KEY_F11",
+    "RAZER_BRIGHTNESS_DOWN"
+   ],
+   [
+    "KEY_F12",
+    "RAZER_BRIGHTNESS_UP"
+   ],
+   [
+    "KEY_INSERT",
+    "KEY_SYSRQ"
+   ],
+   [
+    "KEY_HOME",
+    "KEY_SCROLLLOCK"
+   ],
+   [
+    "KEY_PAGEUP",
+    "KEY_PAUSE"
+   ],
+   [
+    "KEY_PAGEDOWN",
+    "KEY_SLEEP"
+   ],
+   [
+    "KEY_DELETE",
+    "KEY_MUTE"
+   ]
+  ],
+  "chroma_keys_9": [
+   [
+    "KEY_F9",
+    "RAZER_MACRO_KEY"
+   ],
+   [
+    "KEY_F10",
+    "RAZER_GAME_KEY"
+   ],
+   [
+    "KEY_F11",
+    "RAZER_BRIGHTNESS_DOWN"
+   ],
+   [
+    "KEY_F12",
+    "RAZER_BRIGHTNESS_UP"
+   ],
+   [
+    "KEY_F7",
+    "KEY_SYSRQ"
+   ],
+   [
+    "KEY_F8",
+    "KEY_SLEEP"
+   ]
+  ],
+  "chroma_keys_joro": [
+   [
+    "KEY_F5",
+    "KEY_MUTE"
+   ],
+   [
+    "KEY_F6",
+    "KEY_VOLUMEDOWN"
+   ],
+   [
+    "KEY_F7",
+    "KEY_VOLUMEUP"
+   ],
+   [
+    "KEY_F8",
+    "KEY_BRIGHTNESSDOWN"
+   ],
+   [
+    "KEY_F9",
+    "KEY_BRIGHTNESSUP"
+   ],
+   [
+    "KEY_F10",
+    "KEY_KBDILLUMDOWN"
+   ],
+   [
+    "KEY_F11",
+    "KEY_KBDILLUMUP"
+   ],
+   [
+    "KEY_F12",
+    "KEY_SYSRQ"
+   ]
+  ]
+ },
+ "tables_by_pid": {
+  "010d": "chroma_keys_2",
+  "010e": "chroma_keys_2",
+  "024e": "chroma_keys_5",
+  "0257": "chroma_keys_3",
+  "0258": "chroma_keys_4",
+  "025a": "chroma_keys_5",
+  "025c": "chroma_keys_5",
+  "0269": "chroma_keys_3",
+  "026c": "chroma_keys_5",
+  "0271": "chroma_keys_4",
+  "0287": "chroma_keys_5",
+  "028d": "chroma_keys_5",
+  "0290": "chroma_keys_5",
+  "0292": "chroma_keys_5",
+  "0293": "chroma_keys_5",
+  "0295": "chroma_keys_5",
+  "0296": "chroma_keys_7",
+  "0298": "chroma_keys_7",
+  "02a3": "chroma_keys_8",
+  "02a5": "chroma_keys_6",
+  "02a6": "chroma_keys_5",
+  "02a7": "chroma_keys_5",
+  "02b0": "chroma_keys_3",
+  "02b9": "chroma_keys_4",
+  "02ba": "chroma_keys_4",
+  "02cd": "chroma_keys_joro",
+  "02cf": "chroma_keys_5",
+  "02d5": "chroma_keys_9",
+  "02d7": "chroma_keys_9"
+ },
+ "vendor_codes": {
+  "01": "0x00",
+  "20": "USB_HID_KEY_F13",
+  "21": "USB_HID_KEY_F14",
+  "22": "USB_HID_KEY_F15",
+  "23": "USB_HID_KEY_F16",
+  "24": "USB_HID_KEY_F17",
+  "25": "USB_HID_KEY_F18",
+  "50": "USB_HID_KEY_MEDIA_VOLUMEDOWN",
+  "51": "USB_HID_KEY_MEDIA_VOLUMEUP",
+  "52": "USB_HID_KEY_MEDIA_MUTE",
+  "53": "USB_HID_KEY_MEDIA_NEXTSONG",
+  "54": "USB_HID_KEY_MEDIA_PREVIOUSSONG",
+  "55": "USB_HID_KEY_MEDIA_PLAYPAUSE",
+  "60": "USB_HID_KEY_F24",
+  "63": "USB_HID_KEY_F18",
+  "64": "USB_HID_KEY_F19",
+  "65": "USB_HID_KEY_F20"
+ }
+}

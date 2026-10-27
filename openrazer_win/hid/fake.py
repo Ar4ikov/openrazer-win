@@ -9,6 +9,7 @@ class and id back, and keeps per-LED state so reads return what was written.
 from __future__ import annotations
 
 import itertools
+import queue
 from typing import Optional
 
 from ..protocol.report import REPORT_SIZE, RazerReport, Status, calculate_crc
@@ -37,6 +38,29 @@ class FakeDeviceState:
         self.low_battery_threshold = 0x0C
         self.frames: dict = {}
         self.sent: list = []
+
+
+class FakeInputReader:
+    """Reads the input reports a test queues on a :class:`FakeRazerDevice`."""
+
+    def __init__(self, device: 'FakeRazerDevice', info: HidDeviceInfo):
+        self.info = info
+        self._device = device
+        self._closed = False
+
+    def read(self, timeout: float = 0.5) -> Optional[bytes]:
+        if self._closed:
+            raise HidError('reader is closed')
+        try:
+            report = self._device.input_reports.get(timeout=timeout)
+        except queue.Empty:
+            return None
+        if report is None:          # the device was unplugged
+            raise HidError('device disconnected')
+        return report
+
+    def close(self) -> None:
+        self._closed = True
 
 
 class FakeHidHandle:
@@ -84,11 +108,13 @@ class FakeRazerDevice:
 
     #: The Kraken family's output report, including the report id.
     KRAKEN_REPORT_SIZE = 37
+    #: The vendor event report: report id 0x04 and up to 15 held key codes.
+    KEY_REPORT_SIZE = 16
 
     def __init__(self, product_id: int, name: str = 'Fake Razer Device',
                  interface: int = 1, serial: Optional[str] = None,
                  vendor_id: int = 0x1532, argb: bool = False,
-                 kraken: bool = False):
+                 kraken: bool = False, keys: bool = False):
         self.info = HidDeviceInfo(
             path='\\\\?\\hid#vid_{0:04x}&pid_{1:04x}&mi_{2:02x}#fake'.format(
                 vendor_id, product_id, interface),
@@ -123,6 +149,19 @@ class FakeRazerDevice:
             output_length=self.KRAKEN_REPORT_SIZE,
             product=name,
         ) if kraken else None
+        #: A keyboard's vendor event collection, where macro keys and Fn are
+        #: reported in driver mode.
+        self.keys_info = HidDeviceInfo(
+            path=self.info.path + '&keys',
+            vendor_id=vendor_id,
+            product_id=product_id,
+            interface=1,
+            usage_page=0x0001,
+            usage=0x0000,
+            input_length=self.KEY_REPORT_SIZE,
+            product=name,
+        ) if keys else None
+        self.input_reports: queue.Queue = queue.Queue()
         self.argb_frames: list = []
         self.feature_reports: list = []
         #: Address -> bytes written, plus the raw report stream.
@@ -133,6 +172,11 @@ class FakeRazerDevice:
         self._response = self._blank_response()
         #: Set to a :class:`Status` value to make every command fail.
         self.force_status: Optional[int] = None
+
+    def hold(self, *codes: int) -> None:
+        """Report `codes` as held on the vendor event collection; none releases all."""
+        report = bytes((0x04,) + tuple(codes))
+        self.input_reports.put(report + bytes(self.KEY_REPORT_SIZE - len(report)))
 
     # -- helpers -----------------------------------------------------------
     @staticmethod
@@ -309,6 +353,8 @@ class FakeHidBackend:
                 result.append(device.argb_info)
             if device.kraken_info is not None:
                 result.append(device.kraken_info)
+            if device.keys_info is not None:
+                result.append(device.keys_info)
         return result
 
     def open(self, info: HidDeviceInfo) -> FakeHidHandle:
@@ -320,6 +366,12 @@ class FakeHidBackend:
             if device.kraken_info is not None and device.kraken_info.path == info.path:
                 return FakeHidHandle(device, device.kraken_info)
         raise HidError('no such fake device: {0}'.format(info.path))
+
+    def open_input(self, info: HidDeviceInfo) -> FakeInputReader:
+        for device in self.devices:
+            if device.keys_info is not None and device.keys_info.path == info.path:
+                return FakeInputReader(device, info)
+        raise HidError('no readable fake collection: {0}'.format(info.path))
 
     def device_for(self, info: HidDeviceInfo) -> Optional[FakeRazerDevice]:
         for device in self.devices:

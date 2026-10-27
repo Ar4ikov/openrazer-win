@@ -16,6 +16,9 @@ def main(argv=None) -> int:
                         help='TCP port, or 0 to pick a free one')
     parser.add_argument('--no-effects', action='store_true',
                         help='disable host-rendered effects and the keyboard hook')
+    parser.add_argument('--no-keys', action='store_true',
+                        help='leave keyboards in normal mode: no macro keys, Fn handled '
+                             'by the keyboard itself')
     parser.add_argument('--emulate', action='store_true',
                         help='run against emulated devices instead of real hardware')
     parser.add_argument('--verbose', '-v', action='store_true')
@@ -36,7 +39,7 @@ def main(argv=None) -> int:
         backend = build_demo_backend()
 
     serve(backend=backend, host=args.host, port=args.port,
-          enable_effects=not args.no_effects)
+          enable_effects=not args.no_effects, enable_keys=not args.no_keys)
     # A second daemon stepping aside is not a failure: the one that is running
     # is doing the job.
     return 0
