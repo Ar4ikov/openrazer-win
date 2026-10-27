@@ -73,6 +73,7 @@ def _device_summary(device: RazerDevice) -> dict:
         'vid': device.vid,
         'pid': device.pid,
         'image': device.info.image,
+        'images': dict(device.info.images),
         'firmware': _safe(device, 'firmware_version'),
     }
 

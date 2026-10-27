@@ -11210,7 +11210,12 @@
    ],
    "poll_rates": null,
    "dpi_max": null,
-   "image": null,
+   "image": "https://medias-p1.phoenix.razer.com/sys-master-phoenix-images-container/h2b/hcb/9631979241502/230808-kraken-kitty-v2-bt-quartz-1500x1000-5.jpg",
+   "images": {
+    "Quartz": "https://medias-p1.phoenix.razer.com/sys-master-phoenix-images-container/h2b/hcb/9631979241502/230808-kraken-kitty-v2-bt-quartz-1500x1000-5.jpg",
+    "White": "https://medias-p1.phoenix.razer.com/sys-master-phoenix-images-container/hfb/hc5/9879046815774/250306-kraken-kitty-v2-bt-whiet-1500x1000-4.jpg",
+    "Black": "https://medias-p1.phoenix.razer.com/sys-master-phoenix-images-container/ha3/hc5/9879046848542/250306-kraken-kitty-v2-bt-black-1500x1000-4.jpg"
+   },
    "methods": [
     "get_device_type_headset",
     "set_static_effect",

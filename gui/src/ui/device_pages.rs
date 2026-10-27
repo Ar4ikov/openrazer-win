@@ -211,10 +211,24 @@ pub fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot)
     }
 }
 
-pub fn info(_app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+pub fn info(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
     let caps = snap.details.get(&device.serial).and_then(|d| d.caps.clone()).unwrap_or_default();
     widgets::card(ui, |ui| {
         egui::Grid::new("details").num_columns(2).spacing(vec2(28.0, 10.0)).show(ui, |ui| {
+            if device.images.len() > 1 {
+                // Nothing the device reports tells its colours apart.
+                ui.label(widgets::dim("Colour"));
+                let options: Vec<(String, String)> = device.images.iter().map(|(colour, _)| (colour.clone(), colour.clone())).collect();
+                let mut colour = app.settings.colours.get(&device.serial).cloned().unwrap_or_else(|| {
+                    let default = device.image.as_ref();
+                    device.images.iter().find(|(_, url)| Some(url) == default).map_or_else(|| options[0].0.clone(), |(c, _)| c.clone())
+                });
+                if widgets::segmented(ui, &options, &mut colour) {
+                    app.settings.colours.insert(device.serial.clone(), colour);
+                    app.settings.save();
+                }
+                ui.end_row();
+            }
             let mut row = |name: &str, value: String| {
                 ui.label(widgets::dim(name));
                 ui.label(value);

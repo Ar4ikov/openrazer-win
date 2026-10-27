@@ -32,6 +32,8 @@ pub struct Device {
     pub kind: String,
     pub pid: u16,
     pub image: Option<String>,
+    /// A picture per colour it is sold in, when it cannot say which it is.
+    pub images: Vec<(String, String)>,
     pub firmware: Option<String>,
 }
 
@@ -557,6 +559,10 @@ fn parse_device(row: &Value) -> Device {
         kind: row["type"].as_str().unwrap_or("device").to_string(),
         pid: row["pid"].as_u64().unwrap_or(0) as u16,
         image: row["image"].as_str().filter(|s| !s.is_empty()).map(str::to_string),
+        images: row["images"]
+            .as_object()
+            .map(|images| images.iter().filter_map(|(colour, url)| Some((colour.clone(), url.as_str()?.to_string()))).collect())
+            .unwrap_or_default(),
         firmware: row["firmware"].as_str().map(str::to_string),
     }
 }

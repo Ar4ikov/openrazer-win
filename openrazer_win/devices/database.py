@@ -46,6 +46,9 @@ class DeviceInfo:
     poll_rates: Optional[tuple] = None
     dpi_max: Optional[int] = None
     image: Optional[str] = None
+    #: Pictures of each colour it is sold in, as ``(colour, url)`` pairs, for
+    #: a device that does not say which one it is.
+    images: tuple = ()
     methods: frozenset = field(default_factory=frozenset)
     #: How the device is reached: 'hid' for everything upstream covers, 'ble'
     #: for Bluetooth-only devices that never appear on the HID bus.
@@ -95,6 +98,7 @@ class DeviceInfo:
             'poll_rates': list(self.poll_rates) if self.poll_rates else None,
             'dpi_max': self.dpi_max,
             'image': self.image,
+            'images': dict(self.images),
             'transport': self.transport,
             'methods': sorted(self.methods),
             'zones': self.zones(),
@@ -153,6 +157,7 @@ def _load(path: str = DEVICES_PATH) -> DeviceDatabase:
             poll_rates=tuple(raw['poll_rates']) if raw.get('poll_rates') else None,
             dpi_max=raw.get('dpi_max'),
             image=raw.get('image'),
+            images=tuple((raw.get('images') or {}).items()),
             methods=frozenset(raw.get('methods', [])),
             transport=raw.get('transport', 'hid'),
         ))

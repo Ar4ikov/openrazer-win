@@ -48,13 +48,16 @@ impl Tab {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[serde(default)]
 pub struct GuiSettings {
     pub close_to_tray: bool,
+    /// Which colour each device is, by serial, for those that cannot say.
+    pub colours: HashMap<String, String>,
 }
 
 impl Default for GuiSettings {
     fn default() -> Self {
-        GuiSettings { close_to_tray: true }
+        GuiSettings { close_to_tray: true, colours: HashMap::new() }
     }
 }
 
@@ -95,7 +98,7 @@ pub struct App {
 /// For checking the design: `OPENRAZER_GUI_CAPTURE=path.png` saves one
 /// screenshot of the window once the daemon has answered, then exits.
 /// `OPENRAZER_GUI_PAGE` picks what is on screen: `settings`, or
-/// `<device index>:<tab>` such as `0:lighting`.
+/// `<device index>:<tab>` such as `0:lighting`, or `0:lighting:logo`.
 struct Capture {
     path: std::path::PathBuf,
     page: String,
@@ -254,8 +257,13 @@ impl App {
         let ready = settled && !snap.busy && capture.started.elapsed() > Duration::from_secs(4);
         if !capture.requested {
             if let Some((index, tab)) = capture.page.split_once(':') {
+                // `<index>:lighting:<zone>` opens a lighting zone too.
+                let (tab, zone) = tab.split_once(':').map_or((tab, None), |(tab, zone)| (tab, Some(zone)));
                 if let Some(device) = index.parse::<usize>().ok().and_then(|i| snap.devices.get(i)) {
                     self.view = Some(View::Device(device.serial.clone()));
+                    if let Some(zone) = zone {
+                        self.edits.entry(device.serial.clone()).or_default().zone = Some(zone.to_string());
+                    }
                 }
                 self.tab = match tab {
                     "performance" => Tab::Performance,
@@ -350,6 +358,18 @@ impl App {
         });
     }
 
+    /// The picture of `device`: of the colour its owner said it is, if it
+    /// comes in several.
+    fn picture(&self, device: &Device) -> Option<String> {
+        let chosen = self.settings.colours.get(&device.serial);
+        device
+            .images
+            .iter()
+            .find(|(colour, _)| Some(colour) == chosen)
+            .map(|(_, url)| url.clone())
+            .or_else(|| device.image.clone())
+    }
+
     fn device_row(&mut self, ui: &mut egui::Ui, device: &Device, snap: &Snapshot, selected: bool) -> egui::Response {
         let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 62.0), Sense::click());
         let fill = if selected { CARD_ACTIVE } else if response.hovered() { CARD_HOVER } else { Color32::TRANSPARENT };
@@ -360,7 +380,7 @@ impl App {
         }
         let thumb = Rect::from_min_size(rect.min + vec2(10.0, 9.0), vec2(44.0, 44.0));
         painter.rect_filled(thumb, CornerRadius::same(8), Color32::from_rgb(0x20, 0x25, 0x2F));
-        let texture = device.image.as_ref().and_then(|url| self.images.get(ui.ctx(), url));
+        let texture = self.picture(device).and_then(|url| self.images.get(ui.ctx(), &url));
         match texture {
             Some(texture) => {
                 let size = fit(texture.size_vec2(), thumb.shrink(3.0).size());
@@ -490,7 +510,7 @@ impl App {
             let painter = ui.painter();
             painter.rect_filled(rect, CornerRadius::same(14), Color32::from_rgb(0x1E, 0x23, 0x2C));
             painter.rect_stroke(rect, CornerRadius::same(14), Stroke::new(1.0_f32, BORDER), StrokeKind::Inside);
-            match device.image.as_ref().and_then(|url| self.images.get(ui.ctx(), url)) {
+            match self.picture(device).and_then(|url| self.images.get(ui.ctx(), &url)) {
                 Some(texture) => {
                     let size = fit(texture.size_vec2(), rect.shrink(8.0).size());
                     painter.image(texture.id(), Rect::from_center_size(rect.center(), size), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);

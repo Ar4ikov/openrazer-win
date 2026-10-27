@@ -86,6 +86,9 @@ MODULE_TYPE_FALLBACK = {
 #: Devices upstream does not cover, added by this port.  They are kept here
 #: rather than hand-written into the generated JSON so that re-running the
 #: extractor against a newer OpenRazer does not silently drop them.
+#: Where Razer keeps its product photos.
+RAZER_IMAGES = 'https://medias-p1.phoenix.razer.com/sys-master-phoenix-images-container/'
+
 LOCAL_DEVICES = [
     {
         # Bluetooth-only: plugging it in charges it and exposes no data
@@ -104,7 +107,14 @@ LOCAL_DEVICES = [
         'wave_dirs': [1, 2],
         'poll_rates': None,
         'dpi_max': None,
-        'image': None,
+        'image': RAZER_IMAGES + 'h2b/hcb/9631979241502/230808-kraken-kitty-v2-bt-quartz-1500x1000-5.jpg',
+        #: Sold in three colours, which nothing it reports tells apart, so the
+        #: control panel lets its owner pick the one that is theirs.
+        'images': {
+            'Quartz': RAZER_IMAGES + 'h2b/hcb/9631979241502/230808-kraken-kitty-v2-bt-quartz-1500x1000-5.jpg',
+            'White': RAZER_IMAGES + 'hfb/hc5/9879046815774/250306-kraken-kitty-v2-bt-whiet-1500x1000-4.jpg',
+            'Black': RAZER_IMAGES + 'ha3/hc5/9879046848542/250306-kraken-kitty-v2-bt-black-1500x1000-4.jpg',
+        },
         'methods': [
             'get_device_type_headset',
             'set_static_effect',
