@@ -117,3 +117,54 @@ jobs:
           $p = Start-Process -FilePath target/release/openrazer-win-gui.exe -ArgumentList '--self-test' -Wait -PassThru
           if ($p.ExitCode -ne 0) { exit 1 }
           exit 0
+
+  studio:
+    name: OpenRazer Studio (Rust)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: studio
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Rust
+        # The version pinned in studio/rust-toolchain.toml.
+        run: rustup toolchain install
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            studio/target
+          key: studio-${{ runner.os }}-${{ hashFiles('studio/Cargo.lock') }}
+      - name: Every string has a Russian translation
+        run: python tools/check_translations.py
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Build
+        run: cargo build --release --locked -p openrazer-studio
+      - name: Smoke-test the executable
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath target/release/openrazer-studio.exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
+          exit 0
+      - name: Build the installer
+        # Any program stands in for the frozen daemon here; the release
+        # workflow puts the real one in.
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force target/payload | Out-Null
+          Copy-Item target/release/openrazer-studio.exe target/payload/
+          Copy-Item target/release/openrazer-studio.exe target/payload/openrazer-win.exe
+          $env:OPENRAZER_STUDIO_PAYLOAD = "$PWD/target/payload"
+          cargo build --release --locked -p openrazer-studio-setup
+      - name: Install, repair and remove
+        shell: pwsh
+        run: |
+          $env:LOCALAPPDATA = "$env:RUNNER_TEMP\lad"
+          ./tools/installer-cycle.ps1 -Setup target/release/openrazer-studio-setup.exe -Dir "$env:RUNNER_TEMP\studio-install"

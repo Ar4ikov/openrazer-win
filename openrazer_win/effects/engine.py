@@ -18,6 +18,7 @@ from ..core.device import RazerDevice
 from ..devices.recipes import NotSupported, RecipeError
 from .frame import Frame, keymap_for
 from .keyboard_hook import KeyboardHook
+from .layers import LayerStack, layers_from_options
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,11 @@ DEFAULT_REFRESH = 0.040
 #: How long one ripple takes to cross the board, in seconds.
 RIPPLE_DURATION = 0.6
 
-SOFTWARE_EFFECTS = ('ripple', 'ripple_random', 'wave_soft', 'spectrum_soft')
+SOFTWARE_EFFECTS = ('ripple', 'ripple_random', 'wave_soft', 'spectrum_soft', 'layers')
+
+#: Where a device's host-drawn effect is remembered in persistence, so the
+#: daemon can start it again after a restart or a reconnect.
+SAVED_KEY = 'software'
 
 #: The effects driven by key presses rather than by a clock.
 KEY_REACTIVE = ('ripple', 'ripple_random')
@@ -84,11 +89,26 @@ class EffectThread(threading.Thread):
         self.keymap = keymap_for(device.type, device.name)
         self.refresh = float(options.get('refresh_rate', DEFAULT_REFRESH))
         self.colour = tuple(options.get('colour', (0, 255, 0)))[:3]
+        self.stack = None
+        if effect == 'layers':
+            self.stack = LayerStack(layers_from_options(options, self.frame.rows,
+                                                        self.frame.columns),
+                                    self.frame.rows, self.frame.columns)
+        self._custom_mode_set = False
+
+    @property
+    def needs_keys(self) -> bool:
+        if self.stack is not None:
+            return self.stack.key_driven
+        return self.effect in KEY_REACTIVE
 
     # -- input -------------------------------------------------------------
     def on_key(self, key_name: str) -> None:
         position = self.keymap.get(key_name)
         if position is None:
+            return
+        if self.stack is not None and not (0 <= position[0] < self.frame.rows
+                                           and 0 <= position[1] < self.frame.columns):
             return
         colour = self.colour
         if self.effect == 'ripple_random':
@@ -101,13 +121,46 @@ class EffectThread(threading.Thread):
 
     # -- rendering ---------------------------------------------------------
     def run(self) -> None:
-        if self.effect in ('ripple', 'ripple_random'):
+        listening = self.needs_keys
+        if listening:
             self._hook_source.subscribe(self.on_key)
         try:
-            self._loop()
+            if self.stack is not None:
+                self._loop_layers()
+            else:
+                self._loop()
         finally:
-            if self.effect in ('ripple', 'ripple_random'):
+            if listening:
                 self._hook_source.unsubscribe(self.on_key)
+
+    def _loop_layers(self) -> None:
+        """Draw the layer stack, pushing a frame only when the picture changes.
+
+        A stack of static layers is drawn once and then left alone, rather than
+        resent twenty-five times a second for as long as the daemon runs.
+        """
+        started = time.monotonic()
+        shown = None
+        while not self._stop_event.is_set():
+            now = time.monotonic()
+            with self._presses_lock:
+                longest = self.stack.longest_press
+                self._presses = [p for p in self._presses if now - p[0] < longest]
+                presses = [(now - at, (position[0], position[1]))
+                           for at, position, _colour in self._presses]
+            try:
+                self.stack.render(self.frame, now - started, presses)
+                if self.frame != shown:
+                    self._push()
+                    shown = self.frame.copy()
+            except (NotSupported, RecipeError) as error:
+                logger.warning('stopping layers on %s: %s', self.device.name, error)
+                return
+            except Exception:  # noqa: BLE001 - keep the daemon alive
+                logger.debug('layer frame failed', exc_info=True)
+                return
+            busy = self.stack.animated or self.stack.key_driven
+            self._stop_event.wait(self.refresh if busy else 1.0)
 
     def _loop(self) -> None:
         phase = 0.0
@@ -189,6 +242,15 @@ class EffectThread(threading.Thread):
                                int(green * intensity), int(blue * intensity))
 
     def _push(self) -> None:
+        # The ARGB controller wipes a frame written before the switch to custom
+        # mode, so there the mode goes first, and only once.
+        transport = getattr(self.device, 'transport', None)
+        if getattr(transport, 'argb_info', None) is not None:
+            if not self._custom_mode_set:
+                self.device.set_custom()
+                self._custom_mode_set = True
+            self.device.set_key_row(self.frame.to_payload())
+            return
         self.device.set_key_row(self.frame.to_payload())
         self.device.set_custom()
 
@@ -241,8 +303,11 @@ class KeyPressSource:
 class EffectEngine:
     """Tracks which device is running which software effect."""
 
-    def __init__(self, manager):
+    def __init__(self, manager, persistence=None):
         self.manager = manager
+        #: Remembers each device's effect, so it comes back with the daemon.
+        self.persistence = persistence if persistence is not None else getattr(
+            manager, 'persistence', None)
         self.keys = KeyPressSource()
         self._threads: dict = {}
         self._lock = threading.RLock()
@@ -282,9 +347,49 @@ class EffectEngine:
         with self._lock:
             return list(self._threads)
 
+    # -- remembering -------------------------------------------------------
+    def saved(self, serial: str):
+        """The effect remembered for `serial`, as ``{"effect", "options"}``."""
+        if self.persistence is None:
+            return None
+        saved = self.persistence.get_device_value(serial, SAVED_KEY)
+        if isinstance(saved, dict) and saved.get('effect') in SOFTWARE_EFFECTS:
+            return saved
+        return None
+
+    def _remember(self, serial: str, effect: str, options: dict) -> None:
+        if self.persistence is not None:
+            self.persistence.set_device_value(serial, SAVED_KEY,
+                                              {'effect': effect, 'options': options})
+
+    def forget(self, serial: str) -> None:
+        if self.persistence is not None and self.saved(serial) is not None:
+            self.persistence.clear_device_value(serial, SAVED_KEY)
+
+    def restore(self, device: RazerDevice) -> bool:
+        """Start the effect remembered for `device` again, if there is one."""
+        saved = self.saved(device.serial)
+        if saved is None:
+            return False
+        try:
+            self.set_effect(device, saved['effect'], dict(saved.get('options') or {}))
+        except (NotSupported, RecipeError, ValueError) as error:
+            logger.warning('could not bring back %s on %s: %s',
+                           saved['effect'], device.name, error)
+            return False
+        return True
+
+    def stop_for(self, device: RazerDevice) -> bool:
+        """Stop and forget the host-drawn effect: the device is getting one of its own."""
+        if device.serial not in self.active_serials() and self.saved(device.serial) is None:
+            return False
+        self.set_effect(device, 'none', {})
+        return True
+
     def set_effect(self, device: RazerDevice, effect: str, options: dict) -> dict:
         if effect in ('none', 'off', ''):
             self.clear(device)
+            self.forget(device.serial)
             return {'effect': None}
         if effect not in SOFTWARE_EFFECTS:
             raise NotSupported('unknown software effect: {0}'.format(effect))
@@ -297,19 +402,27 @@ class EffectEngine:
                 '{0} has {1} addressable cells; a ripple needs somewhere to '
                 'spread'.format(device.name, _cells(device)))
 
+        options = dict(options)
+        if effect == 'layers':
+            rows, columns = device.matrix_dimensions or (1, 1)
+            # Raises LayerError, a ValueError, on a stack it cannot draw.
+            options['layers'] = layers_from_options(options, rows, columns)
+
         self.clear(device)
         thread = EffectThread(device, effect, options, self.keys)
         with self._lock:
             self._threads[device.serial] = thread
         thread.start()
+        self._remember(device.serial, effect, options)
         return {'effect': effect, 'refresh_rate': thread.refresh,
                 'keyboard_hook': self.keys.running}
 
     def status(self) -> dict:
         with self._lock:
-            active = {serial: thread.effect
-                      for serial, thread in self._threads.items()
-                      if thread.is_alive()}
-        return {'enabled': True, 'active': active,
+            running = {serial: thread for serial, thread in self._threads.items()
+                       if thread.is_alive()}
+        return {'enabled': True,
+                'active': {serial: thread.effect for serial, thread in running.items()},
+                'options': {serial: thread.options for serial, thread in running.items()},
                 'keyboard_hook': self.keys.running,
                 'available': list(SOFTWARE_EFFECTS)}

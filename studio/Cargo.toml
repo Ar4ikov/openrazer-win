@@ -1,0 +1,45 @@
+[workspace]
+members = ["core", "app", "setup"]
+resolver = "2"
+
+[workspace.package]
+version = "1.5.0"
+edition = "2021"
+license = "GPL-2.0-or-later"
+repository = "https://github.com/Ar4ikov/openrazer-win"
+publish = false
+
+[workspace.dependencies]
+eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
+egui = "0.31"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+winreg = "0.55"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Threading",
+    "Win32_System_Console",
+    "Win32_System_SystemInformation",
+    "Win32_Globalization",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_System_Com",
+] }
+openrazer-studio-core = { path = "core" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+panic = "abort"
+
+# The outline of a device is worked out from its photo; unoptimised, that
+# takes seconds rather than milliseconds, which makes debug builds miserable.
+[profile.dev.package."*"]
+opt-level = 2
+[profile.dev.package.openrazer-studio]
+opt-level = 2

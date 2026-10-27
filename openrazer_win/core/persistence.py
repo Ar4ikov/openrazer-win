@@ -125,6 +125,13 @@ class Persistence:
             self.device(serial)[key] = value
             self._dirty = True
 
+    def clear_device_value(self, serial: str, key: str) -> None:
+        with self._lock:
+            device = self._data.get(serial)
+            if isinstance(device, dict) and key in device:
+                del device[key]
+                self._dirty = True
+
     def forget(self, serial: str) -> None:
         with self._lock:
             self._data.pop(serial, None)

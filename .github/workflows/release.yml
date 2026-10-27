@@ -113,6 +113,52 @@ jobs:
           path: dist/openrazer-win-gui.exe
           if-no-files-found: error
 
+  studio:
+    name: Build OpenRazer Studio and its installer
+    # The installer carries the frozen daemon, so it is built after that.
+    needs: build
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: studio
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: exe
+          path: daemon
+      - name: Install Rust
+        # The version pinned in studio/rust-toolchain.toml.
+        run: rustup toolchain install
+      - name: Build Studio
+        run: cargo build --release --locked -p openrazer-studio
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force target/payload | Out-Null
+          Copy-Item target/release/openrazer-studio.exe target/payload/
+          Copy-Item ../daemon/openrazer-win.exe target/payload/
+          $env:OPENRAZER_STUDIO_PAYLOAD = "$PWD/target/payload"
+          cargo build --release --locked -p openrazer-studio-setup
+      - name: Install, repair and remove
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath target/release/openrazer-studio-setup.exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error 'no program inside the installer'; exit 1 }
+          $env:LOCALAPPDATA = "$env:RUNNER_TEMP\lad"
+          ./tools/installer-cycle.ps1 -Setup target/release/openrazer-studio-setup.exe -Dir "$env:RUNNER_TEMP\studio-install"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          New-Item -ItemType Directory -Force ../dist | Out-Null
+          Copy-Item target/release/openrazer-studio-setup.exe ../dist/
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio
+          path: dist/openrazer-studio-setup.exe
+          if-no-files-found: error
+
   pypi:
     name: Publish to PyPI
     needs: build
@@ -135,7 +181,7 @@ jobs:
 
   release:
     name: Publish the release
-    needs: [build, gui]
+    needs: [build, gui, studio]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -145,8 +191,14 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: List what will be published
-        run: ls -la artifacts
+      - name: List what will be published, with checksums
+        # The executables are not code-signed; the checksums let anyone check
+        # that what they downloaded is what this workflow built.
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
+          ls -la
+          cat SHA256SUMS.txt
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -154,15 +206,21 @@ jobs:
           files: artifacts/*
           generate_release_notes: true
           body: |
-            Install with pip:
+            **OpenRazer Studio** -- download `openrazer-studio-setup.exe` below and
+            run it. It installs for your account only (no administrator prompt),
+            brings the daemon with it, and repairs or removes itself from
+            *Settings › Apps*, the Start menu, or Studio's own settings.
+
+            The classic control panel is still here: `openrazer-win-gui.exe`
+            runs as is, with the daemon inside it. `openrazer-win.exe` is the
+            command line, for scripts and terminals. Or install with pip:
 
             ```
             pip install openrazer-win
             ```
 
-            Or download `openrazer-win-gui.exe` below and run it -- the control
-            panel carries the daemon inside it, so no Python is needed.
-            `openrazer-win.exe` is the command line, for scripts and terminals.
+            `SHA256SUMS.txt` lists the checksum of every file; the executables
+            are not code-signed.
 
             Device data generated from upstream OpenRazer. See the
             [documentation](https://ar4ikov.github.io/openrazer-win/) for details.

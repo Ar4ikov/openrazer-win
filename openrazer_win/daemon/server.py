@@ -64,6 +64,16 @@ DEVICE_METHODS = {
     'get_device_mode', 'set_device_mode', 'restore', 'available_effects',
 }
 
+#: Calls that give a zone an effect of the device's own.  On the backlight, a
+#: host-drawn effect would go on painting over it -- and come back with the
+#: daemon -- so it is stopped and forgotten first.
+HARDWARE_EFFECTS = {
+    'set_none', 'set_on', 'set_static', 'set_spectrum', 'set_wave', 'set_wheel',
+    'set_reactive', 'set_blinking', 'set_breath_random', 'set_breath_single',
+    'set_breath_dual', 'set_breath_triple', 'set_starlight_random',
+    'set_starlight_single', 'set_starlight_dual',
+}
+
 
 def _device_summary(device: RazerDevice) -> dict:
     return {
@@ -95,7 +105,8 @@ class DaemonService:
         self.persistence = persistence or Persistence()
         self.profiles = profiles if profiles is not None else ProfileStore()
         self.manager = DeviceManager(backend=backend, persistence=self.persistence)
-        self.effects = EffectEngine(self.manager) if enable_effects else None
+        self.effects = (EffectEngine(self.manager, persistence=self.persistence)
+                        if enable_effects else None)
         from ..keys import KeyService, MacroStore
         #: Bindings can be edited whether or not keys are being handled.
         self.macros = macros if macros is not None else MacroStore()
@@ -135,6 +146,9 @@ class DaemonService:
             handled = self.keys is not None and self.keys.attach(device)
             device.enter_driver_mode(keys_handled=handled)
             device.restore()
+            if self.effects is not None:
+                # A per-key or live effect is part of what the device was showing.
+                self.effects.restore(device)
         except Exception as error:  # noqa: BLE001 - reported, then retried
             attempts = self._pending.get(device, (0, 0.0))[0] + 1
             delay = RETRY_DELAYS[min(attempts, len(RETRY_DELAYS)) - 1]
@@ -237,6 +251,9 @@ class DaemonService:
             raise RpcError(METHOD_NOT_FOUND, 'unknown method: {0}'.format(method))
         args = list(args or [])
         kwargs = dict(kwargs or {})
+        if (self.effects is not None and method in HARDWARE_EFFECTS
+                and kwargs.get('zone', 'backlight') == 'backlight'):
+            self.effects.stop_for(device)
         try:
             result = target(*args, **kwargs) if callable(target) else target
         except NotSupported as error:
@@ -252,7 +269,14 @@ class DaemonService:
         if self.effects is None:
             raise RpcError(NOT_SUPPORTED, 'software effects are disabled')
         device = self._device(serial)
-        return self.effects.set_effect(device, effect, dict(options or {}))
+        try:
+            result = self.effects.set_effect(device, effect, dict(options or {}))
+        except NotSupported as error:
+            raise RpcError(NOT_SUPPORTED, str(error)) from error
+        except ValueError as error:
+            raise RpcError(INVALID_PARAMS, str(error)) from error
+        self.persistence.save()
+        return result
 
     def rpc_effect_status(self) -> dict:
         if self.effects is None:
@@ -342,6 +366,14 @@ class DaemonService:
             raise RpcError(NOT_SUPPORTED, str(error)) from error
         except (DeviceError, RecipeError) as error:
             raise RpcError(DEVICE_ERROR, str(error)) from error
+        if self.effects is not None:
+            # A profile saved with a host-drawn effect brings it back; one saved
+            # without stops whatever is running, or it would paint over the
+            # profile's own lighting.
+            if (profile.get('device') or {}).get('software'):
+                self.effects.restore(device)
+            else:
+                self.effects.stop_for(device)
         self.persistence.save()
         return {'name': profile['name']}
 

@@ -27,7 +27,7 @@ D-Bus is replaced by a loopback JSON-RPC daemon, and **every device quirk is tra
 the upstream C sources** — so all 274 USB devices OpenRazer knows about behave the same way here as they
 do on Linux, plus one Bluetooth headset upstream cannot reach at all.
 
-<p align="center"><img src="docs/images/control-panel.png" alt="The control panel: devices on the left, lighting effects, colours and brightness on the right" width="820"></p>
+<p align="center"><img src="docs/images/studio-lighting.png" alt="OpenRazer Studio: a BlackWidow keyboard drawn from its own product photo, lit key by key in layers" width="860"></p>
 
 ```console
 $ openrazer-win list
@@ -70,10 +70,12 @@ pip install "openrazer-win[ble]"
 That pulls in PyWinRT, because Windows exposes Bluetooth LE through WinRT. Everything on the USB
 side keeps working without it.
 
-No Python? Download `openrazer-win-gui.exe` from the
-[latest release](https://github.com/Ar4ikov/openrazer-win/releases/latest) and run it. The control
-panel carries the daemon inside it, so that one file is all there is; `openrazer-win.exe` beside it
-in the release is the command line, for scripts and terminals.
+No Python? Download **`openrazer-studio-setup.exe`** from the
+[latest release](https://github.com/Ar4ikov/openrazer-win/releases/latest) and run it: it installs
+[OpenRazer Studio](#openrazer-studio) with the daemon, for your account only — no administrator
+prompt — and can repair or remove it again at any time. `openrazer-win-gui.exe` in the release is
+the classic control panel, a single file with the daemon inside; `openrazer-win.exe` is the command
+line, for scripts and terminals. `SHA256SUMS.txt` lists every file's checksum.
 
 > **Close Razer Synapse before using this.** Synapse holds the device open and will fight you for
 > control of the LEDs. `openrazer-win doctor` tells you if that is happening.
@@ -202,10 +204,53 @@ No daemon running? Pass `direct=True` and the library opens the HID handles itse
 DeviceManager(direct=True)
 ```
 
-### Control panel
+### OpenRazer Studio
 
-`openrazer-win-gui.exe` from the release is a native Windows app, written in Rust. Pick a device
-on the left; on the right:
+The app most people want: everything Synapse does for these devices, laid out the way Synapse taught
+Razer owners to look for it, in English or Russian.
+
+- **Home** — every device drawn in its own light, as it is lit right now, with what you change most
+  beside it: one-click effects and colours, brightness, DPI stages, game mode. *All lights off* puts
+  every device in the dark and back.
+- **Devices** — DPI with stages, polling rate, battery and sleep, the macro keys, details, and
+  **profiles**: save what a device shows, put it back, and link a profile to a game or app so it is
+  applied whenever that app is in front.
+- **Lighting**, two ways. *Quick*: click a part of the device — the logo, the wheel, the keys — and
+  pick an effect, its colours and speed; or apply the same look to every device at once. *Studio*:
+  per-key lighting in layers, Chroma Studio style. Each layer is one effect — static, gradient,
+  breathing, spectrum, rainbow wave, starlight, reactive, ripple — painted onto the keys you click or
+  drag over; upper layers cover lower ones. The daemon draws the result, so it keeps running with
+  Studio closed and comes back after a restart; profiles carry it too.
+- **Macros** — a library of macros, built step by step (press, hold, let go, wait), recorded in the
+  window, or as text to type or a program to open, then put on any macro key of any keyboard.
+- **Integrations** — what is planned, to vote on, and the local API that works today.
+- **Settings** — language, starting with Windows, the tray, update checks, the daemon, a report to
+  attach when asking for help, and **Repair** and **Uninstall**.
+
+Each device is drawn from **its own product photo**: Studio traces the photo into a line drawing,
+fits the key layout onto the keycaps in it, and finds the logo and wheel where the photo shows them
+lit — so every one of the 275 devices gets a drawing of itself, not a generic shape, and the lights
+glow where they really are. Without a photo (offline, say) it draws one.
+
+<p align="center"><img src="docs/images/studio-home.png" alt="Studio's home page: each device drawn in its own light, with quick settings" width="820"></p>
+
+**Installing, repairing, removing.** `openrazer-studio-setup.exe` installs to
+`%LOCALAPPDATA%\Programs\OpenRazer Studio` and keeps a copy of itself there, which is what
+*Settings › Apps › OpenRazer Studio › Modify / Uninstall*, the Start menu's *Repair or remove* entry
+and Studio's own settings run. **Repair** compares every file with the one inside the installer and
+puts back whatever is missing or damaged — no download — restores the Start menu entry and starting
+with Windows, sets aside settings files that no longer read (renamed, not deleted), and clears a
+stale note of a daemon that is gone. **Uninstall** closes Studio and the daemon, removes the program,
+its shortcuts, its sign-in entry and its Apps & features entry, and asks before touching your
+settings. For scripts: `--install --silent [--dir PATH]`, `--repair --silent`,
+`--uninstall --silent [--remove-settings | --remove-all-data]`.
+
+<p align="center"><img src="docs/images/studio-setup.png" alt="The installer" width="560"></p>
+
+### Classic control panel
+
+`openrazer-win-gui.exe` from the release is the first native Windows app, written in Rust, and is
+still shipped as a single file with the daemon inside. Pick a device on the left; on the right:
 
 - **Lighting** — every effect the device has, as tiles with a preview; colours from a picker,
   presets or hex; speed, direction and brightness. Live, host-drawn effects (ripple, smooth wave)
@@ -396,20 +441,29 @@ git clone https://github.com/Ar4ikov/openrazer-win
 cd openrazer-win
 pip install -e ".[dev]"
 
-pytest                              # 391 tests, no hardware needed
+pytest                              # 418 tests, no hardware needed
 ruff check .
 python tools/simulate_devices.py    # every capability of all 274 USB devices
 ```
 
-The control panel is a Rust crate in `gui/`:
+OpenRazer Studio and its installer are a Rust workspace in `studio/` — `core` (the daemon's
+protocol, the look, English and Russian), `app` and `setup`:
 
 ```bash
-cd gui
-cargo run                           # talks to whichever daemon is running
-cargo clippy -- -D warnings && cargo test
+cd studio
+cargo run -p openrazer-studio      # talks to whichever daemon is running
+cargo clippy --workspace -- -D warnings && cargo test --workspace
+python tools/check_translations.py # every string has its Russian
 ```
 
-`openrazer-win-daemon --emulate` gives it emulated devices to show.
+The installer carries what it installs: set `OPENRAZER_STUDIO_PAYLOAD` to a folder holding
+`openrazer-studio.exe` and `openrazer-win.exe` before `cargo build -p openrazer-studio-setup`, then
+`tools/installer-cycle.ps1` installs, breaks, repairs and removes it, checking every step.
+`OPENRAZER_STUDIO_CAPTURE=shot.png OPENRAZER_STUDIO_PAGE=lighting:0:studio` has Studio screenshot a
+page and exit.
+
+The classic control panel is the Rust crate in `gui/` (`cargo run` there).
+`openrazer-win-daemon --emulate` gives either one emulated devices to show.
 
 The test suite runs against a built-in device emulator that validates CRCs and answers the protocol,
 so the whole stack — transport, recipes, daemon, client, CLI — is exercised without plugging anything
