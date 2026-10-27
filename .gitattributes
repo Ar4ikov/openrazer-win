@@ -7,3 +7,7 @@ docs/devices.json                 linguist-generated=true -diff
 
 LICENSE      linguist-vendored=true
 LICENSES/*   linguist-vendored=true
+
+# Binary assets.
+*.ico binary
+*.png binary

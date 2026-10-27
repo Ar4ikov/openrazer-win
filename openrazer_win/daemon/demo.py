@@ -21,5 +21,7 @@ def build_demo_backend(product_ids=DEMO_DEVICES) -> FakeHidBackend:
         backend.add(FakeRazerDevice(
             pid, meta.name, interface=params.get('index') or 0,
             serial='DEMO{0:012d}'.format(index + 1),
-            argb=meta.driver == 'accessory'))
+            argb=meta.driver == 'accessory',
+            # Keyboards expose the vendor collection their macro keys report on.
+            keys=meta.driver == 'kbd'))
     return backend

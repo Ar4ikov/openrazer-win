@@ -335,3 +335,11 @@ def test_written_sequences_press_and_release_like_a_hand():
         (0xA2, True), (0x43, True), (0x43, False), (0xA2, False)]
     with pytest.raises(ValueError):
         parse_sequence('ctrl+nonsense')
+
+
+def test_a_written_sequence_is_parsed_by_the_daemon(rig):
+    service, _, device, _, _, _ = rig
+    saved = service.rpc_macro_set(device.serial, 'M1', {'type': 'keys', 'sequence': 'ctrl+c'})
+    assert [e['down'] for e in saved['events']] == [True, True, False, False]
+    with pytest.raises(RpcError):
+        service.rpc_macro_set(device.serial, 'M1', {'type': 'keys', 'sequence': 'ctrl+bogus'})

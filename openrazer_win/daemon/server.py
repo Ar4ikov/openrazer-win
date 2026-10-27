@@ -277,10 +277,16 @@ class DaemonService:
 
     def rpc_macro_set(self, serial: str, key: str, action: dict) -> dict:
         from ..keys import MacroError
+        from ..keys.codes import parse_sequence
         device = self._device(serial)
         try:
+            # A written sequence ("ctrl+c, ctrl+v") is turned into events here,
+            # so every client shares the one table of key names.
+            if isinstance(action, dict) and action.get('type') == 'keys' \
+                    and 'events' not in action and 'sequence' in action:
+                action = {'type': 'keys', 'events': parse_sequence(str(action['sequence']))}
             return self.macros.set(device.serial, str(key), action)
-        except MacroError as error:
+        except (MacroError, ValueError) as error:
             raise RpcError(INVALID_PARAMS, str(error)) from error
 
     def rpc_macro_delete(self, serial: str, key: str) -> dict:

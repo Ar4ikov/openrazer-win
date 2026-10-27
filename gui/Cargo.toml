@@ -1,0 +1,42 @@
+[package]
+name = "openrazer-win-gui"
+version = "1.4.0"
+edition = "2021"
+description = "Control panel for openrazer-win: Razer device control on Windows"
+license = "GPL-2.0-or-later"
+repository = "https://github.com/Ar4ikov/openrazer-win"
+publish = false
+
+[[bin]]
+name = "openrazer-win-gui"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.31", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
+egui = "0.31"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+ureq = { version = "2", default-features = false, features = ["tls"] }
+tray-icon = "0.21"
+winreg = "0.55"
+rfd = "0.15"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_System_Console",
+] }
+
+[build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+panic = "abort"
