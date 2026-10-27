@@ -1,6 +1,6 @@
 [package]
 name = "openrazer-win-gui"
-version = "1.4.0"
+version = "1.4.1"
 edition = "2021"
 description = "Control panel for openrazer-win: Razer device control on Windows"
 license = "GPL-2.0-or-later"

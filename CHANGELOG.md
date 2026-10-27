@@ -4,6 +4,34 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 uses [semantic versioning](https://semver.org/).
 
+## [1.4.1] - 2026-10-27
+
+### Fixed
+
+- **The control panel could not start the daemon on a machine that had
+  only the control panel**, and pointed at a log that did not exist.
+  Reported on a laptop with Python 3.14: the panel found that Python on
+  `PATH` and ran the daemon in it, but openrazer-win was not installed
+  there, so it died on its first import -- before it could create even the
+  folder its log goes in.
+
+  - The control panel now **carries the daemon inside it**, so the one
+    download is all there is. It is unpacked once per version to
+    `%LOCALAPPDATA%\openrazer-win\bin`.
+  - A Python is only used if it really runs openrazer-win; each one found
+    is asked, rather than trusted for being called `python`.
+  - Each way of running the daemon is tried in turn, and what it printed is
+    kept in `daemon-start.log` and shown in the panel when none comes up.
+  - With no daemon anywhere, the panel offers to set one up: it downloads
+    the Python 3.13 installer from python.org and opens it, then installs
+    openrazer-win into it with pip -- or into a Python already there.
+
+- The daemon no longer copies its whole log into a `stderr` that is a file.
+
+### Changed
+
+- Tested on Python 3.14 as well.
+
 ## [1.4.0] - 2026-10-27
 
 ### Added
@@ -465,6 +493,7 @@ First release. A complete port of OpenRazer to Windows 10 and 11 (amd64).
 - The Kraken headset family uses a separate protocol that is not covered.
 - Razer Synapse must be closed: it holds the device open and competes for the LEDs.
 
+[1.4.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.4.1
 [1.4.0]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.4.0
 [1.3.1]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.3.1
 [1.1.2]: https://github.com/Ar4ikov/openrazer-win/releases/tag/v1.1.2

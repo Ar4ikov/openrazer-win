@@ -70,10 +70,10 @@ pip install "openrazer-win[ble]"
 That pulls in PyWinRT, because Windows exposes Bluetooth LE through WinRT. Everything on the USB
 side keeps working without it.
 
-No Python? Download `openrazer-win-gui.exe` (the control panel) and `openrazer-win.exe` (the
-command line, and the daemon the panel starts) from the
-[latest release](https://github.com/Ar4ikov/openrazer-win/releases/latest), put them in one folder
-and run the control panel. Neither needs an installer.
+No Python? Download `openrazer-win-gui.exe` from the
+[latest release](https://github.com/Ar4ikov/openrazer-win/releases/latest) and run it. The control
+panel carries the daemon inside it, so that one file is all there is; `openrazer-win.exe` beside it
+in the release is the command line, for scripts and terminals.
 
 > **Close Razer Synapse before using this.** Synapse holds the device open and will fight you for
 > control of the LEDs. `openrazer-win doctor` tells you if that is happening.
@@ -215,8 +215,11 @@ on the left; on the right:
 - **Macro keys** — what each key does, editing, recording and trying it out.
 - **Profiles** — save what is showing under a name, apply it later.
 
-It starts the daemon itself if it is not running, and *Settings → Start with Windows* has it come
-up in the tray at sign-in, keeping the daemon running; closing the window leaves it in the tray.
+It starts the daemon itself if it is not running — the one built into it, or one beside it or
+installed with pip — and *Settings → Start with Windows* has it come up in the tray at sign-in,
+keeping the daemon running; closing the window leaves it in the tray. If no daemon can be found at
+all, it offers to download Python from python.org, opens the installer, and installs openrazer-win
+into it.
 Settings also shows the daemon's state — version, devices still being set up — with start, stop and
 restart.
 
@@ -382,6 +385,7 @@ each product id is in the database.
 | Device is connected but nothing is listed | It may be on a charge-only cable, or be a Bluetooth-only model. `doctor` names what Windows sees it as, and says which of the two it is. |
 | A Bluetooth device is powered on but not listed | Install the extra: `pip install "openrazer-win[ble]"`. `doctor` ends with a Bluetooth section that says whether support is present and what the radio can hear. |
 | Nothing at all listed | Only Razer devices (vendor `1532`) are handled. |
+| The control panel says the daemon did not start | It shows what the daemon printed; the same is in `%LOCALAPPDATA%\openrazer-win\daemon-start.log`. |
 | Devices do nothing after the daemon starts with Windows | `openrazer-win daemon status` lists devices still waiting to be set up; the daemon keeps retrying them. If it reports an older version, `openrazer-win daemon restart`. |
 | Macro keys do nothing | `openrazer-win macro` says whether the keyboard's keys are being handled; `openrazer-win macro watch` shows whether its key report arrives at all. |
 
