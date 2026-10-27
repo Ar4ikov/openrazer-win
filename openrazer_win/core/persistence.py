@@ -84,11 +84,14 @@ class Persistence:
             return self._data.setdefault(serial, {})
 
     def zone(self, serial: str, zone: str) -> dict:
-        device = self.device(serial)
-        zones = device.setdefault('zones', {})
-        state = zones.setdefault(zone, dict(DEFAULT_ZONE_STATE))
-        for key, value in DEFAULT_ZONE_STATE.items():
-            state.setdefault(key, value)
+        """A zone's state with the defaults filled in.
+
+        A copy, and reading it stores nothing: a default that was merely looked
+        at must not later pass for something the user chose, or the daemon
+        replays it onto the hardware as if it had been saved.
+        """
+        state = copy.deepcopy(DEFAULT_ZONE_STATE)
+        state.update(self.saved_zone(serial, zone) or {})
         return state
 
     def get(self, serial: str, zone: str, key: str) -> Any:
@@ -98,7 +101,7 @@ class Persistence:
         return copy.deepcopy(DEFAULT_ZONE_STATE.get(key))
 
     def saved_zone(self, serial: str, zone: str) -> Optional[dict]:
-        """Чтение defaults не создаёт запрос на восстановление подсветки."""
+        """Only what was explicitly set for a zone, or ``None`` if nothing was."""
         with self._lock:
             device = self._data.get(serial, {})
             zones = device.get('zones', {}) if isinstance(device, dict) else {}
@@ -106,8 +109,12 @@ class Persistence:
             return copy.deepcopy(state) if isinstance(state, dict) else None
 
     def set(self, serial: str, zone: str, key: str, value: Any) -> None:
+        # Only the key being set is stored.  Filling in the rest of the defaults
+        # here is what used to turn "the user changed the brightness" into "the
+        # user chose spectrum" on the next restore.
         with self._lock:
-            self.zone(serial, zone)[key] = value
+            zones = self.device(serial).setdefault('zones', {})
+            zones.setdefault(zone, {})[key] = value
             self._dirty = True
 
     def get_device_value(self, serial: str, key: str, default: Any = None) -> Any:

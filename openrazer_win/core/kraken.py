@@ -208,8 +208,10 @@ class KrakenDevice(RazerDevice):
         raise NotSupported('{0} has no brightness control'.format(self.name))
 
     def restore(self) -> None:
-        """Re-apply the last effect this port set."""
-        state = self.persistence.zone(self.serial, 'backlight')
+        """Re-apply the last effect this port set, and nothing it did not."""
+        state = self.persistence.saved_zone(self.serial, 'backlight')
+        if state is None:
+            return
         effect = state.get('effect')
         colours = state.get('colors') or [0, 255, 0, 0, 255, 255, 0, 0, 255]
         try:

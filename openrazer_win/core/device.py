@@ -442,7 +442,8 @@ class RazerDevice:
         `colours` is a flat RGB byte sequence.
         """
         attribute = self._effect_attribute('backlight', 'custom')
-        # На ARGB включение custom после кадра сбрасывает уже записанные цвета.
+        # On the ARGB controller, switching to custom mode after the frame wipes
+        # the colours just written, so there the mode goes first.
         if self.transport.argb_info is not None:
             self.run(attribute, b'1')
         for row_index, start_col, colours in rows:

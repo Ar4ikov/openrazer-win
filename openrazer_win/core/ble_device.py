@@ -303,7 +303,7 @@ class BleDevice:
                          exc_info=True)
 
     def restore(self) -> None:
-        state = self.persistence.zone(self.serial, AGGREGATE_ZONE)
+        state = self.persistence.saved_zone(self.serial, AGGREGATE_ZONE) or {}
         if state.get('effect') == 'static':
             try:
                 self.set_zone_colours(self._current_colours())
