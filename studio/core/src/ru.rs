@@ -136,6 +136,7 @@ pub const RU: &[(&str, &str)] = &[
     ("Firmware", "Прошивка"),
     ("LED matrix", "Матрица светодиодов"),
     ("Connected through", "Подключение"),
+    ("Bluetooth address", "Адрес Bluetooth"),
     ("What it can do", "Что умеет"),
     ("DPI", "DPI"),
     ("DPI stages", "Ступени DPI"),

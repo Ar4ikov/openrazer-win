@@ -65,6 +65,9 @@ class DeviceManager:
         self._lock = threading.RLock()
         self._devices: dict = {}
         self._unsupported: list = []
+        #: LE address -> the classic address the device advertises with it.
+        #: Learned once, kept: not every sweep hears the packet carrying it.
+        self._identities: dict = {}
 
     # -- enumeration -------------------------------------------------------
     def scan(self, force_bluetooth: bool = False) -> list:
@@ -168,19 +171,49 @@ class DeviceManager:
                 return None
 
     def _add_bluetooth(self, advertisers: list, seen: set) -> None:
+        # Strongest first, so of two addresses for one device the one heard
+        # best is the one kept.
         for advertiser in advertisers:
             meta = self._match_advertiser(advertiser)
             if meta is None:
                 continue
             address = advertiser.address
+            if advertiser.classic_address is not None:
+                self._identities[address] = advertiser.classic_address
+            twin = self._twin(address)
+            if twin is not None:
+                # The same headset heard under a second LE address: it was
+                # listed twice, with a battery level each.
+                seen.add(twin)
+                continue
             key = '{0}{1:012x}'.format(BLE_PREFIX, address)
             seen.add(key)
             if key in self._devices:
                 continue
             device = self._build_ble(meta, address)
             if device is not None:
+                device.classic_address = self._identities.get(address)
                 self._devices[key] = device
                 logger.info('found %s over Bluetooth (%012X)', meta.name, address)
+
+    def _twin(self, address: int) -> Optional[str]:
+        """The key of a device already listed that is `address` under another LE address.
+
+        A dual-mode headset advertises its classic Bluetooth address in its
+        manufacturer data, whatever LE address the packet comes from, so two
+        LE addresses with one classic address are one device.  Two headsets of
+        the same model have different classic addresses and stay two.
+        """
+        identity = self._identities.get(address)
+        if identity is None:
+            return None
+        for key in self._devices:
+            if not key.startswith(BLE_PREFIX):
+                continue
+            other = int(key[len(BLE_PREFIX):], 16)
+            if other != address and self._identities.get(other) == identity:
+                return key
+        return None
 
     def _match_advertiser(self, advertiser) -> Optional[DeviceInfo]:
         """Map one advertising device onto a database entry.

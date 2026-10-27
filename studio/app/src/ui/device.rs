@@ -1,6 +1,6 @@
 //! One device in full: performance, power, profiles, its keys, and about it.
 
-use super::app::{draw_picture, kind_label, short_name, App, Page};
+use super::app::{draw_picture, kind_label, App, Page};
 use crate::settings::AppRule;
 use crate::worker::{Command, Device, Snapshot, Then};
 use egui::{vec2, CornerRadius, Frame, Margin, RichText, Sense, Stroke};
@@ -105,7 +105,7 @@ fn header(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
         ui.add_space(10.0);
         ui.vertical(|ui| {
             ui.add_space(10.0);
-            ui.label(RichText::new(short_name(&device.name).to_uppercase()).font(theme::heavy(24.0)).extra_letter_spacing(1.2));
+            ui.label(RichText::new(super::app::title(device, snap).to_uppercase()).font(theme::heavy(24.0)).extra_letter_spacing(1.2));
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 widgets::chip(ui, kind_label(&device.kind));
@@ -567,6 +567,11 @@ fn about(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
             }
             if caps["transport"]["path"].as_str().is_some() {
                 row(t("Connected through"), if caps["protocol"] == "razer-ble" { "Bluetooth LE".into() } else { "USB".into() });
+            }
+            if let Some(address) = caps["bluetooth_address"].as_str() {
+                // As Windows shows it in Bluetooth settings: AA:BB:CC:DD:EE:FF.
+                let pairs: Vec<&str> = (0..address.len()).step_by(2).filter_map(|i| address.get(i..i + 2)).collect();
+                row(t("Bluetooth address"), pairs.join(":"));
             }
         });
     });

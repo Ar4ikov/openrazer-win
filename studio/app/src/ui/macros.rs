@@ -543,7 +543,7 @@ pub fn device_keys(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Sna
 
     widgets::card(ui, |ui| {
         ui.horizontal(|ui| {
-            widgets::heading(ui, &tf("{} · macro keys", &[&short_name(&device.name)]));
+            widgets::heading(ui, &tf("{} · macro keys", &[&super::app::title(device, snap)]));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if handled {
                     widgets::badge(ui, t("Live"), ACCENT);

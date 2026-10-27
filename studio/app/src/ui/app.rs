@@ -350,7 +350,7 @@ impl App {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 for device in &snap.devices {
                     let selected = self.selected.as_deref() == Some(device.serial.as_str());
-                    if self.device_chip(ui, device, selected).clicked() {
+                    if self.device_chip(ui, device, &title(device, snap), selected).clicked() {
                         let page = self.page;
                         self.open(page, &device.serial.clone());
                     }
@@ -376,8 +376,8 @@ impl App {
         });
     }
 
-    fn device_chip(&mut self, ui: &mut egui::Ui, device: &Device, selected: bool) -> egui::Response {
-        let name = short_name(&device.name);
+    fn device_chip(&mut self, ui: &mut egui::Ui, device: &Device, name: &str, selected: bool) -> egui::Response {
+        let name = name.to_string();
         let galley = ui.painter().layout_no_wrap(name, theme::bold(12.5), TEXT);
         let (rect, response) = ui.allocate_exact_size(vec2(galley.size().x + 58.0, 42.0), Sense::click());
         let painter = ui.painter_at(rect.expand(12.0));
@@ -532,6 +532,18 @@ pub fn short_name(name: &str) -> String {
     name.strip_prefix("Razer ").unwrap_or(name).to_string()
 }
 
+/// The name to show for `device`: short, and with the end of its serial when
+/// another device here has the same name -- two headsets of one model would
+/// otherwise look like one device listed twice.
+pub fn title(device: &Device, snap: &Snapshot) -> String {
+    let name = short_name(&device.name);
+    if snap.devices.iter().filter(|d| d.name == device.name).count() < 2 {
+        return name;
+    }
+    let tail: Vec<char> = device.serial.chars().rev().take(4).collect();
+    format!("{name} · {}", tail.into_iter().rev().collect::<String>())
+}
+
 pub fn kind_label(kind: &str) -> &'static str {
     match kind {
         "keyboard" => t("Keyboard"),
@@ -585,4 +597,24 @@ pub fn draw_picture(app: &mut App, ui: &egui::Ui, device: &Device, rect: Rect) {
 #[allow(dead_code)]
 pub fn outline(ui: &egui::Ui, rect: Rect, colour: Color32) {
     ui.painter().rect_stroke(rect, CornerRadius::same(theme::RADIUS), Stroke::new(1.0_f32, colour), StrokeKind::Inside);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn device(serial: &str, name: &str) -> Device {
+        Device { serial: serial.into(), name: name.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn two_devices_of_one_model_are_told_apart_by_their_serials() {
+        let snap = Snapshot {
+            devices: vec![device("BLE445ECD583460", "Razer Kraken Kitty V2 BT"), device("BLE445ECD583560", "Razer Kraken Kitty V2 BT"), device("PM1", "Razer Viper")],
+            ..Default::default()
+        };
+        assert_eq!(title(&snap.devices[0], &snap), "Kraken Kitty V2 BT · 3460");
+        assert_eq!(title(&snap.devices[1], &snap), "Kraken Kitty V2 BT · 3560");
+        assert_eq!(title(&snap.devices[2], &snap), "Viper");
+    }
 }

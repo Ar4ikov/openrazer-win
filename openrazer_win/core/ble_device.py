@@ -52,6 +52,8 @@ class BleDevice:
         self.info = info
         self.transport = transport
         self.persistence = persistence or Persistence()
+        #: The classic Bluetooth address it advertises, once heard.
+        self.classic_address: Optional[int] = None
         self._capabilities: Optional[dict] = None
 
     # -- identity ----------------------------------------------------------
@@ -122,6 +124,10 @@ class BleDevice:
                     'interface': None,
                     'wait_us': 0,
                 },
+                #: The address Windows shows for the paired headset, when it
+                #: has been heard: what tells two headsets of one model apart.
+                'bluetooth_address': ('{0:012X}'.format(self.classic_address)
+                                      if self.classic_address is not None else None),
             }
         return self._capabilities
 

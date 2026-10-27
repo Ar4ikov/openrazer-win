@@ -1,6 +1,6 @@
 //! Home: every device at a glance, with the settings people change most.
 
-use super::app::{draw_picture, kind_label, short_name, App, Page};
+use super::app::{draw_picture, kind_label, App, Page};
 use super::edit::light_up;
 use super::effects::{self, PALETTE};
 use crate::worker::{Command, Device, Snapshot, Then};
@@ -169,7 +169,7 @@ fn card(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
         }
         ui.add_space(4.0);
         // -- who it is ------------------------------------------------------------------
-        ui.label(RichText::new(short_name(&device.name)).font(theme::heavy(20.0)));
+        ui.label(RichText::new(super::app::title(device, snap)).font(theme::heavy(20.0)));
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             ui.label(RichText::new(kind_label(&device.kind)).size(12.5).color(TEXT_DIM));

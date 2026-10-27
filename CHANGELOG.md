@@ -6,6 +6,18 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **One Bluetooth headset could be listed twice**, each entry with a battery
+  level of its own. A headset heard under a second LE address became a second
+  device; the classic address it advertises in both is now what makes it one.
+  Two headsets of the same model are still two.
+
+### Added
+
+- Studio tells devices with the same name apart by the end of their serial,
+  and *About* shows a Bluetooth headset's address as Windows shows it.
+
 ## [1.5.0] - 2026-10-27
 
 ### Added

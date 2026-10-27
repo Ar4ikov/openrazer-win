@@ -284,6 +284,39 @@ def test_a_nameless_advertisement_is_still_matched(persistence, monkeypatch, fak
     manager.close()
 
 
+def test_one_headset_heard_under_two_addresses_is_listed_once(
+        persistence, monkeypatch, fake_radio):
+    """Two LE addresses carrying one classic address are one headset.
+
+    Before, each address became a device of its own: the same headset twice,
+    each with a battery level of its own.
+    """
+    import openrazer_win.ble as ble
+    monkeypatch.setattr(ble, 'scan', lambda *a, **k: [
+        Advertiser(ADDRESS, 'Razer Stereo', -50, KITTY_V2_BT, CLASSIC_ADDRESS),
+        Advertiser(ADDRESS + 0x100, 'Razer Stereo', -70, KITTY_V2_BT, CLASSIC_ADDRESS)])
+    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence,
+                            bluetooth_interval=0)
+    devices = manager.scan()
+    assert [d.serial for d in devices] == ['BLE445ECD583460']
+    assert devices[0].capabilities()['bluetooth_address'] == '{0:012X}'.format(CLASSIC_ADDRESS)
+    # Heard again later under the other address alone, it is still the one device.
+    monkeypatch.setattr(ble, 'scan', lambda *a, **k: [
+        Advertiser(ADDRESS + 0x100, 'Razer Stereo', -60, KITTY_V2_BT, CLASSIC_ADDRESS)])
+    assert [d.serial for d in manager.scan()] == ['BLE445ECD583460']
+    manager.close()
+
+
+def test_two_headsets_of_one_model_are_both_listed(persistence, monkeypatch, fake_radio):
+    import openrazer_win.ble as ble
+    monkeypatch.setattr(ble, 'scan', lambda *a, **k: [
+        Advertiser(ADDRESS, 'Razer Stereo', -50, KITTY_V2_BT, CLASSIC_ADDRESS),
+        Advertiser(ADDRESS + 0x100, 'Razer Stereo', -70, KITTY_V2_BT, CLASSIC_ADDRESS + 0x100)])
+    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence)
+    assert len(manager.scan()) == 2
+    manager.close()
+
+
 def test_a_nameless_advertisement_with_no_product_id_is_ignored(
         persistence, monkeypatch, fake_radio):
     import openrazer_win.ble as ble
