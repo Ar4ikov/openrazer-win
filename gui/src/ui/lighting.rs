@@ -1,7 +1,7 @@
 //! Lighting: zone, effect, colours, speed, direction and brightness.
 
 use super::app::App;
-use super::edit::{order_zones, ZoneEdit};
+use super::edit::{light_up, order_zones, ZoneEdit};
 use super::theme::{self, TEXT_DIM, TEXT_FAINT};
 use super::widgets;
 use crate::worker::{Command, Device, Snapshot, Then};
@@ -181,8 +181,8 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) 
             ui.label(RichText::new("Effect").font(theme::bold(16.0)));
             if zones.len() > 1 {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Laid out right to left, so listed backwards to read forwards.
                     let options: Vec<(String, String)> = zones.iter().rev().map(|z| (z.clone(), zone_label(z, &device.kind))).collect();
-                    let options: Vec<(String, String)> = options.into_iter().rev().collect();
                     if widgets::segmented(ui, &options, &mut zone) {
                         edit.zone = Some(zone.clone());
                     }
@@ -196,11 +196,15 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) 
         if effects.is_empty() {
             ui.label(widgets::dim("Only brightness can be set here."));
         }
+        // What choosing an effect will show, dark colours lit up as they will be.
+        let mut preview = current.clone();
+        light_up(&mut preview, 3);
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
             for effect in &effects {
                 let selected = current.effect == *effect;
-                let response = widgets::effect_tile(ui, effect, label(effect), &current.colours, selected);
+                let colours = if selected { &current.colours } else { &preview.colours };
+                let response = widgets::effect_tile(ui, effect, label(effect), colours, selected);
                 let response = if SOFTWARE.contains(&effect.as_str()) {
                     response.on_hover_text("Drawn by the daemon, frame by frame; it lasts while the daemon runs")
                 } else {
@@ -208,6 +212,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) 
                 };
                 if response.clicked() {
                     current.effect = effect.clone();
+                    light_up(current, colour_count(effect));
                     commands.extend(apply_commands(&serial, &zone, current, software_running));
                 }
             }
