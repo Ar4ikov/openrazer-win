@@ -439,22 +439,10 @@ def cmd_daemon(args) -> int:
     if args.action == 'status':
         return _daemon_status(args)
     if args.action == 'stop':
-        try:
-            client = RpcClient(timeout=5.0)
-            client.call('daemon.shutdown')
-            client.close()
-        except DaemonUnavailable as error:
-            # Clear the leftover endpoint file, or every later command reports
-            # a connection failure against a daemon that is long gone.
-            from ..daemon.protocol import Endpoint
-            Endpoint.remove()
-            print('daemon is not running ({0})'.format(error))
-            return 1
-        except RpcError as error:
-            print('daemon refused the shutdown request ({0})'.format(error))
-            return 1
-        print('daemon stopped')
-        return 0
+        return 0 if stop_daemon(report=True) else 1
+    if args.action == 'restart':
+        stop_daemon(report=False)
+        return _daemon_start(args)
     if args.action == 'run':
         from ..daemon import logs
         from ..daemon.server import serve
@@ -462,6 +450,49 @@ def cmd_daemon(args) -> int:
         serve(enable_effects=not args.no_effects)
         return 0
     return _daemon_start(args)
+
+
+def stop_daemon(report: bool = True, timeout: float = 10.0) -> bool:
+    """Ask the daemon to exit and wait until it has.  True if one was stopped."""
+    try:
+        client = RpcClient(timeout=5.0)
+        client.call('daemon.shutdown')
+        client.close()
+    except DaemonUnavailable as error:
+        # Clear the leftover endpoint file, or every later command reports
+        # a connection failure against a daemon that is long gone.
+        from ..daemon.protocol import Endpoint
+        Endpoint.remove()
+        if report:
+            print('daemon is not running ({0})'.format(error))
+        return False
+    except RpcError as error:
+        if report:
+            print('daemon refused the shutdown request ({0})'.format(error))
+        return False
+    import time
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline and is_daemon_running():
+        time.sleep(0.2)
+    if report:
+        print('daemon stopped')
+    return True
+
+
+def daemon_version_mismatch() -> Optional[str]:
+    """The running daemon's version, if it is not this one.
+
+    The daemon outlives upgrades: a new client talking to the old daemon gets
+    the old daemon's bugs, which reads as the new release not fixing them.
+    """
+    try:
+        client = RpcClient(timeout=3.0)
+        info = client.call('daemon.version')
+        client.close()
+    except (DaemonUnavailable, RpcError, OSError):
+        return None
+    version = info.get('version')
+    return version if version and version != __version__ else None
 
 
 def _daemon_status(args) -> int:
@@ -480,6 +511,13 @@ def _daemon_status(args) -> int:
         return 0
     print('daemon      running (pid {0})'.format(info['pid']))
     print('version     {0}  (openrazer {1})'.format(info['version'], info['upstream']))
+    if info['version'] != __version__:
+        print('            not this version ({0}): openrazer-win daemon restart'.format(
+            __version__))
+    if info.get('state') == 'starting':
+        print('state       still finding devices')
+    for name in info.get('pending') or []:
+        print('waiting     {0} (found, not answering yet)'.format(name))
     print('uptime      {0}s'.format(info['uptime']))
     print('backend     {0}'.format(info['backend']))
     print('devices     {0}'.format(len(devices)))
@@ -550,8 +588,20 @@ def start_daemon_detached(no_effects: bool = False, timeout: float = 15.0) -> bo
 
 
 def _daemon_start(args) -> int:
+    from ..daemon import autostart
+    try:
+        refreshed = autostart.refresh()
+    except autostart.AutostartError:
+        refreshed = None
+    if refreshed:
+        print('autostart pointed at a program that no longer exists; now:\n  {0}'.format(
+            refreshed))
     if is_daemon_running():
         print('daemon is already running')
+        running = daemon_version_mismatch()
+        if running:
+            print('it is version {0}, this is {1}; restart it to use this one:\n'
+                  '  openrazer-win daemon restart'.format(running, __version__))
         return 0
     if start_daemon_detached(getattr(args, 'no_effects', False)):
         print('daemon started')
@@ -822,7 +872,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     daemon = add('daemon', cmd_daemon, 'start, stop or inspect the daemon')
     daemon.add_argument('action', nargs='?', default='start',
-                        choices=('start', 'stop', 'status', 'run'))
+                        choices=('start', 'stop', 'restart', 'status', 'run'))
     daemon.add_argument('--no-effects', action='store_true',
                         help='disable host-rendered effects and the keyboard hook')
     daemon.add_argument('--verbose', '-v', action='store_true')

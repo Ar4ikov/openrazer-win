@@ -22,11 +22,13 @@ def main(argv=None) -> int:
     parser.add_argument('--log-file', help='write logs here instead of the default location')
     args = parser.parse_args(argv)
 
-    from . import logs
-    logs.configure(args.verbose, args.log_file)
-
+    # Checked before logging is set up, so a rejected command line does not
+    # repoint the process's logging at the real daemon log.
     if args.host != '127.0.0.1' and not args.host.startswith('127.'):
         parser.error('the daemon only binds to loopback addresses')
+
+    from . import logs
+    logs.configure(args.verbose, args.log_file)
 
     backend = None
     if args.emulate:
@@ -35,6 +37,8 @@ def main(argv=None) -> int:
 
     serve(backend=backend, host=args.host, port=args.port,
           enable_effects=not args.no_effects)
+    # A second daemon stepping aside is not a failure: the one that is running
+    # is doing the job.
     return 0
 
 

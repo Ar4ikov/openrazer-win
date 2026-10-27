@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import threading
 
+import sys
+
 import pytest
 
 from openrazer_win.cli import CliError, build_parser, main, parse_colour
@@ -194,13 +196,12 @@ def test_virtual_key_table_maps_letters_and_function_keys():
 def test_autostart_round_trip(capsys):
     """Enable, read back and disable the logon entry.
 
-    This touches the real per-user Run key, which needs no elevation, and
-    removes what it adds. Skipped where there is no registry.
+    Runs against a scratch key (see conftest), so it needs no elevation and
+    leaves nothing in the real Run key.  Skipped where there is no registry.
     """
     pytest.importorskip('winreg')
     from openrazer_win.daemon import autostart
 
-    previous = autostart.status()
     try:
         assert main(['autostart', 'enable']) == 0
         assert 'autostart enabled' in capsys.readouterr().out
@@ -215,12 +216,48 @@ def test_autostart_round_trip(capsys):
         assert 'autostart: off' in capsys.readouterr().out
     finally:
         autostart.disable()
-        if previous is not None:
-            import winreg
-            with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, autostart.RUN_KEY,
-                                    0, winreg.KEY_SET_VALUE) as key:
-                winreg.SetValueEx(key, autostart.VALUE_NAME, 0,
-                                  winreg.REG_SZ, previous)
+
+
+def test_a_stale_autostart_entry_is_repointed():
+    pytest.importorskip('winreg')
+    import winreg
+
+    from openrazer_win.daemon import autostart
+
+    stale = r'"C:\nowhere\old\openrazer-win-gui.exe" daemon run --no-effects'
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, autostart.RUN_KEY,
+                            0, winreg.KEY_SET_VALUE) as key:
+        winreg.SetValueEx(key, autostart.VALUE_NAME, 0, winreg.REG_SZ, stale)
+    try:
+        refreshed = autostart.refresh()
+        assert refreshed == autostart.daemon_launch_command(no_effects=True)
+        assert autostart.status() == refreshed
+        # Pointing at something that exists, it is left alone.
+        assert autostart.refresh() is None
+    finally:
+        autostart.disable()
+
+
+def test_the_executable_is_read_out_of_a_command_line():
+    from openrazer_win.daemon.autostart import command_executable
+
+    assert command_executable(r'"C:\Program Files\x.exe" daemon run') == \
+        r'C:\Program Files\x.exe'
+    assert command_executable(r'C:\x.exe -m y') == r'C:\x.exe'
+
+
+def test_a_frozen_autostart_uses_the_windowless_build(tmp_path, monkeypatch):
+    from openrazer_win.daemon.autostart import daemon_launch_command
+
+    console = tmp_path / 'openrazer-win.exe'
+    windowed = tmp_path / 'openrazer-win-gui.exe'
+    console.write_bytes(b'')
+    monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(sys, 'executable', str(console))
+    assert 'openrazer-win.exe' in daemon_launch_command()
+    windowed.write_bytes(b'')
+    command = daemon_launch_command()
+    assert 'openrazer-win-gui.exe' in command and command.endswith('daemon run')
 
 
 def test_the_launch_command_is_quoted_and_windowless():

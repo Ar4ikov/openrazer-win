@@ -26,6 +26,14 @@ BLE_PREFIX = 'ble:'
 #: swept on its own much lazier schedule.
 BLUETOOTH_INTERVAL = 60.0
 
+#: Except just after start.  A daemon started at logon comes up before the
+#: Bluetooth stack has finished starting and before anyone has switched their
+#: headset on, so its first sweeps hear nothing; at the lazy rate the headset
+#: then took a minute or more to appear, which looked like a daemon that does
+#: not work.  For the first few minutes the radio is swept far more often.
+BLUETOOTH_STARTUP_INTERVAL = 10.0
+BLUETOOTH_STARTUP_WINDOW = 180.0
+
 
 class DeviceManager:
     """Enumerates supported devices and keeps :class:`RazerDevice` objects alive.
@@ -46,6 +54,11 @@ class DeviceManager:
         self.bluetooth = bluetooth
         self.bluetooth_interval = bluetooth_interval
         self._bluetooth_swept_at: Optional[float] = None
+        self._created_at = time.monotonic()
+        #: Serialises sweeps without holding up everything else: a sweep
+        #: listens for seconds, and doing that under ``_lock`` froze every
+        #: client request for as long as it lasted.
+        self._sweep_lock = threading.Lock()
         self.persistence = persistence or Persistence()
         self.database = database or get_database()
         self.recipes = recipes or get_recipes()
@@ -54,8 +67,13 @@ class DeviceManager:
         self._unsupported: list = []
 
     # -- enumeration -------------------------------------------------------
-    def scan(self) -> list:
-        """Rescan the HID bus.  Returns the current device list."""
+    def scan(self, force_bluetooth: bool = False) -> list:
+        """Rescan the HID bus, and the radio when due.  Returns the device list.
+
+        `force_bluetooth` sweeps the radio regardless of when it was last
+        swept -- what someone pressing "rescan" means.
+        """
+        advertisers = self._sweep_bluetooth(force_bluetooth) if self.bluetooth else None
         with self._lock:
             collections = self.backend.enumerate(vendor_id=VENDOR_ID)
             by_pid: dict = {}
@@ -80,7 +98,9 @@ class DeviceManager:
                     self._devices[key] = device
                     logger.info('found %s (%04x:%04x)', meta.name, meta.vid, meta.pid)
 
-            swept = self._scan_bluetooth(seen) if self.bluetooth else False
+            swept = advertisers is not None
+            if swept:
+                self._add_bluetooth(advertisers, seen)
 
             for key in list(self._devices):
                 if key in seen:
@@ -114,30 +134,40 @@ class DeviceManager:
             return True
         return False
 
-    def _scan_bluetooth(self, seen: set) -> bool:
-        """Add Razer devices that are only reachable over Bluetooth LE.
+    def _bluetooth_due(self, now: float) -> bool:
+        if self._bluetooth_swept_at is None:
+            return True
+        interval = self.bluetooth_interval
+        if now - self._created_at < BLUETOOTH_STARTUP_WINDOW:
+            interval = min(interval, BLUETOOTH_STARTUP_INTERVAL)
+        return now - self._bluetooth_swept_at >= interval
+
+    def _sweep_bluetooth(self, force: bool = False) -> Optional[list]:
+        """Listen for Razer devices that are only reachable over Bluetooth LE.
 
         These never appear on the HID bus -- a Bluetooth-only headset has no
         USB data mode at all -- so they are found by advertisement instead.
 
-        Returns whether the radio was actually swept, which is what tells the
-        caller that a Bluetooth device's absence means something.
+        Returns what was heard, or ``None`` when the radio was not swept at
+        all; only a real sweep lets the caller conclude that a Bluetooth device
+        it did not hear has gone.
         """
-        from ..ble import is_available, scan
+        from .. import ble
 
-        if not is_available():
-            return False
-        now = time.monotonic()
-        if (self._bluetooth_swept_at is not None
-                and now - self._bluetooth_swept_at < self.bluetooth_interval):
-            return False
-        self._bluetooth_swept_at = now
-        try:
-            advertisers = scan()
-        except Exception:  # noqa: BLE001 - a radio problem must not break scanning
-            logger.debug('Bluetooth scan failed', exc_info=True)
-            return False
+        if not ble.is_available():
+            return None
+        with self._sweep_lock:
+            now = time.monotonic()
+            if not force and not self._bluetooth_due(now):
+                return None
+            self._bluetooth_swept_at = now
+            try:
+                return list(ble.scan())
+            except Exception:  # noqa: BLE001 - a radio problem must not break scanning
+                logger.debug('Bluetooth scan failed', exc_info=True)
+                return None
 
+    def _add_bluetooth(self, advertisers: list, seen: set) -> None:
         for advertiser in advertisers:
             meta = self._match_advertiser(advertiser)
             if meta is None:
@@ -151,7 +181,6 @@ class DeviceManager:
             if device is not None:
                 self._devices[key] = device
                 logger.info('found %s over Bluetooth (%012X)', meta.name, address)
-        return True
 
     def _match_advertiser(self, advertiser) -> Optional[DeviceInfo]:
         """Map one advertising device onto a database entry.

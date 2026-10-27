@@ -32,6 +32,13 @@ logger = logging.getLogger(__name__)
 #: How often to rescan the HID bus for plug/unplug events.
 HOTPLUG_INTERVAL = 3.0
 
+#: How long to wait before trying again to set up a device that was found but
+#: would not take its settings.  At logon that is the normal case for a
+#: Bluetooth headset -- heard advertising before Windows will hold a link to
+#: it -- and giving up after one try left it showing its own colour until the
+#: daemon was restarted by hand.
+RETRY_DELAYS = (5.0, 15.0, 30.0, 60.0)
+
 #: Device methods clients may invoke.  Anything not listed here is refused --
 #: the RPC surface is a deliberate allowlist, not ``getattr`` on the device.
 DEVICE_METHODS = {
@@ -89,18 +96,43 @@ class DaemonService:
         self.effects = EffectEngine(self.manager) if enable_effects else None
         self.started_at = time.time()
         self._lock = threading.RLock()
+        #: ``starting`` until the first scan and set-up have finished; the
+        #: daemon answers requests long before that.
+        self.state = 'starting'
+        #: Devices still waiting to be set up: device -> (attempts, retry at).
+        self._pending: dict = {}
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
         self.manager.scan()
         for device in self.manager.devices:
-            try:
-                device.enter_driver_mode()
-                device.restore()
-            except (DeviceError, RecipeError):
-                logger.debug('could not initialise %s', device.name, exc_info=True)
+            self._initialise(device)
         if self.effects is not None:
             self.effects.start()
+        self.state = 'ready'
+
+    def _initialise(self, device) -> bool:
+        """Take a device over and give it back its saved lighting.
+
+        Anything may go wrong here, not just the errors a device call is
+        documented to raise: a Bluetooth call that times out raises the
+        standard TimeoutError, and letting that through ended the daemon's
+        start-up before it was even listening.  A failure is not final -- the
+        device is tried again on a back-off until it takes.
+        """
+        try:
+            device.enter_driver_mode(keys_handled=False)
+            device.restore()
+        except Exception as error:  # noqa: BLE001 - reported, then retried
+            attempts = self._pending.get(device, (0, 0.0))[0] + 1
+            delay = RETRY_DELAYS[min(attempts, len(RETRY_DELAYS)) - 1]
+            self._pending[device] = (attempts, time.monotonic() + delay)
+            logger.warning('could not set up %s yet (%s); trying again in %.0fs',
+                           device.name, error or type(error).__name__, delay)
+            return False
+        if self._pending.pop(device, None) is not None:
+            logger.info('%s is set up', device.name)
+        return True
 
     def stop(self) -> None:
         if self.effects is not None:
@@ -116,17 +148,21 @@ class DaemonService:
                              exc_info=True)
         self.manager.close()
 
-    def poll_hotplug(self) -> None:
-        known = {device.serial for device in self.manager.devices}
-        self.manager.scan()
-        present = {device.serial for device in self.manager.devices}
-        for device in self.manager.devices:
-            if device.serial not in known:
-                try:
-                    device.enter_driver_mode()
-                    device.restore()
-                except (DeviceError, RecipeError):
-                    logger.debug('could not initialise %s', device.name, exc_info=True)
+    def poll_hotplug(self, force_bluetooth: bool = False) -> None:
+        before = self.manager.devices
+        known = {device.serial for device in before}
+        self.manager.scan(force_bluetooth=force_bluetooth)
+        current = self.manager.devices
+        present = {device.serial for device in current}
+        for device in current:
+            if device not in before:
+                self._initialise(device)
+        now = time.monotonic()
+        for device, (_attempts, retry_at) in list(self._pending.items()):
+            if device not in current:
+                del self._pending[device]
+            elif now >= retry_at:
+                self._initialise(device)
         if self.effects is not None:
             # A host-rendered effect outlives its device otherwise: the thread
             # keeps writing to hardware that is no longer listed, which cannot
@@ -154,6 +190,9 @@ class DaemonService:
             'uptime': round(time.time() - self.started_at, 1),
             'backend': self.manager.backend.name,
             'devices': len(self.manager.devices),
+            'state': self.state,
+            #: Found, but not yet willing to take their settings.
+            'pending': sorted(device.name for device in self._pending),
         }
 
     def rpc_list_devices(self) -> list:
@@ -163,7 +202,8 @@ class DaemonService:
         return [{'pid': pid, 'product': name} for pid, name in self.manager.unsupported]
 
     def rpc_rescan(self) -> list:
-        self.poll_hotplug()
+        # Someone asked: sweep the radio now rather than when it is next due.
+        self.poll_hotplug(force_bluetooth=True)
         return self.rpc_list_devices()
 
     def rpc_capabilities(self, serial: str) -> dict:
@@ -361,26 +401,44 @@ class DaemonServer(socketserver.ThreadingTCPServer):
 
 
 def serve(backend=None, host: str = '127.0.0.1', port: int = 0,
-          enable_effects: bool = True) -> None:
-    """Run the daemon until it is asked to stop."""
+          enable_effects: bool = True) -> bool:
+    """Run the daemon until it is asked to stop.
+
+    Returns ``False`` without doing anything if this session already has a
+    daemon.  Otherwise the socket is up and the endpoint file written before a
+    single device is touched: finding and setting up devices takes seconds,
+    and a daemon that does not answer for that long looks like one that is not
+    running -- which is how a second one used to get started beside it.
+    """
+    from .instance import SingleInstance
+
+    instance = SingleInstance()
+    if not instance.acquire():
+        logger.info('another openrazer-win daemon is already running in this session')
+        return False
+
     service = DaemonService(backend=backend, enable_effects=enable_effects)
-    service.start()
     server = DaemonServer(service, host=host, port=port)
     endpoint_file = server.endpoint.write()
-    logger.info('listening on %s:%d (endpoint file: %s)',
+    logger.info('openrazer-win %s listening on %s:%d (endpoint file: %s)', __version__,
                 server.endpoint.host, server.endpoint.port, endpoint_file)
-    logger.info('%d device(s) ready', len(service.manager.devices))
 
     stop = threading.Event()
 
-    def hotplug_loop() -> None:
+    def device_loop() -> None:
+        try:
+            service.start()
+        except Exception:  # noqa: BLE001 - the daemon keeps serving regardless
+            logger.exception('setting up devices failed')
+            service.state = 'ready'
+        logger.info('%d device(s) ready', len(service.manager.devices))
         while not stop.wait(HOTPLUG_INTERVAL):
             try:
                 service.poll_hotplug()
             except Exception:  # noqa: BLE001 - a bad scan must not kill the daemon
                 logger.debug('hot-plug scan failed', exc_info=True)
 
-    watcher = threading.Thread(target=hotplug_loop, name='hotplug', daemon=True)
+    watcher = threading.Thread(target=device_loop, name='devices', daemon=True)
     watcher.start()
 
     try:
@@ -390,6 +448,9 @@ def serve(backend=None, host: str = '127.0.0.1', port: int = 0,
     finally:
         stop.set()
         server.server_close()
+        watcher.join(timeout=15)
         service.stop()
         Endpoint.remove(endpoint_file)
+        instance.release()
         logger.info('stopped')
+    return True

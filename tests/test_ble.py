@@ -22,24 +22,7 @@ from openrazer_win.protocol import razer_ble
 
 from .conftest import (
     ADDRESS, ADVERT, BLUE, CLASSIC_ADDRESS, KITTY_V2_BT, MANUFACTURER_DATA, RED,
-    FakeBleTransport,
 )
-
-@pytest.fixture
-def fake_radio(monkeypatch, no_bluetooth_radio):
-    """Make discovery see one advertising headset, without a radio."""
-    ble = no_bluetooth_radio
-    built: list = []
-
-    def build(address, *args, **kwargs):
-        transport = FakeBleTransport(address)
-        built.append(transport)
-        return transport
-
-    monkeypatch.setattr(ble, 'is_available', lambda: True)
-    monkeypatch.setattr(ble, 'scan', lambda *a, **k: [ADVERT])
-    monkeypatch.setattr(ble, 'BleTransport', build)
-    return built
 
 
 # -- protocol ---------------------------------------------------------------

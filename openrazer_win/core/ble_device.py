@@ -11,6 +11,7 @@ This class does the same through :mod:`openrazer_win.effects`.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import logging
 from typing import Optional
 
@@ -149,8 +150,10 @@ class BleDevice:
         """
         try:
             self.transport.write(payload, hold=hold)
-        except BleUnavailable as error:
-            raise DeviceError('{0}: {1}'.format(self.name, error)) from error
+        except (BleUnavailable, OSError, concurrent.futures.TimeoutError) as error:
+            # A hung radio surfaces as a plain timeout, not as BleUnavailable.
+            raise DeviceError('{0}: {1}'.format(
+                self.name, error or 'Bluetooth did not answer')) from error
 
     def set_zone_colours(self, colours, hold: bool = True) -> None:
         """Set every zone at once; `colours` is one ``(r, g, b)`` per zone.
@@ -227,8 +230,9 @@ class BleDevice:
                 '{0}: this transport cannot read'.format(self.name))
         try:
             return bytes(read(opcode))
-        except BleUnavailable as error:
-            raise DeviceError('{0}: {1}'.format(self.name, error)) from error
+        except (BleUnavailable, OSError, concurrent.futures.TimeoutError) as error:
+            raise DeviceError('{0}: {1}'.format(
+                self.name, error or 'Bluetooth did not answer')) from error
 
     def get_battery_level(self) -> int:
         """Charge percentage.  Matched what Synapse displayed, to the point."""
@@ -303,12 +307,15 @@ class BleDevice:
                          exc_info=True)
 
     def restore(self) -> None:
+        """Put the saved colour back.
+
+        Raises when the headset cannot be reached, so the daemon knows to try
+        again: at logon it is commonly heard advertising some time before
+        Windows will hold a link to it.
+        """
         state = self.persistence.saved_zone(self.serial, AGGREGATE_ZONE) or {}
         if state.get('effect') == 'static':
-            try:
-                self.set_zone_colours(self._current_colours())
-            except DeviceError:
-                logger.debug('could not restore %s', self.name, exc_info=True)
+            self.set_zone_colours(self._current_colours())
 
     def is_connected(self) -> bool:
         """Whether the link is up, which is not the same as advertising.

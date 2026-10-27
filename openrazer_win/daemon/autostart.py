@@ -14,6 +14,9 @@ from typing import Optional
 RUN_KEY = r'Software\Microsoft\Windows\CurrentVersion\Run'
 VALUE_NAME = 'OpenRazerWin'
 
+#: The windowless build that sits beside the console one in a release.
+WINDOWED_EXE = 'openrazer-win-gui.exe'
+
 
 class AutostartError(Exception):
     """The autostart entry could not be read or changed."""
@@ -30,7 +33,14 @@ def _winreg():
 def daemon_launch_command(no_effects: bool = False) -> str:
     """The command line Windows should run at logon, ready to quote."""
     if getattr(sys, 'frozen', False):
-        parts = [sys.executable, 'daemon', 'run']
+        executable = sys.executable
+        # The console build opens a console window at logon, and closing that
+        # window -- the obvious thing to do with it -- takes the daemon down
+        # with it.  The windowed build accepts the same command line.
+        windowed = os.path.join(os.path.dirname(executable), WINDOWED_EXE)
+        if os.path.basename(executable).lower() != WINDOWED_EXE and os.path.exists(windowed):
+            executable = windowed
+        parts = [executable, 'daemon', 'run']
     else:
         # pythonw.exe keeps the daemon from flashing a console window.
         interpreter = sys.executable
@@ -55,6 +65,33 @@ def status() -> Optional[str]:
         return None
     except OSError as error:
         raise AutostartError('cannot read the Run key: {0}'.format(error)) from error
+
+
+def command_executable(command: str) -> str:
+    """The program a registered command line starts."""
+    command = command.strip()
+    if command.startswith('"'):
+        end = command.find('"', 1)
+        return command[1:end] if end > 0 else command[1:]
+    return command.split(' ', 1)[0]
+
+
+def refresh() -> Optional[str]:
+    """Re-point a registered entry whose program no longer exists.
+
+    The entry stores an absolute path, so moving or replacing the executable
+    -- downloading a new release somewhere else, rebuilding a virtualenv --
+    left Windows starting nothing at logon, or an old copy of the daemon that
+    no longer matches the client.  Returns the new command if it changed.
+    """
+    try:
+        current = status()
+    except AutostartError:
+        return None
+    if current is None or os.path.exists(command_executable(current)):
+        return None
+    no_effects = '--no-effects' in current
+    return enable(no_effects)
 
 
 def enable(no_effects: bool = False) -> str:

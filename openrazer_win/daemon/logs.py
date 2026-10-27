@@ -52,4 +52,33 @@ def configure(verbose: bool = False, log_file: Optional[str] = None) -> str:
         handler.setFormatter(formatter)
         root.addHandler(handler)
     root.setLevel(level)
+    _log_uncaught_exceptions()
     return path
+
+
+def _log_uncaught_exceptions() -> None:
+    """Send anything nothing else caught to the log.
+
+    A daemon started at logon runs windowless with no stderr at all, so an
+    exception escaping a thread used to vanish without a trace, leaving a
+    process that looked alive and did nothing.
+    """
+    import threading
+
+    log = logging.getLogger('openrazer_win.daemon')
+
+    def on_exception(kind, value, trace):
+        if issubclass(kind, KeyboardInterrupt):
+            sys.__excepthook__(kind, value, trace)
+            return
+        log.critical('uncaught exception', exc_info=(kind, value, trace))
+
+    def on_thread_exception(args):
+        if args.exc_type is SystemExit:
+            return
+        log.critical('uncaught exception in thread %s',
+                     getattr(args.thread, 'name', '?'),
+                     exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+    sys.excepthook = on_exception
+    threading.excepthook = on_thread_exception

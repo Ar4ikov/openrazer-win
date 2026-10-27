@@ -163,8 +163,25 @@ class ControlPanel(ttk.Frame):
             value='openrazer-win {0}  (device data from openrazer {1})'.format(
                 __version__, UPSTREAM_VERSION))
         ttk.Label(self, textvariable=self.status_var, foreground='#444444',
-                  anchor='w').grid(row=1, column=0, columnspan=2, sticky='ew',
-                                   pady=(10, 0))
+                  anchor='w').grid(row=1, column=0, sticky='ew', pady=(10, 0))
+
+        self.autostart_var = tk.BooleanVar(value=_autostart_enabled())
+        ttk.Checkbutton(self, text='Start with Windows', variable=self.autostart_var,
+                        command=self._on_autostart).grid(row=1, column=1, sticky='e',
+                                                         pady=(10, 0))
+
+    def _on_autostart(self) -> None:
+        from ..daemon import autostart
+        try:
+            if self.autostart_var.get():
+                autostart.enable()
+                self.status_var.set('The daemon will start when you sign in to Windows')
+            else:
+                autostart.disable()
+                self.status_var.set('The daemon will no longer start with Windows')
+        except autostart.AutostartError as error:
+            self.status_var.set(str(error))
+            self.autostart_var.set(_autostart_enabled())
 
     # -- data --------------------------------------------------------------
     def reload(self) -> None:
@@ -408,13 +425,55 @@ def run(manager: Optional[DeviceManager] = None) -> int:
     except tk.TclError:
         pass
 
-    if manager is None and not is_daemon_running():
-        _offer_to_start_the_daemon(root)
+    if manager is None:
+        _repair_autostart()
+        if is_daemon_running():
+            _offer_to_restart_an_old_daemon(root)
+        else:
+            _offer_to_start_the_daemon(root)
 
     panel = ControlPanel(root, manager)
     panel.reload()
     root.mainloop()
     return 0
+
+
+def _autostart_enabled() -> bool:
+    from ..daemon import autostart
+    try:
+        return autostart.status() is not None
+    except autostart.AutostartError:
+        return False
+
+
+def _repair_autostart() -> None:
+    """Keep the logon entry pointing at a program that still exists."""
+    from ..daemon import autostart
+    try:
+        autostart.refresh()
+    except autostart.AutostartError:
+        pass
+
+
+def _offer_to_restart_an_old_daemon(root: tk.Misc) -> None:
+    """A daemon left running from before an upgrade still has the old bugs."""
+    from ..cli import daemon_version_mismatch, start_daemon_detached, stop_daemon
+
+    running = daemon_version_mismatch()
+    if running is None:
+        return
+    if not messagebox.askyesno(
+            WINDOW_TITLE,
+            'The running daemon is version {0}, but this control panel is {1}.\n\n'
+            'Restart the daemon so they match?'.format(running, __version__)):
+        return
+    root.config(cursor='watch')
+    root.update_idletasks()
+    try:
+        stop_daemon(report=False)
+        start_daemon_detached()
+    finally:
+        root.config(cursor='')
 
 
 def _offer_to_start_the_daemon(root: tk.Misc) -> None:

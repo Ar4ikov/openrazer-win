@@ -9,6 +9,14 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Everything the port keeps on disk -- the daemon log, its endpoint file,
+# persistence, profiles -- lives under %LOCALAPPDATA%.  Pointing that at a
+# scratch directory for the whole run keeps the suite out of the real files of
+# whoever runs it: a test that configured logging used to leave pytest's
+# emulated devices in the user's own daemon.log.
+_SCRATCH = __import__('tempfile').mkdtemp(prefix='openrazer-win-tests-')
+os.environ['LOCALAPPDATA'] = _SCRATCH
+
 from openrazer_win.core.device import RazerDevice  # noqa: E402
 from openrazer_win.core.persistence import Persistence  # noqa: E402
 from openrazer_win.core.transport import Transport  # noqa: E402
@@ -17,6 +25,17 @@ from openrazer_win.hid.fake import FakeHidBackend, FakeRazerDevice  # noqa: E402
 from openrazer_win.ble import Advertiser, BleUnavailable  # noqa: E402
 from openrazer_win.core.ble_device import BleDevice  # noqa: E402
 from openrazer_win.protocol import razer_ble  # noqa: E402
+
+@pytest.fixture(autouse=True)
+def _scratch_run_key(monkeypatch):
+    """Autostart tests write a throwaway key, never the real Run key.
+
+    Explorer lists anything that ever appeared under Run in Task Manager's
+    Startup tab, so even an entry a test removes again leaves a trace there.
+    """
+    from openrazer_win.daemon import autostart
+    monkeypatch.setattr(autostart, 'RUN_KEY', r'Software\openrazer-win-tests\Run')
+
 
 #: A BlackWidow Chroma (classic matrix protocol) and a Viper (extended matrix).
 KEYBOARD_PID = 0x0203
@@ -179,3 +198,20 @@ def no_bluetooth_radio(monkeypatch):
     import openrazer_win.ble as ble
     monkeypatch.setattr(ble, 'is_available', lambda: False)
     return ble
+
+
+@pytest.fixture
+def fake_radio(monkeypatch, no_bluetooth_radio):
+    """Make discovery see one advertising headset, without a radio."""
+    ble = no_bluetooth_radio
+    built: list = []
+
+    def build(address, *args, **kwargs):
+        transport = FakeBleTransport(address)
+        built.append(transport)
+        return transport
+
+    monkeypatch.setattr(ble, 'is_available', lambda: True)
+    monkeypatch.setattr(ble, 'scan', lambda *a, **k: [ADVERT])
+    monkeypatch.setattr(ble, 'BleTransport', build)
+    return built
