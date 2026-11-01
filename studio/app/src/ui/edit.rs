@@ -39,6 +39,30 @@ impl Default for ZoneEdit {
     }
 }
 
+/// A headset's sound settings as the controls show them.
+#[derive(Clone, Debug, Default)]
+pub struct AudioEdit {
+    pub sidetone: bool,
+    pub sidetone_level: f64,
+    pub equalizer: bool,
+    pub preset: String,
+    pub bands: Vec<f64>,
+    pub do_not_disturb: bool,
+}
+
+impl AudioEdit {
+    fn read(audio: &Value) -> AudioEdit {
+        AudioEdit {
+            sidetone: audio["sidetone"] == true,
+            sidetone_level: audio["sidetone_level"].as_f64().unwrap_or(0.0),
+            equalizer: audio["equalizer"] == true,
+            preset: audio["equalizer_preset"].as_str().unwrap_or_default().to_string(),
+            bands: audio["equalizer_bands"].as_array().map(|b| b.iter().filter_map(Value::as_f64).collect()).unwrap_or_default(),
+            do_not_disturb: audio["do_not_disturb"] == true,
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct DeviceEdit {
     pub zone: Option<String>,
@@ -49,6 +73,7 @@ pub struct DeviceEdit {
     pub poll_rate: Option<i64>,
     pub idle_minutes: Option<f32>,
     pub low_battery: Option<f32>,
+    pub audio: AudioEdit,
     generation: u64,
     detail_seen: bool,
     touched: Option<Instant>,
@@ -66,6 +91,10 @@ impl DeviceEdit {
 
     pub fn refresh(&mut self, device: &Device, detail: &Detail, snap: &Snapshot) {
         let Some(caps) = detail.caps.as_ref() else { return };
+        // The headset is the one holding these, and it can be used without Studio.
+        if let Some(audio) = detail.audio.as_ref().filter(|_| !self.recently_touched()) {
+            self.audio = AudioEdit::read(audio);
+        }
         // The worker reads a device piece by piece after its capabilities, so
         // DPI, polling rate and the rest can arrive after the first look:
         // take them when they do, or the controls show defaults for good.
@@ -240,6 +269,23 @@ mod tests {
         detail.poll_rate = Some(500);
         edit.refresh(&device, &detail, &snap);
         assert_eq!((edit.dpi, edit.poll_rate), (Some((1800, 1800)), Some(500)));
+    }
+
+    #[test]
+    fn sound_settings_follow_the_headset_except_under_the_hand() {
+        let device = Device { serial: "H1".into(), kind: "headset".into(), ..Default::default() };
+        let mut detail = Detail { caps: Some(json!({ "zones": {}, "audio": {} })), ..Default::default() };
+        detail.audio = Some(json!({ "sidetone": true, "sidetone_level": 5, "equalizer_preset": "game", "equalizer_bands": [1, -2] }));
+        let snap = Snapshot { generation: 1, ..Default::default() };
+        let mut edit = DeviceEdit::default();
+        edit.refresh(&device, &detail, &snap);
+        assert!(edit.audio.sidetone);
+        assert_eq!((edit.audio.sidetone_level, edit.audio.preset.as_str()), (5.0, "game"));
+        assert_eq!(edit.audio.bands, vec![1.0, -2.0]);
+        edit.audio.sidetone_level = 9.0;
+        edit.touch();
+        edit.refresh(&device, &detail, &snap);
+        assert_eq!(edit.audio.sidetone_level, 9.0);
     }
 
     #[test]

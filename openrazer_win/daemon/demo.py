@@ -4,9 +4,11 @@ from __future__ import annotations
 from ..devices.database import get_database
 from ..devices.recipes import get_recipes
 from ..hid.fake import FakeHidBackend, FakeRazerDevice
+from ..protocol import blackshark
 
-#: A keyboard, a mouse and a mousepad -- enough to exercise every code path.
-DEMO_DEVICES = (0x0203, 0x0078, 0x0C00)
+#: A keyboard, a mouse, a mousepad and a headset that has settings rather than
+#: lights -- enough to exercise every code path.
+DEMO_DEVICES = (0x0203, 0x0078, 0x0C00, blackshark.PID_WIRELESS)
 
 
 def build_demo_backend(product_ids=DEMO_DEVICES) -> FakeHidBackend:
@@ -23,5 +25,6 @@ def build_demo_backend(product_ids=DEMO_DEVICES) -> FakeHidBackend:
             serial='DEMO{0:012d}'.format(index + 1),
             argb=meta.driver == 'accessory',
             # Keyboards expose the vendor collection their macro keys report on.
-            keys=meta.driver == 'kbd'))
+            keys=meta.driver == 'kbd',
+            headset=pid in blackshark.PRODUCT_IDS))
     return backend

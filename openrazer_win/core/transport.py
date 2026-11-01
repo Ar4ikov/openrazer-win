@@ -14,6 +14,7 @@ import time
 from typing import Optional
 
 from ..hid.base import HidDeviceInfo, HidError
+from ..protocol import blackshark
 from ..protocol.report import REPORT_SIZE, RazerReport, RazerReportError, Status
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,26 @@ def select_kraken_interface(candidates: list):
     exact = [info for info in usable if info.interface == KRAKEN_INTERFACE]
     pool = exact or usable
     return sorted(pool, key=lambda i: (i.interface or 0, i.collection or 0))[0]
+
+
+def is_blackshark_interface(info: HidDeviceInfo) -> bool:
+    """A vendor collection that takes the BlackShark's 64-byte reports."""
+    return (info.usage_page >= 0xFF00
+            and info.output_length >= blackshark.REPORT_SIZE
+            and info.input_length >= blackshark.REPORT_SIZE)
+
+
+def select_blackshark_interface(candidates: list):
+    """Pick the collection to talk to a BlackShark V2 HyperSpeed through."""
+    usable = [info for info in candidates if is_blackshark_interface(info)]
+    if not usable:
+        return None
+
+    def preference(info: HidDeviceInfo) -> tuple:
+        pages = (blackshark.USAGE_PAGE, blackshark.OTHER_USAGE_PAGE)
+        return (pages.index(info.usage_page) if info.usage_page in pages else len(pages),
+                info.interface != blackshark.INTERFACE, info.collection or 0)
+    return sorted(usable, key=preference)[0]
 
 
 def select_control_interface(candidates: list, preferred_index: Optional[int] = None):
@@ -210,6 +231,62 @@ class Transport:
             report[4] = max(led_count - 1, 0)
             report[5:5 + len(colours)] = colours[:ARGB_REPORT_SIZE - 5]
             self._argb_handle.send_feature_report(bytes((ARGB_FEATURE_REPORT_ID,)) + bytes(report))
+
+
+class ReportChannel:
+    """Requests sent as output reports and answered with input reports."""
+
+    def __init__(self, backend, info: HidDeviceInfo, timeout: float = 0.8):
+        self._backend = backend
+        self.info = info
+        self.timeout = timeout
+        self._lock = threading.Lock()
+        self._writer = None
+        self._reader = None
+
+    def exchange(self, report: bytes, accept) -> Optional[bytes]:
+        """Send `report` and return the first input report `accept` takes.
+
+        ``None`` if none came in time.  Windows keeps input reports for every
+        handle on a collection, so what Synapse asks for arrives here too, and
+        anything left over from an earlier request is still queued: both are
+        passed over rather than taken for the answer.
+        """
+        with self._lock:
+            try:
+                if self._reader is None:
+                    # Before anything is sent: input reports are only queued
+                    # for a handle that is already open.
+                    self._reader = self._backend.open_input(self.info)
+                if self._writer is None:
+                    self._writer = self._backend.open(self.info)
+                self._writer.send_output_report(report.ljust(self.info.output_length, b'\x00'))
+                deadline = time.monotonic() + self.timeout
+                while True:
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        return None
+                    answer = self._reader.read(left)
+                    if answer is not None and accept(answer):
+                        return answer
+            except (HidError, OSError):
+                # The receiver was pulled out, say.  Start afresh next time.
+                self._close()
+                raise
+
+    def _close(self) -> None:
+        for attribute in ('_writer', '_reader'):
+            handle = getattr(self, attribute)
+            if handle is not None:
+                try:
+                    handle.close()
+                except Exception:  # pragma: no cover - best effort
+                    logger.debug('error closing %s', attribute, exc_info=True)
+                setattr(self, attribute, None)
+
+    def close(self) -> None:
+        with self._lock:
+            self._close()
 
 
 def open_transport(backend, vendor_id: int, product_id: int,

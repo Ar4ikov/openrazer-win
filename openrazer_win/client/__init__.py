@@ -312,6 +312,12 @@ class Fx:
             'wave_soft', {'colour': [red, green, blue],
                           'refresh_rate': refresh_rate})
 
+    def music(self, red: int = 0, green: int = 255, blue: int = 0,
+              refresh_rate: float = 0.040):
+        """Pulse in time with whatever the PC is playing."""
+        return self._device._software_effect(
+            'music', {'colour': [red, green, blue], 'refresh_rate': refresh_rate})
+
     def stop_software_effect(self):
         return self._device._software_effect('none', {})
 
@@ -545,6 +551,37 @@ class RazerDevice:
     @low_battery_threshold.setter
     def low_battery_threshold(self, percent: float) -> None:
         self._call('set_low_battery_threshold', percent)
+
+    # -- sound -------------------------------------------------------------
+    @property
+    def audio(self) -> dict:
+        """What a headset that keeps its own sound settings is set to."""
+        return self._call('get_audio')
+
+    @property
+    def microphone_muted(self) -> bool:
+        return self._call('get_microphone_muted')
+
+    def set_sidetone(self, enabled: bool) -> None:
+        self._call('set_sidetone', bool(enabled))
+
+    def set_sidetone_level(self, level: int) -> None:
+        self._call('set_sidetone_level', int(level))
+
+    def set_equalizer(self, enabled: bool) -> None:
+        self._call('set_equalizer', bool(enabled))
+
+    def set_equalizer_preset(self, preset: str) -> None:
+        self._call('set_equalizer_preset', preset)
+
+    def set_equalizer_bands(self, gains) -> None:
+        self._call('set_equalizer_bands', [int(gain) for gain in gains])
+
+    def set_do_not_disturb(self, enabled: bool) -> None:
+        self._call('set_do_not_disturb', bool(enabled))
+
+    def set_dongle_led(self, mode: str) -> None:
+        self._call('set_dongle_led', mode)
 
     # -- keyboard ----------------------------------------------------------
     @property

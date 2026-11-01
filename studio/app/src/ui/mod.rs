@@ -1,6 +1,7 @@
 //! Everything drawn in the window.
 
 pub mod app;
+pub mod audio;
 pub mod canvas;
 pub mod device;
 pub mod edit;

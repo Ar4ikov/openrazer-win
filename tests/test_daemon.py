@@ -7,7 +7,7 @@ import pytest
 
 from openrazer_win.client import DeviceManager
 from openrazer_win.client.rpc import DaemonUnavailable, RpcClient
-from openrazer_win.daemon.demo import build_demo_backend
+from openrazer_win.daemon.demo import DEMO_DEVICES, build_demo_backend
 from openrazer_win.daemon.protocol import (
     METHOD_NOT_FOUND, NOT_SUPPORTED, UNAUTHORIZED, Endpoint, RpcError,
 )
@@ -47,14 +47,15 @@ def client(daemon):
 def test_version_reports_the_emulator_backend(client):
     info = client.call('daemon.version')
     assert info['backend'] == 'fake'
-    assert info['devices'] == 3
+    assert info['devices'] == len(DEMO_DEVICES)
 
 
 def test_devices_are_listed_with_serial_and_firmware(client):
     devices = client.call('devices.list')
-    assert len(devices) == 3
+    assert len(devices) == len(DEMO_DEVICES)
     assert all(device['serial'].startswith('DEMO') for device in devices)
-    assert {device['type'] for device in devices} == {'keyboard', 'mouse', 'mousemat'}
+    assert {device['type'] for device in devices} == {'keyboard', 'mouse', 'mousemat',
+                                                     'headset'}
 
 
 def test_a_wrong_token_is_rejected(daemon):
@@ -91,7 +92,7 @@ def test_unsupported_operations_report_not_supported(client):
 def test_a_bad_request_does_not_kill_the_connection(client):
     with pytest.raises(RpcError):
         client.call('nope')
-    assert client.call('daemon.version')['devices'] == 3
+    assert client.call('daemon.version')['devices'] == len(DEMO_DEVICES)
 
 
 def test_missing_endpoint_file_is_a_clear_error(tmp_path, monkeypatch):
@@ -121,7 +122,7 @@ def manager(daemon):
 
 
 def test_client_sees_every_device(manager):
-    assert len(manager.devices) == 3
+    assert len(manager.devices) == len(DEMO_DEVICES)
     assert manager.by_name('Viper')
 
 

@@ -43,11 +43,12 @@ class HidDeviceInfo:
 
     def describe(self) -> str:
         return ('{0:04x}:{1:04x} mi={2} col={3} usage={4:04x}:{5:04x} '
-                'feature={6}').format(
+                'feature={6} input={7} output={8}').format(
             self.vendor_id, self.product_id,
             '--' if self.interface is None else '{0:02d}'.format(self.interface),
             '--' if self.collection is None else '{0:02d}'.format(self.collection),
-            self.usage_page, self.usage, self.feature_length)
+            self.usage_page, self.usage, self.feature_length,
+            self.input_length, self.output_length)
 
 
 class HidError(IOError):

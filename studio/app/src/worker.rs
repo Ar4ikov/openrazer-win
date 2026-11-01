@@ -68,6 +68,8 @@ pub struct Detail {
     pub brightness: HashMap<String, f64>,
     pub profiles: Vec<Value>,
     pub macros: Option<Value>,
+    /// A headset's own sound settings.
+    pub audio: Option<Value>,
 }
 
 #[derive(Clone, Debug)]
@@ -109,6 +111,7 @@ pub enum Command {
     Refresh,
     Rescan,
     LoadDevice(String),
+    ReadAudio(String),
     Call { serial: String, method: String, args: Vec<Value>, zone: Option<String>, then: Then },
     Software { serial: String, effect: String, options: Value },
     /// `quiet` for the automatic switch, which should not pop a toast every
@@ -138,6 +141,7 @@ pub enum Then {
     Performance,
     Power,
     Keyboard,
+    Audio,
 }
 
 pub type Shared = Arc<Mutex<Snapshot>>;
@@ -316,6 +320,7 @@ impl Worker {
         self.read_keyboard(serial, &caps);
         self.read_profiles(serial);
         self.read_macros(serial, &caps);
+        self.read_audio(serial);
         self.battery_at.insert(serial.to_string(), Instant::now());
     }
 
@@ -390,6 +395,14 @@ impl Worker {
         }
     }
 
+    fn read_audio(&mut self, serial: &str) {
+        if self.caps(serial).is_some_and(|caps| caps["audio"].is_object()) {
+            if let Ok(audio) = self.with(|c| c.device(serial, "get_audio", vec![], None)) {
+                self.update(serial, |d| d.audio = Some(audio));
+            }
+        }
+    }
+
     fn read_keyboard(&mut self, serial: &str, caps: &Value) {
         if caps["game_mode"] == true {
             if let Ok(on) = self.with(|c| c.device(serial, "get_game_mode", vec![], None)) {
@@ -438,6 +451,7 @@ impl Worker {
                 self.load_persistence();
                 self.load_device(&serial);
             }
+            Command::ReadAudio(serial) => self.read_audio(&serial),
             Command::Call { serial, method, args, zone, then } => {
                 let result = self.with(|c| c.device(&serial, &method, args, zone.as_deref()));
                 self.report(&result, None);
@@ -451,6 +465,7 @@ impl Worker {
                         (Then::Performance, Some(caps)) => self.read_performance(&serial, &caps),
                         (Then::Power, _) => self.read_power(&serial, true),
                         (Then::Keyboard, Some(caps)) => self.read_keyboard(&serial, &caps),
+                        (Then::Audio, _) => self.read_audio(&serial),
                         _ => {}
                     }
                 }

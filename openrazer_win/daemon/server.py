@@ -57,6 +57,10 @@ DEVICE_METHODS = {
     # power
     'get_battery_level', 'is_charging', 'get_idle_time', 'set_idle_time',
     'get_low_battery_threshold', 'set_low_battery_threshold',
+    # sound
+    'get_audio', 'get_microphone_muted', 'set_sidetone', 'set_sidetone_level',
+    'set_equalizer', 'set_equalizer_preset', 'set_equalizer_bands',
+    'set_do_not_disturb', 'set_dongle_led',
     # keyboard
     'get_game_mode', 'set_game_mode', 'get_macro_mode', 'set_macro_mode',
     'set_macro_effect', 'set_fn_toggle', 'get_keyboard_layout',

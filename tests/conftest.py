@@ -17,14 +17,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _SCRATCH = __import__('tempfile').mkdtemp(prefix='openrazer-win-tests-')
 os.environ['LOCALAPPDATA'] = _SCRATCH
 
+from openrazer_win.core.blackshark import BlackSharkDevice  # noqa: E402
 from openrazer_win.core.device import RazerDevice  # noqa: E402
 from openrazer_win.core.persistence import Persistence  # noqa: E402
-from openrazer_win.core.transport import Transport  # noqa: E402
+from openrazer_win.core.transport import ReportChannel, Transport  # noqa: E402
 from openrazer_win.devices import get_database, get_recipes  # noqa: E402
 from openrazer_win.hid.fake import FakeHidBackend, FakeRazerDevice  # noqa: E402
 from openrazer_win.ble import Advertiser, BleUnavailable  # noqa: E402
 from openrazer_win.core.ble_device import BleDevice  # noqa: E402
-from openrazer_win.protocol import razer_ble  # noqa: E402
+from openrazer_win.protocol import blackshark, razer_ble  # noqa: E402
 
 @pytest.fixture(autouse=True, scope='session')
 def _remove_scratch_run_key():
@@ -160,6 +161,10 @@ def make_device(pid, persistence, *, argb=False):
     recipes = get_recipes()
     meta = database.get(0x1532, pid)
     assert meta is not None, 'unknown product id 0x{0:04x}'.format(pid)
+    if pid in blackshark.PRODUCT_IDS:
+        fake = FakeRazerDevice(pid, meta.name, headset=True)
+        channel = ReportChannel(FakeHidBackend([fake]), fake.headset_info, timeout=0.05)
+        return BlackSharkDevice(meta, channel, persistence), fake
     params = recipes.transport_params(meta.driver, meta.pid)
     fake = FakeRazerDevice(pid, meta.name, interface=params.get('index') or 0,
                            argb=argb)

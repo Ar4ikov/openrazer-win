@@ -9,12 +9,16 @@ from typing import Optional
 from ..devices.database import DeviceDatabase, DeviceInfo, get_database
 from ..devices.recipes import RecipeTable, get_recipes
 from ..hid import get_backend
-from ..protocol import razer_ble
+from ..protocol import blackshark, razer_ble
 from ..protocol.report import VENDOR_ID
+from .blackshark import BlackSharkDevice
 from .device import RazerDevice
 from .kraken import KrakenDevice
 from .persistence import Persistence
-from .transport import Transport, select_control_interface, select_kraken_interface
+from .transport import (
+    ReportChannel, Transport, select_blackshark_interface, select_control_interface,
+    select_kraken_interface,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -262,6 +266,8 @@ class DeviceManager:
     def _build(self, meta: DeviceInfo, infos: list) -> Optional[RazerDevice]:
         if meta.pid in self.recipes.kraken_pids:
             return self._build_kraken(meta, infos)
+        if meta.pid in blackshark.PRODUCT_IDS:
+            return self._build_blackshark(meta, infos)
 
         params = self.recipes.transport_params(meta.driver, meta.pid)
         control = select_control_interface(infos, params.get('index'))
@@ -285,6 +291,15 @@ class DeviceManager:
             return None
         transport = Transport(self.backend, control, kraken_info=control)
         return KrakenDevice(meta, transport, self.persistence, self.recipes)
+
+    def _build_blackshark(self, meta: DeviceInfo, infos: list) -> Optional[BlackSharkDevice]:
+        """A MediaTek headset, with a report size and a route of its own."""
+        control = select_blackshark_interface(infos)
+        if control is None:
+            logger.warning('%s is attached but exposes no 64-byte vendor report: %s',
+                           meta.name, '; '.join(info.describe() for info in infos))
+            return None
+        return BlackSharkDevice(meta, ReportChannel(self.backend, control), self.persistence)
 
     # -- accessors ---------------------------------------------------------
     @property

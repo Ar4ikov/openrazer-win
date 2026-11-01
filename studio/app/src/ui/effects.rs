@@ -7,7 +7,7 @@ use openrazer_studio_core::t;
 use serde_json::{json, Value};
 
 /// Drawn by the daemon, frame by frame, rather than by the device.
-pub const SOFTWARE: [&str; 4] = ["ripple", "ripple_random", "spectrum_soft", "wave_soft"];
+pub const SOFTWARE: [&str; 5] = ["ripple", "ripple_random", "spectrum_soft", "wave_soft", "music"];
 /// Need a key press to place; pointless below this many LEDs.
 const KEY_REACTIVE: [&str; 2] = ["ripple", "ripple_random"];
 const MIN_RIPPLE_CELLS: i64 = 8;
@@ -48,6 +48,7 @@ pub fn label(effect: &str) -> &'static str {
         "ripple_random" => t("Ripple · random"),
         "spectrum_soft" => t("Smooth spectrum"),
         "wave_soft" => t("Smooth wave"),
+        "music" => t("Music"),
         "custom" | "layers" => t("Per-key (Studio)"),
         _ => t("Other"),
     }
@@ -55,7 +56,7 @@ pub fn label(effect: &str) -> &'static str {
 
 pub fn colour_count(effect: &str) -> usize {
     match effect {
-        "static" | "blinking" | "reactive" | "breath_single" | "starlight_single" | "ripple" | "wave_soft" => 1,
+        "static" | "blinking" | "reactive" | "breath_single" | "starlight_single" | "ripple" | "wave_soft" | "music" => 1,
         "breath_dual" | "starlight_dual" => 2,
         "breath_triple" => 3,
         _ => 0,
@@ -192,6 +193,12 @@ mod tests {
         let commands = apply_commands("S", "backlight", &zone("spectrum"), true);
         assert!(matches!(&commands[0], Command::Software { effect, .. } if effect == "none"));
         assert_eq!(call(&commands).0, "set_spectrum");
+    }
+
+    #[test]
+    fn music_is_drawn_by_the_daemon_in_the_colour_chosen() {
+        let commands = apply_commands("S", "backlight", &zone("music"), false);
+        assert!(matches!(&commands[0], Command::Software { effect, options, .. } if effect == "music" && options["colour"] == json!([1, 2, 3])));
     }
 
     #[test]
