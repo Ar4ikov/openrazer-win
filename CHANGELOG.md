@@ -6,6 +6,40 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-11-02
+
+### Added
+
+- **Razer BlackShark V2 HyperSpeed**, which Windows calls *Razer BlackShark V2
+  HS 2.4*: `1532:0565` on its receiver and `1532:056E` on its cable. Upstream
+  has no driver for it yet, so its MediaTek protocol is implemented here from
+  what others worked out and checked on the hardware
+  (openrazer/openrazer#2974); it has only run against an emulator of that
+  protocol in this project. Battery, charging and the sleep timer; hearing your
+  own voice and how loudly; the equalizer's presets and a curve of your own;
+  do not disturb; the receiver's light; and where the mute button stands. All
+  of it is stored in the headset, so nothing is written when it is found. Studio
+  has a *Sound* tab for it, and the command line `openrazer-win headset`.
+  THX Spatial Audio and the microphone's noise gate run on the PC under Synapse
+  and are not in the headset, so they are not here.
+- **A *Music* effect**: a device with addressable lights pulses with whatever
+  the PC is playing, from any program, in a colour of your choice, from the
+  middle outwards as it gets louder. It reads the meter Windows keeps on the
+  sound output, so it asks for no permission and captures nothing. Studio lists
+  it with the other effects, and *Integrations* now says it works.
+
+### Changed
+
+- With the BlackShark open, Studio warns that Razer Synapse can leave the
+  microphone level in Windows at zero when the mute button is used. That is
+  Synapse's doing, by the accounts on Razer's forum, and closing it stops it.
+- Studio's device page has no *Profiles* tab for a device with nothing to light,
+  since a profile is lighting.
+- A command for every device (`effect`, `brightness`) passes over devices with
+  no lights, rather than reporting each as a failure.
+- `doctor` shows the input and output report sizes of each HID collection.
+- Both apps read WebP product pictures.
+
 ## [1.5.1] - 2026-10-27
 
 ### Changed
