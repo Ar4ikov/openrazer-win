@@ -87,8 +87,6 @@ class FakeHeadset:
     def _read(self, command: int) -> tuple:
         if command == blackshark.Command.SERIAL:
             return blackshark.Status.OK, self.serial.encode('ascii')[:16].ljust(16, b'\x00')
-        if command == blackshark.Command.LINK:
-            return blackshark.Status.OK, bytes((1 if self.switched_on else 0,))
         if command == blackshark.Command.DONGLE_LED and self.wired:
             return blackshark.Status.UNSUPPORTED, b''
         if command in self.registers:

@@ -77,7 +77,6 @@ class Command:
     SIDETONE = 0x18
     SIDETONE_LEVEL = 0x19
     EQ_ENABLED = 0x1E
-    LINK = 0x20
     BATTERY = 0x21
     DO_NOT_DISTURB = 0x27
     CHARGING = 0x2A

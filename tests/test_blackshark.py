@@ -323,31 +323,36 @@ def test_the_mute_button_is_only_read(headset):
 
 # -- switched off -------------------------------------------------------------
 
-def test_a_headset_that_is_off_says_so_quickly(headset, monkeypatch):
+def test_a_headset_that_is_off_is_asked_once_and_then_left_alone(headset):
     device, fake = headset
     fake.headset.switched_on = False
-    with pytest.raises(DeviceError, match='switched off'):
-        device.get_battery_level()
-    # One question to the receiver, none to a headset that cannot answer.
-    assert [command for _domain, command, _payload in fake.headset.requests] == [Command.LINK]
+    for read in (device.get_battery_level, device.is_charging, device.get_idle_time):
+        with pytest.raises(DeviceError, match='switched off'):
+            read()
+    assert len(fake.headset.requests) == 1
 
 
-def test_the_answer_about_the_link_is_kept_a_moment(headset):
+def test_only_the_headset_itself_says_whether_it_is_there(headset):
+    """The receiver's link register, 0x20, is not to be relied on: never asked."""
     device, fake = headset
-    device.get_battery_level()
-    device.is_charging()
-    device.get_idle_time()
-    asked = [command for _domain, command, _payload in fake.headset.requests]
-    assert asked.count(Command.LINK) == 1
+    assert device.is_headset_connected() is True
+    assert device.get_audio()['connected'] is True
+    assert 0x20 not in [command for _domain, command, _payload in fake.headset.requests]
 
 
-def test_it_is_noticed_coming_back(headset, monkeypatch):
+def test_a_busy_headset_is_still_there(headset):
+    device, fake = headset
+    fake.headset.force_status = protocol.Status.BUSY
+    assert device.is_headset_connected() is True
+
+
+def test_it_is_noticed_coming_back(headset):
     device, fake = headset
     fake.headset.switched_on = False
     with pytest.raises(DeviceError):
         device.get_battery_level()
     fake.headset.switched_on = True
-    monkeypatch.setattr('openrazer_win.core.blackshark.LINK_CHECK_SECONDS', 0.0)
+    device._quiet_until = 0.0
     assert device.get_battery_level() == 85
 
 
@@ -360,12 +365,12 @@ def test_who_it_is_and_the_light_need_no_headset(headset):
     device.set_dongle_led('off')
 
 
-def test_a_headset_that_goes_quiet_mid_request_is_an_error(headset):
+def test_silence_from_the_receiver_is_not_the_headset_being_off(headset):
     device, fake = headset
-    device.is_headset_connected()
-    fake.headset.switched_on = False    # the link answer above is still believed
+    device.channel.exchange = lambda report, accept: None
     with pytest.raises(DeviceError, match='did not answer'):
-        device.get_battery_level()
+        assert device.firmware_version
+    assert device._quiet_until == 0.0
 
 
 # -- on the cable -------------------------------------------------------------
@@ -376,7 +381,6 @@ def test_on_the_cable_everything_is_local(tmp_path):
     assert device.is_charging() is True
     assert device.get_audio()['connected'] is True
     assert {domain for domain, _command, _payload in fake.headset.requests} == {0x00}
-    assert Command.LINK not in [c for _d, c, _p in fake.headset.requests]
 
 
 def test_the_cable_has_no_receiver_light(tmp_path):
@@ -398,7 +402,6 @@ def test_a_command_the_firmware_lacks_is_not_supported(headset):
 
 def test_a_busy_headset_is_a_device_error(headset):
     device, fake = headset
-    device.is_headset_connected()
     fake.headset.force_status = protocol.Status.BUSY
     with pytest.raises(DeviceError, match='busy'):
         device.set_sidetone(True)
@@ -415,7 +418,6 @@ def test_a_stale_report_is_passed_over(headset):
 
 def test_an_unplugged_receiver_is_an_error_and_can_be_tried_again(headset):
     device, fake = headset
-    device.is_headset_connected()
     fake.input_reports.put(None)
     with pytest.raises(DeviceError):
         device.get_battery_level()
