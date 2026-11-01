@@ -20,6 +20,7 @@ pub enum Tab {
     #[default]
     Performance,
     Lighting,
+    Sound,
     Power,
     Profiles,
     Keys,
@@ -31,6 +32,7 @@ impl Tab {
         match self {
             Tab::Performance => t("Performance"),
             Tab::Lighting => t("Lighting"),
+            Tab::Sound => t("Sound"),
             Tab::Power => t("Power"),
             Tab::Profiles => t("Profiles"),
             Tab::Keys => t("Keys"),
@@ -41,6 +43,7 @@ impl Tab {
     pub fn from_name(name: &str) -> Tab {
         match name {
             "lighting" => Tab::Lighting,
+            "sound" => Tab::Sound,
             "power" => Tab::Power,
             "profiles" => Tab::Profiles,
             "keys" => Tab::Keys,
@@ -58,6 +61,13 @@ pub struct DeviceUi {
     pub linking: Option<String>,
     pub app_name: String,
     apps: Vec<String>,
+    /// When the sound page last asked the headset how it stands.
+    pub audio_read: Option<std::time::Instant>,
+}
+
+/// A profile is lighting, so a device with none has nothing to put in one.
+fn keeps_profiles(caps: Option<&serde_json::Value>) -> bool {
+    !caps.is_some_and(|c| c["zones"].as_object().is_some_and(|z| z.is_empty()))
 }
 
 fn tabs_for(device: &Device, snap: &Snapshot) -> Vec<Tab> {
@@ -71,11 +81,16 @@ fn tabs_for(device: &Device, snap: &Snapshot) -> Vec<Tab> {
         if caps["zones"].as_object().is_some_and(|z| !z.is_empty()) {
             tabs.push(Tab::Lighting);
         }
+        if caps["audio"].is_object() {
+            tabs.push(Tab::Sound);
+        }
         if caps["battery"] == true || caps["idle_time"] == true {
             tabs.push(Tab::Power);
         }
     }
-    tabs.push(Tab::Profiles);
+    if keeps_profiles(caps) {
+        tabs.push(Tab::Profiles);
+    }
     if detail.and_then(|d| d.macros.as_ref()).is_some_and(|m| m["keys"].as_array().is_some_and(|k| !k.is_empty())) {
         tabs.push(Tab::Keys);
     }
@@ -93,7 +108,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
     let tabs = tabs_for(&device, snap);
     if !tabs.contains(&app.device_ui.tab) {
         // Ask for Lighting on a device whose zones are still loading, and get it once they are.
-        if !(app.device_ui.tab == Tab::Lighting && snap.details.get(&device.serial).and_then(|d| d.caps.as_ref()).is_none()) {
+        if !(matches!(app.device_ui.tab, Tab::Lighting | Tab::Sound) && snap.details.get(&device.serial).and_then(|d| d.caps.as_ref()).is_none()) {
             app.device_ui.tab = tabs[0];
         }
     }
@@ -105,6 +120,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
     }
     scroll(ui, "device-tab", |ui| match app.device_ui.tab {
         Tab::Performance => performance(app, ui, &device, snap),
+        Tab::Sound => super::audio::page(app, ui, &device, snap),
         Tab::Power => power(app, ui, &device, snap),
         Tab::Profiles => profiles(app, ui, &device, snap),
         Tab::Keys => super::macros::device_keys(app, ui, &device, snap),
@@ -153,15 +169,20 @@ fn header(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
                 if detail.and_then(|d| d.game_mode) == Some(true) {
                     widgets::badge(ui, t("Game mode"), theme::WARN);
                 }
+                if detail.and_then(|d| d.audio.as_ref()).is_some_and(|a| a["microphone_muted"] == true) {
+                    widgets::badge(ui, t("Microphone muted"), theme::WARN);
+                }
             });
         });
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.allocate_ui_with_layout(vec2(220.0, 60.0), Layout::top_down(Align::Min), |ui| {
-                ui.spacing_mut().item_spacing.y = 6.0;
-                widgets::section_title(ui, t("Profile"));
-                profile_switcher(app, ui, device, snap);
+        if keeps_profiles(caps) {
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.allocate_ui_with_layout(vec2(220.0, 60.0), Layout::top_down(Align::Min), |ui| {
+                    ui.spacing_mut().item_spacing.y = 6.0;
+                    widgets::section_title(ui, t("Profile"));
+                    profile_switcher(app, ui, device, snap);
+                });
             });
-        });
+        }
     });
     ui.add_space(4.0);
 }
@@ -374,8 +395,15 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
                 if caps["idle_time"] == true {
                     first = false;
                     let mut minutes = edit.idle_minutes.unwrap_or(5.0) as f64;
-                    widgets::row(ui, t("Turn off after"), t("Minutes without use before the device sleeps."), |ui| {
-                        if widgets::slider_field(ui, ("idle", &serial), &mut minutes, 1.0..=15.0, 0.5, 1, t("min"), 88.0) {
+                    // A device that says how far its timer goes counts in whole
+                    // minutes and can stay on; the rest sleep within fifteen.
+                    let longest = caps["idle_time_max"].as_f64().map(|seconds| seconds / 60.0);
+                    let (range, step, decimals, hint) = match longest {
+                        Some(longest) => (0.0..=longest, 1.0, 0, t("Minutes without use before the headset switches off; 0 keeps it on.")),
+                        None => (1.0..=15.0, 0.5, 1, t("Minutes without use before the device sleeps.")),
+                    };
+                    widgets::row(ui, t("Turn off after"), hint, |ui| {
+                        if widgets::slider_field(ui, ("idle", &serial), &mut minutes, range, step, decimals, t("min"), 88.0) {
                             edit.idle_minutes = Some(minutes as f32);
                             later.push((format!("idle:{serial}"), Command::Call { serial: serial.clone(), method: "set_idle_time".into(), args: vec![json!((minutes * 60.0).round() as i64)], zone: None, then: Then::Power }));
                         }

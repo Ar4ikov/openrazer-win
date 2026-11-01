@@ -89,6 +89,13 @@ MODULE_TYPE_FALLBACK = {
 #: Where Razer keeps its product photos.
 RAZER_IMAGES = 'https://medias-p1.phoenix.razer.com/sys-master-phoenix-images-container/'
 
+#: Its gallery photos all have a backdrop to them; this one is cut out already.
+BLACKSHARK_V2_HYPERSPEED_IMAGE = (
+    'https://assets2.razerzone.com/images/pnx.assets/16eac26cd230ce343f56af70ec49626a/'
+    'razer-blackshark-v2-hyperspeed-black-500x500.webp')
+BLACKSHARK_METHODS = ['get_device_type_headset', 'get_battery', 'is_charging',
+                      'get_idle_time', 'set_idle_time']
+
 LOCAL_DEVICES = [
     {
         # Bluetooth-only: plugging it in charges it and exposes no data
@@ -123,6 +130,44 @@ LOCAL_DEVICES = [
             'set_custom_effect',
         ],
         'transport': 'ble',
+    },
+    {
+        # A MediaTek headset with no lights, so openrazer/openrazer#2974 and not
+        # the Kraken driver is where upstream may yet take it.  Its protocol is
+        # in openrazer_win/protocol/blackshark.py.  The receiver calls itself
+        # "Razer BlackShark V2 HS 2.4".
+        'class_name': 'RazerBlackSharkV2HyperSpeedWireless',
+        'name': 'Razer BlackShark V2 HyperSpeed (Wireless)',
+        'vid': 0x1532,
+        'pid': 0x0565,
+        'type': 'headset',
+        'has_matrix': False,
+        'matrix_dims': None,
+        'dedicated_macro_keys': False,
+        'driver_mode': False,
+        'wave_dirs': [1, 2],
+        'poll_rates': None,
+        'dpi_max': None,
+        'image': BLACKSHARK_V2_HYPERSPEED_IMAGE,
+        'methods': BLACKSHARK_METHODS,
+        'transport': 'hid',
+    },
+    {
+        'class_name': 'RazerBlackSharkV2HyperSpeedWired',
+        'name': 'Razer BlackShark V2 HyperSpeed (Wired)',
+        'vid': 0x1532,
+        'pid': 0x056E,
+        'type': 'headset',
+        'has_matrix': False,
+        'matrix_dims': None,
+        'dedicated_macro_keys': False,
+        'driver_mode': False,
+        'wave_dirs': [1, 2],
+        'poll_rates': None,
+        'dpi_max': None,
+        'image': BLACKSHARK_V2_HYPERSPEED_IMAGE,
+        'methods': BLACKSHARK_METHODS,
+        'transport': 'hid',
     },
 ]
 

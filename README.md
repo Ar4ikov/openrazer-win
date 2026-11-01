@@ -8,7 +8,7 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
 [![License: GPL-2.0-or-later](https://img.shields.io/badge/license-GPL--2.0--or--later-green)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/openrazer-win)](https://pypi.org/project/openrazer-win/)
-[![Devices: 275](https://img.shields.io/badge/devices-275-orange)](https://ar4ikov.github.io/openrazer-win/#devices)
+[![Devices: 277](https://img.shields.io/badge/devices-277-orange)](https://ar4ikov.github.io/openrazer-win/#devices)
 
 [Documentation](https://ar4ikov.github.io/openrazer-win/) ·
 [Supported devices](https://ar4ikov.github.io/openrazer-win/#devices) ·
@@ -25,7 +25,7 @@ on Windows.
 This is a full port. The protocol layer moves into user space on top of the Windows HID class driver,
 D-Bus is replaced by a loopback JSON-RPC daemon, and **every device quirk is transpiled directly from
 the upstream C sources** — so all 274 USB devices OpenRazer knows about behave the same way here as they
-do on Linux, plus one Bluetooth headset upstream cannot reach at all.
+do on Linux, plus a Bluetooth headset upstream cannot reach at all and the BlackShark V2 HyperSpeed.
 
 <p align="center"><img src="docs/images/studio-lighting.png" alt="OpenRazer Studio: a BlackWidow keyboard drawn from its own product photo, lit key by key in layers" width="860"></p>
 
@@ -94,6 +94,7 @@ openrazer-win effect spectrum
 openrazer-win effect wave --direction 2
 openrazer-win effect breath_dual "#ff0080" --colour2 "#00ffff"
 openrazer-win effect ripple green   # host-rendered, follows your typing
+openrazer-win effect music cyan     # host-rendered, pulses with whatever is playing
 
 openrazer-win zones                  # list a device's zones
 openrazer-win zones red blue        # one colour each: left ear red, right ear blue
@@ -213,7 +214,7 @@ Razer owners to look for it, in English or Russian.
   most beside it: effect, colour, brightness, DPI stage, game mode. *All lights off* puts every
   device in the dark and back.
 - **Each device** — listed down the left, with tabs as in Synapse: *Performance* (DPI with stages,
-  polling rate), *Lighting*, *Power* (battery, sleep), *Profiles*, *Keys* and *About*. Profiles save
+  polling rate), *Lighting*, *Sound* (on a headset that has settings), *Power* (battery, sleep), *Profiles*, *Keys* and *About*. Profiles save
   what a device shows and put it back, and a profile linked to a game or app is applied whenever
   that app is in front.
 - **Lighting**, two ways. *Quick effects*: click a part of the device — the logo, the wheel, the
@@ -225,13 +226,14 @@ Razer owners to look for it, in English or Russian.
   Studio closed and comes back after a restart; profiles carry it too.
 - **Macros** — a library of macros, built step by step (press, hold, let go, wait), recorded in the
   window, or as text to type or a program to open, then put on any macro key of any keyboard.
-- **Integrations** — what is planned, to vote on, and the local API that works today.
+- **Integrations** — what is planned, to vote on, and what works today: the local API, and
+  *Music*, an effect that makes a device pulse with whatever the PC is playing.
 - **Settings** — language, starting with Windows, the tray, update checks, the daemon, a report to
   attach when asking for help, and **Repair** and **Uninstall**.
 
 Each device is drawn from **its own product photo**: Studio traces the photo into a line drawing,
 fits the key layout onto the keycaps in it, and finds the logo and wheel where the photo shows them
-lit — so every one of the 275 devices gets a drawing of itself, not a generic shape, and the lights
+lit — so every one of the 277 devices gets a drawing of itself, not a generic shape, and the lights
 glow where they really are. Without a photo (offline, say) it draws one.
 
 <p align="center"><img src="docs/images/studio-home.png" alt="Studio's home page: each device drawn in its own light, with quick settings" width="820"></p>
@@ -339,12 +341,13 @@ to have a backlight it does not have.
 | Accessories (docks, stands, ARGB controllers) | 17 |
 | Headsets (Kraken protocol) | 8 |
 | Headsets (Bluetooth LE) | 1 |
+| Headsets (BlackShark V2 HyperSpeed) | 2 |
 | Mousepads | 8 |
 | Keypads | 7 |
 | eGPU enclosures | 2 |
-| **Total** | **275** |
+| **Total** | **277** |
 
-169 have addressable matrices; 81 report battery level. The full searchable list is
+169 have addressable matrices; 83 report battery level. The full searchable list is
 [on the documentation site](https://ar4ikov.github.io/openrazer-win/#devices), or run
 `openrazer-win supported`.
 
@@ -404,6 +407,35 @@ and Windows creates no device node for an unpaired LE connection. Because a swee
 seconds, the radio is swept far less often than the USB bus, and a missed advertisement is not
 treated as an unplugged device.
 
+### BlackShark V2 HyperSpeed
+
+Windows calls it **Razer BlackShark V2 HS 2.4**: `1532:0565` on its USB receiver, `1532:056E` on its
+cable. It has no lights to speak of. What it has is settings, kept in the headset itself, so they
+stay with it on a phone or a console:
+
+```bash
+openrazer-win headset                  # battery, microphone, sidetone, equalizer ...
+openrazer-win headset sidetone 8       # hear your own voice, level 0-15
+openrazer-win headset eq game          # flat, game, music, movie or custom
+openrazer-win headset eq -3,0,0,0,0,0,0,2,3,3   # your own curve, ten bands in dB
+openrazer-win headset sleep 30         # minutes before it turns itself off
+```
+
+Studio shows the same under *Sound* and *Power*. In Python, `device.audio` reads it all and
+`device.set_equalizer_preset('game')` and its neighbours change it.
+
+Upstream has no driver for it yet. It speaks neither the control report nor the Kraken's protocol
+but a MediaTek one of its own, worked out by the authors of
+[razer-blackshark-v2-hyperspeed-webhid](https://github.com/justik13/razer-blackshark-v2-hyperspeed-webhid)
+and [Synapse-for-Linux](https://github.com/bbesli/Synapse-for-Linux) and checked on the hardware in
+[openrazer/openrazer#2974](https://github.com/openrazer/openrazer/pull/2974). The port itself has
+only been run against an emulator of that protocol so far, since nobody here owns the headset: if
+yours misbehaves, `openrazer-win doctor` lists what Windows sees of it.
+
+What Synapse adds on top is not in the headset, and so not here either: THX Spatial Audio and the
+microphone's noise gate and equalizer run on the PC. The mute button is the headset's own, and
+Studio only shows where it stands.
+
 The Kraken headsets are covered too, through their own protocol: rather than the 90-byte control
 report, they expose the lighting controller's RAM, so colours are written to fixed addresses and a
 one-byte selector picks the effect. Reading state back from a Kraken is not supported -- the kernel
@@ -431,6 +463,7 @@ each product id is in the database.
 | Effects reset after sleep | Windows cuts USB power. The daemon replays the stored state when the device reappears. |
 | Device is connected but nothing is listed | It may be on a charge-only cable, or be a Bluetooth-only model. `doctor` names what Windows sees it as, and says which of the two it is. |
 | A Bluetooth device is powered on but not listed | Install the extra: `pip install "openrazer-win[ble]"`. `doctor` ends with a Bluetooth section that says whether support is present and what the radio can hear. |
+| The BlackShark's mute button leaves the microphone at zero in Windows | Synapse 4, by the accounts on Razer's forum, not the headset: with Synapse closed the button simply mutes. Raise the level once in *Sound settings* and close Synapse. |
 | Nothing at all listed | Only Razer devices (vendor `1532`) are handled. |
 | The control panel says the daemon did not start | It shows what the daemon printed; the same is in `%LOCALAPPDATA%\openrazer-win\daemon-start.log`. |
 | Devices do nothing after the daemon starts with Windows | `openrazer-win daemon status` lists devices still waiting to be set up; the daemon keeps retrying them. If it reports an older version, `openrazer-win daemon restart`. |

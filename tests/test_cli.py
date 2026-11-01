@@ -128,6 +128,74 @@ def test_dpi_round_trip(demo_daemon, capsys):
     assert '2000' in capsys.readouterr().out
 
 
+def test_headset_shows_what_it_is_set_to(demo_daemon, capsys):
+    assert main(['headset']) == 0
+    output = capsys.readouterr().out
+    assert 'BlackShark' in output
+    assert 'level 5' in output
+    assert 'flat' in output
+    assert 'after 30 min' in output
+
+
+def test_headset_settings_can_be_changed(demo_daemon, capsys):
+    assert main(['headset', 'eq', 'game']) == 0
+    assert main(['headset', 'sidetone', '9']) == 0
+    assert main(['headset', 'sleep', '45']) == 0
+    assert main(['headset', 'led', 'battery']) == 0
+    assert main(['headset', 'dnd', 'on']) == 0
+    capsys.readouterr()
+    assert main(['headset']) == 0
+    output = capsys.readouterr().out
+    assert 'level 9' in output
+    assert 'game' in output
+    assert 'after 45 min' in output
+    assert 'battery' in output
+
+
+def test_headset_takes_a_curve_of_your_own(demo_daemon, capsys):
+    assert main(['headset', 'eq', '1,2,3,4,5,6,0,-1,-2,-3']) == 0
+    capsys.readouterr()
+    assert main(['headset']) == 0
+    assert '1 2 3 4 5 6 0 -1 -2 -3' in capsys.readouterr().out
+
+
+def test_headset_turns_things_off(demo_daemon, capsys):
+    assert main(['headset', 'sidetone', 'off']) == 0
+    assert main(['headset', 'eq', 'off']) == 0
+    capsys.readouterr()
+    assert main(['headset']) == 0
+    output = capsys.readouterr().out
+    assert 'sidetone    off' in output
+    assert 'equalizer   off' in output
+
+
+def test_headset_says_what_it_cannot_do(demo_daemon, capsys):
+    assert main(['headset', 'sidetone', '99']) == 1
+    assert 'sidetone goes from 0 to 15' in capsys.readouterr().err
+
+
+def test_headset_setting_without_a_value_is_a_clear_error(demo_daemon, capsys):
+    main(['headset', 'dnd'])
+    assert 'needs a value' in capsys.readouterr().err
+
+
+def test_a_device_with_no_sound_settings_has_no_headset_command(demo_daemon, capsys):
+    assert main(['headset', '--device', 'viper']) == 1
+    assert 'No headset' in capsys.readouterr().out
+
+
+def test_an_effect_for_everything_passes_over_what_has_no_lights(demo_daemon, capsys):
+    assert main(['effect', 'static', 'red']) == 0
+    output = capsys.readouterr().out
+    assert 'Viper' in output
+    assert 'BlackShark' not in output
+
+
+def test_music_is_an_effect_of_the_daemon(demo_daemon, capsys):
+    assert main(['effect', 'music', 'cyan', '--device', 'blackwidow']) == 0
+    assert 'music' in capsys.readouterr().out
+
+
 def test_daemon_status(demo_daemon, capsys):
     assert main(['daemon', 'status']) == 0
     assert 'running' in capsys.readouterr().out

@@ -21,12 +21,14 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from openrazer_win.core.blackshark import BlackSharkDevice  # noqa: E402
 from openrazer_win.core.device import RazerDevice  # noqa: E402
 from openrazer_win.core.kraken import KrakenDevice  # noqa: E402
 from openrazer_win.core.persistence import Persistence  # noqa: E402
-from openrazer_win.core.transport import Transport  # noqa: E402
+from openrazer_win.core.transport import ReportChannel, Transport  # noqa: E402
 from openrazer_win.devices import get_database, get_recipes  # noqa: E402
 from openrazer_win.hid.fake import FakeHidBackend, FakeRazerDevice  # noqa: E402
+from openrazer_win.protocol import blackshark  # noqa: E402
 
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
@@ -68,6 +70,12 @@ def build_device(meta, persistence, recipes) -> Optional[RazerDevice]:
         transport = Transport(backend, fake.kraken_info, wait_us=0,
                               kraken_info=fake.kraken_info)
         return KrakenDevice(meta, transport, persistence, recipes)
+
+    if meta.pid in blackshark.PRODUCT_IDS:
+        # Its own reports, and nothing to light.
+        fake = FakeRazerDevice(meta.pid, meta.name, headset=True)
+        backend.add(fake)
+        return BlackSharkDevice(meta, ReportChannel(backend, fake.headset_info), persistence)
 
     params = recipes.transport_params(meta.driver, meta.pid)
     fake = FakeRazerDevice(meta.pid, meta.name, interface=params.get('index') or 0,
@@ -121,6 +129,10 @@ def checks_for(device: RazerDevice) -> list:
     if caps['scroll_mode']:
         checks.append(('scroll_mode', lambda: (device.set_scroll_mode(1),
                                                device.get_scroll_mode())))
+    if caps.get('audio'):
+        checks.append(('audio', lambda: (device.set_sidetone_level(8),
+                                         device.set_equalizer_preset('game'),
+                                         device.get_audio())))
     if caps['custom_frame']:
         rows, columns = caps['matrix_dimensions'] or (1, 1)
         colours = bytes(GREEN) * columns

@@ -16,6 +16,7 @@ import time
 
 from ..core.device import RazerDevice
 from ..devices.recipes import NotSupported, RecipeError
+from .audio import open_meter
 from .frame import Frame, keymap_for
 from .keyboard_hook import KeyboardHook
 from .layers import LayerStack, layers_from_options
@@ -28,7 +29,11 @@ DEFAULT_REFRESH = 0.040
 #: How long one ripple takes to cross the board, in seconds.
 RIPPLE_DURATION = 0.6
 
-SOFTWARE_EFFECTS = ('ripple', 'ripple_random', 'wave_soft', 'spectrum_soft', 'layers')
+#: Lit by what the PC is playing rather than by the clock or the keyboard.
+MUSIC = 'music'
+
+SOFTWARE_EFFECTS = ('ripple', 'ripple_random', 'wave_soft', 'spectrum_soft', 'layers',
+                    MUSIC)
 
 #: Where a device's host-drawn effect is remembered in persistence, so the
 #: daemon can start it again after a restart or a reconnect.
@@ -42,6 +47,21 @@ KEY_REACTIVE = ('ripple', 'ripple_random')
 #: press covers the whole thing at once -- a blink, not a ripple.  A keypad,
 #: the smallest thing upstream ripples on, has twenty.
 MIN_RIPPLE_CELLS = 8
+
+#: Music is mastered loud from end to end, so its beat is not in the level but
+#: in how far the level drops below its own recent peak.  That peak is forgotten
+#: this slowly, which keeps the effect pulsing at any volume ...
+MUSIC_PEAK_FALL = 0.998
+
+#: ... down to here, under which the sound is not worth lighting anything for.
+MUSIC_QUIETEST = 0.02
+
+#: Each frame the light falls to this much of the last one.  Up at once and down
+#: slowly is what the eye reads as a beat; the raw level is only a flicker.
+MUSIC_FALL = 0.88
+
+#: How much is left with nothing playing, so that the effect is seen to be on.
+MUSIC_FLOOR = 0.06
 
 
 def can_render(device) -> bool:
@@ -90,6 +110,9 @@ class EffectThread(threading.Thread):
         self.refresh = float(options.get('refresh_rate', DEFAULT_REFRESH))
         self.colour = tuple(options.get('colour', (0, 255, 0)))[:3]
         self.stack = None
+        self.meter = None
+        self.recent_peak = 0.0
+        self.level = 0.0
         if effect == 'layers':
             self.stack = LayerStack(layers_from_options(options, self.frame.rows,
                                                         self.frame.columns),
@@ -124,6 +147,9 @@ class EffectThread(threading.Thread):
         listening = self.needs_keys
         if listening:
             self._hook_source.subscribe(self.on_key)
+        if self.effect == MUSIC:
+            # Here rather than in __init__: COM belongs to the thread that uses it.
+            self.meter = open_meter()
         try:
             if self.stack is not None:
                 self._loop_layers()
@@ -132,6 +158,8 @@ class EffectThread(threading.Thread):
         finally:
             if listening:
                 self._hook_source.unsubscribe(self.on_key)
+            if self.meter is not None:
+                self.meter.close()
 
     def _loop_layers(self) -> None:
         """Draw the layer stack, pushing a frame only when the picture changes.
@@ -173,6 +201,9 @@ class EffectThread(threading.Thread):
                     self._render_spectrum(phase)
                 elif self.effect == 'wave_soft':
                     self._render_wave(phase)
+                elif self.effect == MUSIC:
+                    if not self._render_music():
+                        continue
                 else:
                     return
                 phase = (phase + self.refresh) % 10.0
@@ -240,6 +271,29 @@ class EffectThread(threading.Thread):
             for row in range(self.frame.rows):
                 self.frame.set(row, column, int(red * intensity),
                                int(green * intensity), int(blue * intensity))
+
+    def _render_music(self) -> bool:
+        """Light the device by how loud the PC is.  False if nothing changed.
+
+        From the middle outwards: a quiet passage glows at the centre, and it
+        takes something loud to reach the edges.  A device of two cells has no
+        middle, and simply pulses.
+        """
+        peak = max(self.meter.peak(), 0.0)
+        self.recent_peak = max(peak, self.recent_peak * MUSIC_PEAK_FALL, MUSIC_QUIETEST)
+        heard = (peak / self.recent_peak) ** 2
+        self.level = max(heard, self.level * MUSIC_FALL)
+        level = max(self.level, MUSIC_FLOOR)
+        before = self.frame.copy()
+        red, green, blue = self.colour
+        centre = (self.frame.columns - 1) / 2.0
+        for column in range(self.frame.columns):
+            distance = abs(column - centre) / max(centre, 1.0)
+            intensity = level * (1.0 - distance * (1.0 - level))
+            for row in range(self.frame.rows):
+                self.frame.set(row, column, int(red * intensity),
+                               int(green * intensity), int(blue * intensity))
+        return self.frame != before
 
     def _push(self) -> None:
         # The ARGB controller wipes a frame written before the switch to custom

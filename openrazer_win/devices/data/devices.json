@@ -11226,6 +11226,58 @@
    "transport": "ble"
   },
   {
+   "class_name": "RazerBlackSharkV2HyperSpeedWireless",
+   "name": "Razer BlackShark V2 HyperSpeed (Wireless)",
+   "vid": 5426,
+   "pid": 1381,
+   "type": "headset",
+   "has_matrix": false,
+   "matrix_dims": null,
+   "dedicated_macro_keys": false,
+   "driver_mode": false,
+   "wave_dirs": [
+    1,
+    2
+   ],
+   "poll_rates": null,
+   "dpi_max": null,
+   "image": "https://assets2.razerzone.com/images/pnx.assets/16eac26cd230ce343f56af70ec49626a/razer-blackshark-v2-hyperspeed-black-500x500.webp",
+   "methods": [
+    "get_device_type_headset",
+    "get_battery",
+    "is_charging",
+    "get_idle_time",
+    "set_idle_time"
+   ],
+   "transport": "hid"
+  },
+  {
+   "class_name": "RazerBlackSharkV2HyperSpeedWired",
+   "name": "Razer BlackShark V2 HyperSpeed (Wired)",
+   "vid": 5426,
+   "pid": 1390,
+   "type": "headset",
+   "has_matrix": false,
+   "matrix_dims": null,
+   "dedicated_macro_keys": false,
+   "driver_mode": false,
+   "wave_dirs": [
+    1,
+    2
+   ],
+   "poll_rates": null,
+   "dpi_max": null,
+   "image": "https://assets2.razerzone.com/images/pnx.assets/16eac26cd230ce343f56af70ec49626a/razer-blackshark-v2-hyperspeed-black-500x500.webp",
+   "methods": [
+    "get_device_type_headset",
+    "get_battery",
+    "is_charging",
+    "get_idle_time",
+    "set_idle_time"
+   ],
+   "transport": "hid"
+  },
+  {
    "class_name": "RazerBlackWidowV3TK",
    "name": "Razer BlackWidow V3 TK",
    "vid": 5426,

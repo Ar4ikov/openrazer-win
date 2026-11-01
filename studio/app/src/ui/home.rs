@@ -227,7 +227,11 @@ fn card(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot, row:
                     ui.spacing_mut().item_spacing.x = 8.0;
                     let half = ((ui.available_width() - 8.0) / 2.0).floor();
                     let has_lights = caps.as_ref().and_then(|c| c["zones"].as_object()).is_some_and(|z| !z.is_empty());
-                    if ui.add(Button::secondary(t("Lighting")).icon(icon::LIGHTING).width(half).enabled(has_lights)).clicked() {
+                    if caps.as_ref().is_some_and(|c| c["audio"].is_object()) {
+                        if ui.add(Button::secondary(t("Sound")).icon(icon::MUSIC).width(half)).clicked() {
+                            app.open_device(&serial, Some(Tab::Sound));
+                        }
+                    } else if ui.add(Button::secondary(t("Lighting")).icon(icon::LIGHTING).width(half).enabled(has_lights)).clicked() {
                         app.open_device(&serial, Some(Tab::Lighting));
                     }
                     if ui.add(Button::secondary(t("All settings")).icon(icon::SETTINGS).width(half)).clicked() {
@@ -373,6 +377,10 @@ fn quick_settings(app: &mut App, ui: &mut egui::Ui, device: &Device, detail: &cr
             edit.touch();
             app.send(call);
         }
+    }
+
+    if caps["audio"].is_object() {
+        super::audio::quick(app, ui, device, detail, caps);
     }
 
     if caps["game_mode"] == true {

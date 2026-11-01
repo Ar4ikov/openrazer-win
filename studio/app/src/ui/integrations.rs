@@ -13,6 +13,7 @@ use openrazer_studio_core::{t, widgets};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Status {
+    Ready,
     Planned,
     Idea,
 }
@@ -27,7 +28,7 @@ struct Item {
 fn apps() -> Vec<Item> {
     vec![
         Item { glyph: icon::GAME, name: t("Games with Razer Chroma"), text: t("Games that light Razer devices through Razer's Chroma SDK, lighting them here instead."), status: Status::Planned },
-        Item { glyph: icon::MUSIC, name: t("Music and sound"), text: t("Keys that pulse with whatever is playing."), status: Status::Planned },
+        Item { glyph: icon::MUSIC, name: t("Music and sound"), text: t("Keys that pulse with whatever is playing."), status: Status::Ready },
         Item { glyph: icon::PALETTE, name: t("Windows accent colour"), text: t("Every device in the colour Windows is set to, following it when it changes."), status: Status::Planned },
         Item { glyph: icon::CHAT, name: "Discord", text: t("Calls, mentions and a muted microphone shown on the keyboard."), status: Status::Idea },
         Item { glyph: icon::SCREEN, name: t("Screen ambience"), text: t("Devices glowing in the colours at the edges of the screen."), status: Status::Idea },
@@ -48,7 +49,7 @@ fn devices() -> Vec<Item> {
 
 pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
     let _ = (app, snap);
-    widgets::page_header(ui, t("Integrations"), t("Nothing here works yet except the local API: vote for what should come first."), |ui| {
+    widgets::page_header(ui, t("Integrations"), t("Most of this is still to come: vote for what should come first."), |ui| {
         widgets::link_button(ui, t("Suggest an integration"), &format!("{REPOSITORY}/issues/new?title=Integration:%20&labels=integration"));
     });
     scroll(ui, "integrations", |ui| {
@@ -92,6 +93,9 @@ fn card(ui: &mut egui::Ui, item: &Item, row: egui::Id) {
             ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, item.glyph, theme::icon_font(17.0), TEXT_DIM);
             ui.label(RichText::new(item.name).font(theme::bold(14.5)).color(TEXT));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| match item.status {
+                Status::Ready => {
+                    widgets::badge(ui, t("Works now"), ACCENT);
+                }
                 Status::Planned => {
                     widgets::badge(ui, t("Planned"), theme::INFO);
                 }
@@ -104,7 +108,11 @@ fn card(ui: &mut egui::Ui, item: &Item, row: egui::Id) {
         let title = item.name.replace(' ', "%20");
         // The vote sits at the bottom whatever the text above it says.
         widgets::equalise(ui, row);
-        widgets::link_button(ui, t("I want this"), &format!("{REPOSITORY}/issues/new?title=Integration:%20{title}&labels=integration"));
+        if item.status == Status::Ready {
+            ui.label(widgets::faint(t("Choose it as the effect, under Lighting.")));
+        } else {
+            widgets::link_button(ui, t("I want this"), &format!("{REPOSITORY}/issues/new?title=Integration:%20{title}&labels=integration"));
+        }
     });
 }
 

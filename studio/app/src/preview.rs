@@ -273,6 +273,8 @@ pub fn hardware(effect: &str, colours: &[Color32; 3], speed: i64, direction: i64
         "spectrum" | "spectrum_soft" => hue(t / SPECTRUM_PERIOD),
         "wave" => hue(if direction == 2 { x + t / WAVE_PERIOD } else { x - t / WAVE_PERIOD }),
         "wave_soft" => scale(c1, 0.25 + 0.75 * (0.5 + 0.5 * ((x - t / 2.0) * std::f32::consts::TAU).cos())),
+        // What is playing is not known here, so a likeness at 120 beats a minute.
+        "music" => scale(c1, 0.12 + 0.88 * (1.0 - (t * 2.0).fract()).powi(3)),
         "wheel" => hue(x * 0.5 + seed * 0.5 - t / WAVE_PERIOD),
         "breath_single" => scale(c1, 0.5 - 0.5 * (t / BREATH_PERIOD * std::f32::consts::TAU).cos()),
         "breath_dual" | "breath_triple" => {

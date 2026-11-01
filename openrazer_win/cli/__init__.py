@@ -11,6 +11,8 @@ from typing import Optional
 from .._version import UPSTREAM_VERSION, __version__
 from ..client import DaemonUnavailable, DeviceManager
 from ..client.rpc import RpcClient, is_daemon_running
+from ..core.device import DeviceError
+from ..core.transport import is_blackshark_interface
 from ..daemon.protocol import RpcError, endpoint_path
 from ..devices.database import get_database
 from ..devices.recipes import NotSupported
@@ -33,7 +35,7 @@ EFFECT_HELP = """\
 none, on, static, spectrum, wave, wheel, reactive, blinking, custom,
 breath_random, breath_single, breath_dual, breath_triple,
 starlight_random, starlight_single, starlight_dual,
-ripple, ripple_random (host-rendered, needs the daemon)"""
+ripple, ripple_random, music (host-rendered, needs the daemon)"""
 
 #: Effects the host can draw frame by frame for hardware that lacks them.
 #: Reached automatically, because "spectrum" is what a user asks for whether or
@@ -52,6 +54,22 @@ Examples:
   openrazer-win profile save night     record what is showing now
   openrazer-win profile load night     put it back
   openrazer-win profile delete night"""
+
+HEADSET_HELP = """\
+For headsets that keep their sound settings themselves, the BlackShark V2
+HyperSpeed so far.
+
+Examples:
+  openrazer-win headset                  show what it is set to
+  openrazer-win headset sidetone 8       hear your own voice, level 0-15
+  openrazer-win headset sidetone off
+  openrazer-win headset eq game          flat, game, music, movie or custom
+  openrazer-win headset eq off
+  openrazer-win headset eq -3,0,0,0,0,0,0,2,3,3
+                                         your own curve: ten bands, -9 to 6 dB
+  openrazer-win headset dnd on           do not disturb
+  openrazer-win headset led battery      off, link, battery or warning
+  openrazer-win headset sleep 30         minutes before it turns off, 0 for never"""
 
 ZONES_HELP = """\
 Examples:
@@ -210,8 +228,10 @@ def cmd_effect(args) -> int:
     with open_manager(args) as manager:
         failures = 0
         for device in pick_devices(manager, args.device):
+            if not args.device and not device.zones:
+                continue        # nothing on it lights up
             zone = args.zone or device.zone_for_effect(
-                'custom' if args.effect in ('ripple', 'ripple_random') else args.effect)
+                'custom' if args.effect in ('ripple', 'ripple_random', 'music') else args.effect)
             fx = device.fx_for(zone)
             effect = args.effect
             rendered = False
@@ -272,6 +292,8 @@ def _apply_effect(fx, effect: str, colour, colour2, colour3, args) -> None:
         fx.ripple(*colour)
     elif effect == 'ripple_random':
         fx.ripple_random()
+    elif effect == 'music':
+        fx.music(*colour)
     elif effect == 'custom':
         fx.advanced.fill(colour).draw()
     else:
@@ -541,6 +563,8 @@ def _print_profiles(device, args) -> None:
 def cmd_brightness(args) -> int:
     with open_manager(args) as manager:
         for device in pick_devices(manager, args.device):
+            if not args.device and not device.zones:
+                continue        # nothing on it lights up
             fx_zone = args.zone or device.zone_with_brightness()
             if args.value is None:
                 try:
@@ -598,6 +622,79 @@ def cmd_battery(args) -> int:
         if not found:
             print('No battery-powered devices connected.')
     return 0
+
+
+def cmd_headset(args) -> int:
+    with open_manager(args) as manager:
+        headsets = [device for device in pick_devices(manager, args.device)
+                    if device.has('audio')]
+        if not headsets:
+            print('No headset with sound settings connected.')
+            return 1
+        failures = 0
+        for device in headsets:
+            try:
+                if args.setting:
+                    _set_headset(device, args.setting, args.value)
+                else:
+                    _show_headset(device)
+            except (RpcError, NotSupported, DeviceError) as error:
+                print('{0}: {1}'.format(device.name, error), file=sys.stderr)
+                failures += 1
+    return 1 if failures else 0
+
+
+def _show_headset(device) -> None:
+    audio = device.audio
+    print(device.name)
+    if not audio['connected']:
+        print('  switched off, or out of range of its receiver')
+        return
+    print('  battery     {0}%{1}'.format(
+        device.battery_level, ' (charging)' if device.is_charging else ''))
+    print('  microphone  {0}'.format('muted' if audio['microphone_muted'] else 'on'))
+    print('  sidetone    {0}'.format(
+        'level {0}'.format(audio['sidetone_level']) if audio['sidetone'] else 'off'))
+    print('  equalizer   {0}'.format(
+        audio['equalizer_preset'] if audio['equalizer'] else 'off'))
+    print('  custom EQ   {0}'.format(' '.join(str(g) for g in audio['equalizer_bands'])))
+    print('  do not disturb  {0}'.format('on' if audio['do_not_disturb'] else 'off'))
+    if 'dongle_led' in audio:
+        print('  receiver    {0}'.format(audio['dongle_led']))
+    print('  turns off   {0}'.format(
+        'after {0} min'.format(device.idle_time // 60) if device.idle_time else 'never'))
+
+
+def _on_off(value: Optional[str]) -> bool:
+    if value in ('on', 'off'):
+        return value == 'on'
+    raise CliError('say on or off')
+
+
+def _set_headset(device, setting: str, value: Optional[str]) -> None:
+    if value is None:
+        raise CliError('{0} needs a value; see openrazer-win headset --help'.format(setting))
+    try:
+        if setting == 'sidetone':
+            if value not in ('on', 'off'):
+                device.set_sidetone_level(int(value))
+                value = 'on'
+            device.set_sidetone(_on_off(value))
+        elif setting == 'eq':
+            if value in ('on', 'off'):
+                device.set_equalizer(_on_off(value))
+            elif ',' in value:
+                device.set_equalizer_bands([int(gain) for gain in value.split(',')])
+            else:
+                device.set_equalizer_preset(value)
+        elif setting == 'dnd':
+            device.set_do_not_disturb(_on_off(value))
+        elif setting == 'led':
+            device.set_dongle_led(value)
+        elif setting == 'sleep':
+            device.idle_time = int(value) * 60
+    except ValueError as error:
+        raise CliError('cannot read {0!r} as a number'.format(value)) from error
 
 
 def cmd_supported(args) -> int:
@@ -880,12 +977,14 @@ def cmd_doctor(args) -> int:
     if not collections:
         print('  none -- is the device plugged in?')
     for info in collections:
-        control = ' <- control interface' if info.feature_length == FEATURE_BUFFER_SIZE else ''
+        reachable = info.feature_length == FEATURE_BUFFER_SIZE or is_blackshark_interface(info)
+        control = ' <- control interface' if reachable else ''
         known = database.get(info.vendor_id, info.product_id)
         print('  {0}{1}'.format(info.describe(), control))
         print('      {0}'.format(known.name if known else 'NOT IN DATABASE'))
 
-    unusable = [i for i in collections if i.feature_length == FEATURE_BUFFER_SIZE]
+    unusable = [i for i in collections if i.feature_length == FEATURE_BUFFER_SIZE
+                or is_blackshark_interface(i)]
     if collections and not unusable:
         print('\nNo collection exposes the 90-byte feature report.')
         print('Razer Synapse may be holding the device -- close it and retry.')
@@ -1077,6 +1176,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     battery = add('battery', cmd_battery, 'show battery level')
     battery.add_argument('--device', '-d')
+
+    headset = add('headset', cmd_headset, "show or change a headset's sound settings",
+                  formatter_class=argparse.RawDescriptionHelpFormatter,
+                  epilog=HEADSET_HELP)
+    headset.add_argument('setting', nargs='?',
+                         choices=('sidetone', 'eq', 'dnd', 'led', 'sleep'))
+    headset.add_argument('value', nargs='?')
+    headset.add_argument('--device', '-d')
 
     supported = add('supported', cmd_supported, 'list every device the port knows')
     supported.add_argument('search', nargs='?', default='')

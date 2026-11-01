@@ -18,7 +18,7 @@ egui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 winreg.workspace = true
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 ureq = { version = "2", default-features = false, features = ["tls", "json"] }
 # The Linux backend is ksni (D-Bus, pure Rust) rather than the default
 # libappindicator, which drags in an unsound glib; this is built for Windows.

@@ -12,10 +12,96 @@ import itertools
 import queue
 from typing import Optional
 
+from ..protocol import blackshark
 from ..protocol.report import REPORT_SIZE, RazerReport, Status, calculate_crc
 from .base import HidDeviceInfo, HidError
 
 _SERIAL_COUNTER = itertools.count(1)
+
+
+class FakeHeadset:
+    """The registers of a BlackShark V2 HyperSpeed, and its way of answering."""
+
+    def __init__(self, serial: str, wired: bool):
+        self.serial = serial
+        self.wired = wired
+        #: Off means the receiver is there and the headset does not answer it.
+        self.switched_on = True
+        self.registers = {
+            blackshark.Command.FIRMWARE: bytes((1, 7, 0, 0)),
+            blackshark.Command.EQ_PRESET: b'\x00',
+            blackshark.Command.EQ_BANDS: bytes(10),
+            blackshark.Command.SIDETONE: b'\x01',
+            blackshark.Command.SIDETONE_LEVEL: b'\x05',
+            blackshark.Command.EQ_ENABLED: b'\x01',
+            blackshark.Command.BATTERY: b'\x55',
+            blackshark.Command.DO_NOT_DISTURB: b'\x00',
+            blackshark.Command.CHARGING: b'\x01' if wired else b'\x00',
+            blackshark.Command.IDLE_MINUTES: b'\x1e',
+            blackshark.Command.MIC_MUTED: b'\x00',
+            blackshark.Command.DONGLE_LED: b'\x01',
+        }
+        #: Every request, for a test to look at the order they came in.
+        self.requests: list = []
+        #: Set to a status to make every command fail with it.
+        self.force_status: Optional[int] = None
+
+    def answer(self, data: bytes) -> Optional[bytes]:
+        """The input report `data` draws, or ``None`` if nothing would reply."""
+        if len(data) != blackshark.REPORT_SIZE or data[0] != blackshark.REPORT_ID:
+            raise HidError('bad BlackShark report')
+        checksum = 0
+        for byte in data[:62]:
+            checksum ^= byte
+        if data[62] != checksum:
+            return None         # the microcontroller drops these without a word
+        domain, command, count = data[9], data[10], data[12]
+        payload = bytes(data[13:13 + count])
+        self.requests.append((domain, command, payload))
+        local = domain == blackshark.DOMAIN_LOCAL
+        if not self.wired and not local and not self.switched_on:
+            return None
+
+        if self.force_status is not None:
+            status, body = self.force_status, b'\x00'
+        elif command & blackshark.WRITE:
+            status, body = self._write(command & ~blackshark.WRITE, payload)
+        else:
+            status, body = self._read(command)
+        reply = bytearray(blackshark.REPORT_SIZE)
+        reply[0] = blackshark.REPORT_ID
+        reply[1] = status
+        reply[2] = data[2]
+        reply[6] = 4 + len(body)
+        reply[8] = 0x80
+        # On the cable the headset signs its replies as it would on the radio.
+        reply[9] = blackshark.DOMAIN_HEADSET if self.wired else domain
+        reply[10] = command
+        reply[11] = 1
+        reply[12] = len(body)
+        reply[13:13 + len(body)] = body
+        for byte in reply[1:62]:
+            reply[62] ^= byte
+        return bytes(reply)
+
+    def _read(self, command: int) -> tuple:
+        if command == blackshark.Command.SERIAL:
+            return blackshark.Status.OK, self.serial.encode('ascii')[:16].ljust(16, b'\x00')
+        if command == blackshark.Command.LINK:
+            return blackshark.Status.OK, bytes((1 if self.switched_on else 0,))
+        if command == blackshark.Command.DONGLE_LED and self.wired:
+            return blackshark.Status.UNSUPPORTED, b''
+        if command in self.registers:
+            return blackshark.Status.OK, self.registers[command]
+        return blackshark.Status.UNSUPPORTED, b''
+
+    def _write(self, command: int, payload: bytes) -> tuple:
+        if command not in self.registers:
+            return blackshark.Status.UNSUPPORTED, b'\x01'
+        if command == blackshark.Command.EQ_BANDS:
+            payload = bytes((byte - 5) & 0xFF for byte in payload)
+        self.registers[command] = payload
+        return blackshark.Status.OK, b'\x00'
 
 
 class FakeDeviceState:
@@ -83,6 +169,11 @@ class FakeHidHandle:
     def send_output_report(self, data: bytes) -> None:
         if self._closed:
             raise HidError('handle is closed')
+        if self.info is self._device.headset_info:
+            answer = self._device.headset.answer(bytes(data))
+            if answer is not None:
+                self._device.input_reports.put(answer)
+            return
         self._device.handle_output_report(bytes(data))
 
     def get_feature_report(self, length: int, report_id: int = 0x00) -> bytes:
@@ -114,7 +205,7 @@ class FakeRazerDevice:
     def __init__(self, product_id: int, name: str = 'Fake Razer Device',
                  interface: int = 1, serial: Optional[str] = None,
                  vendor_id: int = 0x1532, argb: bool = False,
-                 kraken: bool = False, keys: bool = False):
+                 kraken: bool = False, keys: bool = False, headset: bool = False):
         self.info = HidDeviceInfo(
             path='\\\\?\\hid#vid_{0:04x}&pid_{1:04x}&mi_{2:02x}#fake'.format(
                 vendor_id, product_id, interface),
@@ -161,6 +252,19 @@ class FakeRazerDevice:
             input_length=self.KEY_REPORT_SIZE,
             product=name,
         ) if keys else None
+        #: A BlackShark's one vendor collection; it has no feature reports.
+        self.headset_info = HidDeviceInfo(
+            path=self.info.path + '&headset',
+            vendor_id=vendor_id,
+            product_id=product_id,
+            interface=blackshark.INTERFACE,
+            usage_page=blackshark.USAGE_PAGE,
+            usage=0x0001,
+            input_length=blackshark.REPORT_SIZE,
+            output_length=blackshark.REPORT_SIZE,
+            product=name,
+        ) if headset else None
+        self.headset = None
         self.input_reports: queue.Queue = queue.Queue()
         self.argb_frames: list = []
         self.feature_reports: list = []
@@ -169,6 +273,9 @@ class FakeRazerDevice:
         self.kraken_writes: list = []
         self.state = FakeDeviceState(
             serial or 'FAKE{0:010d}'.format(next(_SERIAL_COUNTER)))
+        if headset:
+            self.headset = FakeHeadset(self.state.serial,
+                                       product_id == blackshark.PID_WIRED)
         self._response = self._blank_response()
         #: Set to a :class:`Status` value to make every command fail.
         self.force_status: Optional[int] = None
@@ -355,6 +462,8 @@ class FakeHidBackend:
                 result.append(device.kraken_info)
             if device.keys_info is not None:
                 result.append(device.keys_info)
+            if device.headset_info is not None:
+                result.append(device.headset_info)
         return result
 
     def open(self, info: HidDeviceInfo) -> FakeHidHandle:
@@ -365,12 +474,15 @@ class FakeHidBackend:
                 return FakeHidHandle(device, device.argb_info)
             if device.kraken_info is not None and device.kraken_info.path == info.path:
                 return FakeHidHandle(device, device.kraken_info)
+            if device.headset_info is not None and device.headset_info.path == info.path:
+                return FakeHidHandle(device, device.headset_info)
         raise HidError('no such fake device: {0}'.format(info.path))
 
     def open_input(self, info: HidDeviceInfo) -> FakeInputReader:
         for device in self.devices:
-            if device.keys_info is not None and device.keys_info.path == info.path:
-                return FakeInputReader(device, info)
+            for readable in (device.keys_info, device.headset_info):
+                if readable is not None and readable.path == info.path:
+                    return FakeInputReader(device, info)
         raise HidError('no readable fake collection: {0}'.format(info.path))
 
     def device_for(self, info: HidDeviceInfo) -> Optional[FakeRazerDevice]:
