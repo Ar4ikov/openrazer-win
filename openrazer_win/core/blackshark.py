@@ -28,9 +28,9 @@ from .transport import ReportChannel
 
 logger = logging.getLogger(__name__)
 
-#: How long "the headset is on" is taken as read.  Every setting read while it
-#: is off would otherwise wait out the timeout, and Studio reads ten at a time.
-LINK_CHECK_SECONDS = 2.0
+#: How long a headset that did not answer is taken to be off.  Every setting read
+#: while it is would otherwise wait out the timeout, and Studio reads ten at a time.
+QUIET_SECONDS = 2.0
 
 #: The firmware applies a new curve only if told again, a moment after it.
 EQ_LATCH_SECONDS = 0.040
@@ -50,8 +50,8 @@ class BlackSharkDevice:
         self._serial: Optional[str] = None
         self._firmware: Optional[str] = None
         self._capabilities: Optional[dict] = None
-        #: Whether the headset answered, and when that was last asked.
-        self._link: Optional[tuple] = None
+        #: Until when not to bother a headset that did not answer.
+        self._quiet_until = 0.0
 
     # -- identity ----------------------------------------------------------
     @property
@@ -157,6 +157,9 @@ class BlackSharkDevice:
             except (HidError, OSError) as error:
                 raise DeviceError('{0}: {1}'.format(self.name, error)) from error
         if reply is None:
+            if domain == protocol.DOMAIN_HEADSET:
+                self._quiet_until = time.monotonic() + QUIET_SECONDS
+                raise DeviceError('{0} is switched off'.format(self.name))
             raise DeviceError('{0} did not answer'.format(self.name))
         try:
             return protocol.result(reply, command)
@@ -166,23 +169,26 @@ class BlackSharkDevice:
             raise DeviceError('{0}: {1}'.format(self.name, error)) from error
 
     def is_headset_connected(self) -> bool:
-        """Whether the headset is on and in touch with its receiver."""
+        """Whether the headset is on and in touch with its receiver.
+
+        By asking it something.  The receiver has a register that says so too,
+        but only silence from the headset itself is sure: a register read
+        wrongly would lock every setting away from a headset that is on.
+        """
         if self.wired:
             return True
-        with self._lock:
-            now = time.monotonic()
-            if self._link is not None and now - self._link[1] < LINK_CHECK_SECONDS:
-                return self._link[0]
-            answer = self._exchange(protocol.DOMAIN_LOCAL, Command.LINK)
-            connected = bool(answer and answer[0])
-            self._link = (connected, now)
-            return connected
+        try:
+            self._read(Command.BATTERY)
+        except DeviceError:
+            # Anything but silence, such as being busy, is still an answer.
+            return time.monotonic() >= self._quiet_until
+        return True
 
     def _headset(self) -> int:
         """The domain the headset answers on, if it is there to answer."""
         if self.wired:
             return protocol.DOMAIN_LOCAL
-        if not self.is_headset_connected():
+        if time.monotonic() < self._quiet_until:
             raise DeviceError('{0} is switched off'.format(self.name))
         return protocol.DOMAIN_HEADSET
 
