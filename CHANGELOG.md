@@ -6,6 +6,37 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-11-04
+
+### Added
+
+- **Studio updates itself.** A new *Updates* page shows what changed in each
+  version, and downloads and installs a new one when you say so: no browser and
+  no clicking through the installer. Studio closes for a few seconds and opens
+  again, with your settings, profiles and macros where they were. This is the
+  first version that can do it, so the first such update is the next one.
+- **Quietly.** Studio asks GitHub about once a day, not while Windows is
+  starting, and if that fails it says nothing and tries again later. A new
+  version is a small mark beside *Updates* and no more: no pop-ups. A version can
+  be skipped, and the checks turned off.
+- A download that breaks carries on from where it stopped, and the installer is
+  checked against the checksum published with the release before it runs.
+- `setup --update` updates an installation from a script.
+
+### Changed
+
+- A release's text on GitHub now says what changed in it, in English and in
+  Russian.
+- An update keeps what was changed since installing: starting with Windows, the
+  desktop and Start menu entries and `PATH`. They used to go back to the choices
+  made when installing.
+
+### Fixed
+
+- When the installer closed Studio, a dead icon stayed in the tray until the
+  pointer passed over it.
+- The installer's window can no longer be closed half way through copying files.
+
 ## [1.5.2] - 2026-11-02
 
 ### Added

@@ -51,3 +51,12 @@ def test_no_translation_means_no_russian_part():
 def test_a_version_missing_from_the_changelog_stops_the_release():
     with pytest.raises(ValueError):
         body('9.9.9', CHANGELOG)
+
+
+def test_the_changelogs_cover_the_version_being_released():
+    from openrazer_win import __version__
+    root = os.path.join(os.path.dirname(__file__), '..')
+    with open(os.path.join(root, 'CHANGELOG.md'), encoding='utf-8') as english:
+        assert section(english.read(), __version__), 'CHANGELOG.md'
+    with open(os.path.join(root, 'CHANGELOG.ru.md'), encoding='utf-8') as russian:
+        assert section(russian.read(), __version__), 'CHANGELOG.ru.md'
