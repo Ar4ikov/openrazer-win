@@ -185,6 +185,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: actions/download-artifact@v4
         with:
@@ -200,27 +202,16 @@ jobs:
           ls -la
           cat SHA256SUMS.txt
 
+      - name: Write the release's text from the changelogs
+        # Studio shows this on its Updates page, so it fails here rather than
+        # publish a release with nothing to say.
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: python3 tools/release_notes.py "$TAG" > release-body.md
+
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: artifacts/*
           generate_release_notes: true
-          body: |
-            **OpenRazer Studio** -- download `openrazer-studio-setup.exe` below and
-            run it. It installs for your account only (no administrator prompt),
-            brings the daemon with it, and repairs or removes itself from
-            *Settings › Apps*, the Start menu, or Studio's own settings.
-
-            The classic control panel is still here: `openrazer-win-gui.exe`
-            runs as is, with the daemon inside it. `openrazer-win.exe` is the
-            command line, for scripts and terminals. Or install with pip:
-
-            ```
-            pip install openrazer-win
-            ```
-
-            `SHA256SUMS.txt` lists the checksum of every file; the executables
-            are not code-signed.
-
-            Device data generated from upstream OpenRazer. See the
-            [documentation](https://ar4ikov.github.io/openrazer-win/) for details.
+          body_path: release-body.md

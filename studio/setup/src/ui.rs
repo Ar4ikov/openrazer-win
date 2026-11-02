@@ -70,11 +70,18 @@ pub fn run(args: Args) -> eframe::Result<()> {
         let installed = args.dir.clone().filter(|_| args.from_temp).map(|dir| Installed { version: install::Manifest::read(&dir).map(|m| m.version).unwrap_or_default(), dir }).or_else(install::installed);
         let dir = installed.as_ref().map(|i| i.dir.clone()).or(args.dir.clone()).unwrap_or_else(openrazer_studio_core::paths::default_install_dir);
         let saved = installed.as_ref().and_then(|i| install::Manifest::read(&i.dir)).map(|m| m.options);
+        let updating = args.action == Some(Action::Update) && installed.is_some();
         let mut setup = Setup {
             page: if installed.is_some() { Page::Maintenance } else { Page::Welcome },
             installed,
             dir: dir.display().to_string(),
-            options: if args.options_given { args.options.clone() } else { saved.unwrap_or_default() },
+            options: if args.options_given {
+                args.options.clone()
+            } else if updating {
+                ops::options_in_place(&dir)
+            } else {
+                saved.unwrap_or_default()
+            },
             removal: args.removal,
             shared: Default::default(),
             from_temp: args.from_temp,
@@ -83,6 +90,7 @@ pub fn run(args: Args) -> eframe::Result<()> {
         match args.action {
             Some(Action::Uninstall) if setup.installed.is_some() => setup.page = Page::ConfirmRemoval,
             Some(Action::Repair) if setup.installed.is_some() => setup.start(&cc.egui_ctx, "repair"),
+            Some(Action::Update) if setup.installed.is_some() => setup.start(&cc.egui_ctx, "update"),
             Some(Action::Install) => setup.page = Page::Welcome,
             _ => {}
         }
@@ -124,6 +132,7 @@ impl Setup {
             let result = match what {
                 "uninstall" => ops::uninstall(&dir, removal, &reporter),
                 "repair" => ops::install(&dir, &options, true, &reporter),
+                // "update", and "install".
                 _ => ops::install(&dir, &options, false, &reporter),
             };
             if what == "uninstall" && from_temp {
@@ -140,6 +149,10 @@ impl Setup {
 impl eframe::App for Setup {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Page::Working(what) = self.page {
+            // A file half way through being replaced is not something to walk away from.
+            if ctx.input(|i| i.viewport().close_requested()) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            }
             let finished = self.shared.lock().unwrap().finished.take();
             if let Some(result) = finished {
                 let (ok, message) = match result {
@@ -148,13 +161,20 @@ impl eframe::App for Setup {
                         match what {
                             "uninstall" => t("OpenRazer Studio has been removed.").to_string(),
                             "repair" => t("OpenRazer Studio has been repaired.").to_string(),
+                            "update" => t("OpenRazer Studio has been updated.").to_string(),
                             _ => t("OpenRazer Studio is installed.").to_string(),
                         },
                     ),
                     Err(error) => (false, error),
                 };
-                self.page = Page::Done { ok, message, launch: ok && what != "uninstall" };
+                let app = PathBuf::from(self.dir.trim()).join(APP_EXE);
+                // A failed update still leaves a Studio to go back to.
+                self.page = Page::Done { ok, message, launch: if what == "update" { app.exists() } else { ok && what != "uninstall" } };
                 self.installed = install::installed();
+                // The person is waiting for Studio, not for this window.
+                if what == "update" && ok && std::process::Command::new(app).spawn().is_ok() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
             }
         }
 
@@ -352,6 +372,7 @@ impl Setup {
         let title = match what {
             "uninstall" => t("Removing"),
             "repair" => t("Repairing"),
+            "update" => t("Updating"),
             _ => t("Installing"),
         };
         widgets::panel(ui, title, |ui| {

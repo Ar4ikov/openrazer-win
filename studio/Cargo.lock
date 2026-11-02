@@ -2110,6 +2110,7 @@ dependencies = [
  "image",
  "openrazer-studio-core",
  "rfd",
+ "ring",
  "serde",
  "serde_json",
  "tray-icon",

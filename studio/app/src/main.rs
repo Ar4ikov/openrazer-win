@@ -11,6 +11,7 @@ mod art;
 mod daemon;
 mod images;
 mod layout;
+mod notes;
 mod outline;
 mod preview;
 mod pysetup;

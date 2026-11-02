@@ -12,6 +12,7 @@ pub mod lighting;
 pub mod macros;
 pub mod settings;
 pub mod setup;
+pub mod updates;
 pub mod widgets;
 
 pub use app::App;

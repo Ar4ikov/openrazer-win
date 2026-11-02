@@ -99,6 +99,13 @@ fn shortcut(target: &Path, arguments: Option<&str>, link: &Path, description: &s
     lnk.create_lnk(link).map_err(|e| e.to_string())
 }
 
+/// The options as they stand now, for an update. The manifest has what was
+/// chosen when installing, and Studio's own settings change some of that
+/// since: an update must not quietly put those back.
+pub fn options_in_place(dir: &Path) -> Options {
+    Options { start_menu: start_menu().exists(), desktop: desktop_link().exists(), autostart: install::autostart_points_into(dir), path: install::on_user_path(dir) }
+}
+
 // -- installing -------------------------------------------------------------------------
 
 /// Write `bytes` to `path` unless it is already exactly that. True if written.
@@ -288,6 +295,9 @@ pub fn uninstall(dir: &Path, removal: Removal, progress: &dyn Progress) -> Resul
     if std::fs::read_dir(dir).map(|mut d| d.next().is_none()).unwrap_or(false) {
         let _ = std::fs::remove_dir(dir);
     }
+
+    // An update waiting to be installed is no setting of anyone's.
+    let _ = std::fs::remove_dir_all(paths::updates_dir());
 
     if removal.all_data {
         progress.step(t("Deleting your settings…").into(), 0.85);

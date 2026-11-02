@@ -1,6 +1,6 @@
 //! Settings: the app, the daemon, repairing and removing Studio, and about.
 
-use super::app::{scroll, App};
+use super::app::{scroll, App, Page};
 use crate::worker::{Command, DaemonState, Snapshot};
 use egui::RichText;
 use openrazer_studio_core::i18n::Lang;
@@ -27,7 +27,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
             if column == 0 {
                 general(app, ui);
                 support(app, ui, snap);
-                about(ui);
+                about(app, ui);
             } else {
                 daemon(app, ui, snap);
                 maintenance(app, ui);
@@ -87,7 +87,7 @@ fn general(app: &mut App, ui: &mut egui::Ui) {
         }
         widgets::divider(ui);
         let mut updates = app.settings.check_updates;
-        if widgets::toggle_row(ui, t("Look for updates"), t("Asks GitHub once at start whether a newer release is out. Nothing is downloaded or sent."), &mut updates) {
+        if widgets::toggle_row(ui, t("Look for updates"), t("About once a day, asks GitHub whether a newer release is out. Nothing is sent, and nothing is downloaded until you say so."), &mut updates) {
             app.settings.check_updates = updates;
             app.save_settings();
         }
@@ -226,7 +226,7 @@ fn run_setup(app: &mut App, installed: &install::Installed, action: &str) {
     }
 }
 
-fn about(ui: &mut egui::Ui) {
+fn about(app: &mut App, ui: &mut egui::Ui) {
     widgets::panel(ui, &format!("OpenRazer Studio {VERSION}"), |ui| {
         widgets::help(ui, t("Razer device control without Synapse: a user-space port of OpenRazer to Windows. No account, no cloud, nothing sent anywhere."));
         ui.horizontal_wrapped(|ui| {
@@ -235,6 +235,9 @@ fn about(ui: &mut egui::Ui) {
             widgets::link_button(ui, t("Community"), COMMUNITY);
             widgets::link_button(ui, "OpenRazer", "https://openrazer.github.io/");
             widgets::link_button(ui, t("Report a problem"), &format!("{REPOSITORY}/issues"));
+            if ui.add(Button::ghost(t("Updates")).icon(icon::SYNC).small()).clicked() {
+                app.page = Page::Updates;
+            }
         });
         ui.label(RichText::new(t("GPL-2.0-or-later. Not affiliated with Razer Inc. Product pictures are Razer's, shown from Razer's own site.")).size(12.0).color(TEXT_DIM));
     });

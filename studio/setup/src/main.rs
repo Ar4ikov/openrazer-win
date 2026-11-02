@@ -8,9 +8,13 @@
 //!
 //! ```text
 //! setup --install [--dir PATH] [--no-start-menu] [--desktop] [--no-autostart] [--path] [--launch] --silent
+//! setup --update [--dir PATH] [--launch] --silent
 //! setup --repair --silent
 //! setup --uninstall [--remove-settings] [--remove-all-data] --silent
 //! ```
+//!
+//! `--update` without `--silent` is what Studio itself runs: straight to
+//! work with a progress bar, then Studio again and no window left behind.
 
 #![windows_subsystem = "windows"]
 
@@ -23,6 +27,7 @@ use std::path::PathBuf;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
     Install,
+    Update,
     Repair,
     Uninstall,
     Maintenance,
@@ -55,6 +60,7 @@ fn parse(args: &[String]) -> Args {
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--install" => parsed.action = Some(Action::Install),
+            "--update" => parsed.action = Some(Action::Update),
             "--repair" => parsed.action = Some(Action::Repair),
             "--uninstall" => parsed.action = Some(Action::Uninstall),
             "--maintenance" => parsed.action = Some(Action::Maintenance),
@@ -178,6 +184,19 @@ fn silent(args: &Args) -> i32 {
             }
             result
         }
+        Action::Update => match ops::target_dir(args.dir.clone()) {
+            Some(dir) => {
+                let result = ops::install(&dir, &ops::options_in_place(&dir), false, &log);
+                if result.is_ok() && args.launch {
+                    let _ = std::process::Command::new(dir.join(install::APP_EXE)).spawn();
+                }
+                result
+            }
+            None => {
+                log.line("OpenRazer Studio is not installed");
+                return 2;
+            }
+        },
         Action::Repair | Action::Maintenance => match ops::target_dir(args.dir.clone()) {
             Some(dir) => {
                 let options = install::Manifest::read(&dir).map(|m| m.options).unwrap_or_default();

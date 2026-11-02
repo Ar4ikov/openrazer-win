@@ -20,6 +20,8 @@ serde_json.workspace = true
 winreg.workspace = true
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 ureq = { version = "2", default-features = false, features = ["tls", "json"] }
+# Already here for ureq's TLS: its SHA-256 checks a downloaded update.
+ring = "0.17"
 # The Linux backend is ksni (D-Bus, pure Rust) rather than the default
 # libappindicator, which drags in an unsound glib; this is built for Windows.
 tray-icon = { version = "0.26", default-features = false, features = ["ksni"] }

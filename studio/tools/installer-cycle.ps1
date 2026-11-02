@@ -44,6 +44,22 @@ Check 'broken settings set aside' (-not (Test-Path $settings) -and (Get-ChildIte
 & (Join-Path $Dir 'openrazer-studio.exe') --version | Out-Host
 Check 'repaired app runs' ($LASTEXITCODE -eq 0)
 
+# Update it, as Studio does: what was changed since installing has to survive.
+$runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+Set-ItemProperty $runKey -Name OpenRazerWin -Value "`"$(Join-Path $Dir 'openrazer-studio.exe')`" --background"
+Remove-Item -Recurse (Join-Path ([Environment]::GetFolderPath('Programs')) 'OpenRazer Studio')
+& $Setup --update --silent --dir $Dir | Out-Host
+Check 'update exit code' ($LASTEXITCODE -eq 0)
+Check 'update kept starting with Windows' ((Get-ItemProperty $runKey).OpenRazerWin -like "*$Dir*")
+Check 'update kept the Start menu entry removed' (-not (Test-Path $menu))
+Check 'update recorded the options in place' ((Get-Content (Join-Path $Dir 'install.json') | ConvertFrom-Json).options.autostart -eq $true)
+& $Setup --repair --silent | Out-Host
+
+# An update left waiting is not one of the settings that are kept.
+$updates = Join-Path $env:LOCALAPPDATA 'openrazer-win\studio\updates'
+New-Item -ItemType Directory -Force $updates | Out-Null
+Set-Content -Path (Join-Path $updates 'openrazer-studio-setup-9.9.9.exe') -Value 'waiting' -NoNewline
+
 # Remove it with the copy Apps & features runs, which hands over to a copy in TEMP.
 & (Join-Path $Dir 'setup.exe') --uninstall --silent | Out-Host
 for ($i = 0; $i -lt 60 -and (Test-Path $Dir); $i++) { Start-Sleep -Milliseconds 500 }
@@ -51,6 +67,8 @@ Check 'install folder gone' (-not (Test-Path $Dir))
 Check 'unregistered' (-not (Test-Path $key))
 Check 'start menu gone' (-not (Test-Path $menu))
 Check 'settings kept by default' ((Get-ChildItem (Split-Path $settings) -Filter 'settings.json.broken-*').Count -eq 1)
+Check 'waiting update removed' (-not (Test-Path $updates))
+Check 'starting with Windows removed' (-not ((Get-ItemProperty $runKey -ErrorAction SilentlyContinue).OpenRazerWin -like "*$Dir*"))
 Start-Sleep -Seconds 6
 Check 'temporary uninstaller cleaned up' ((Get-ChildItem $env:TEMP -Filter 'openrazer-studio-uninstall-*.exe' -ErrorAction SilentlyContinue).Count -eq 0)
 if ($failed) { exit 1 }

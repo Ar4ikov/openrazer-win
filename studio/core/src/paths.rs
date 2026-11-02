@@ -17,6 +17,11 @@ pub fn studio_dir() -> PathBuf {
     data_dir().join("studio")
 }
 
+/// Where an update waits between being downloaded and being installed.
+pub fn updates_dir() -> PathBuf {
+    studio_dir().join("updates")
+}
+
 /// `%LOCALAPPDATA%\Programs\OpenRazer Studio`: installed per user, so that
 /// installing, repairing and removing never asks for administrator rights.
 pub fn default_install_dir() -> PathBuf {

@@ -228,6 +228,9 @@ Razer owners to look for it, in English or Russian.
   window, or as text to type or a program to open, then put on any macro key of any keyboard.
 - **Integrations** — what is planned, to vote on, and what works today: the local API, and
   *Music*, an effect that makes a device pulse with whatever the PC is playing.
+- **Updates** — what changed in each version, in English or Russian, and a new one downloaded and
+  installed when you say so. Studio looks about once a day and never interrupts; a new version is a
+  small mark in the navigation. It can be skipped, and the checks turned off.
 - **Settings** — language, starting with Windows, the tray, update checks, the daemon, a report to
   attach when asking for help, and **Repair** and **Uninstall**.
 

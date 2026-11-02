@@ -7,21 +7,27 @@ use crate::appwatch::Rules;
 use crate::images::Images;
 use crate::settings::Settings;
 use crate::shell::{self, Tray, TrayAction};
+use crate::updates::{Phase, Status, Updater};
 use crate::worker::{self, Command, DaemonState, Device, Shared, Snapshot};
 use egui::{pos2, vec2, Align, Align2, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, StrokeKind};
 use openrazer_studio_core::theme::{self, icon, ACCENT, BORDER_HI, NAV, SURFACE, SURFACE_HI, TEXT, TEXT_DIM, TEXT_FAINT};
 use openrazer_studio_core::{install, t, tf, widgets};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-thread_local! {
-    /// The tray icon lives on the UI thread; kept here so Quit can take it
-    /// down before the process exits rather than leave a ghost in the tray.
-    static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
-}
+/// The tray icon, kept here so Quit can take it down before the process
+/// exits rather than leave a ghost in the tray. Quit does not always come on
+/// the UI thread: the installer's signal arrives on a thread of its own.
+static TRAY: Mutex<Option<TrayIcon>> = Mutex::new(None);
+
+struct TrayIcon(#[allow(dead_code)] Tray);
+
+// It is not `Send` for an `Rc` inside it, but it is only ever put here on the
+// UI thread and then dropped, once, by whichever thread ends the process; and
+// removing an icon from the tray is a call to the shell that any thread can make.
+unsafe impl Send for TrayIcon {}
 
 /// The width of the navigation column.
 const NAV_WIDTH: f32 = 224.0;
@@ -33,6 +39,7 @@ pub enum Page {
     Device,
     Macros,
     Integrations,
+    Updates,
     Settings,
 }
 
@@ -43,6 +50,7 @@ impl Page {
             Page::Device => t("Devices"),
             Page::Macros => t("Macros"),
             Page::Integrations => t("Integrations"),
+            Page::Updates => t("Updates"),
             Page::Settings => t("Settings"),
         }
     }
@@ -52,6 +60,7 @@ impl Page {
             Page::Device => icon::DEVICES,
             Page::Macros => icon::MACROS,
             Page::Integrations => icon::INTEGRATIONS,
+            Page::Updates => icon::SYNC,
             Page::Settings => icon::SETTINGS,
         }
     }
@@ -75,7 +84,8 @@ pub struct App {
     pub lighting: super::lighting::LightingUi,
     pub macros: super::macros::MacrosUi,
     pub arts: super::canvas::Arts,
-    pub update: crate::updates::Found,
+    pub updates: Updater,
+    pub notes: super::updates::NotesCache,
     pub installed: Option<install::Installed>,
     pub started: Instant,
     tray_ok: bool,
@@ -91,7 +101,9 @@ pub struct App {
 /// screenshot of the window once the daemon has answered, then exits.
 /// `OPENRAZER_STUDIO_PAGE` picks the page: `home`, `devices:0:performance`,
 /// `lighting:0:studio`, `macros` (`macros:0` with the first library macro
-/// open), `integrations`, `settings`.
+/// open), `integrations`, `settings`, `updates` (`updates:downloading`,
+/// `updates:ready`, `updates:installing` or `updates:failed` as if that were
+/// happening, over the releases kept in `updates.json`).
 struct Capture {
     path: std::path::PathBuf,
     page: String,
@@ -132,7 +144,7 @@ impl App {
             TrayAction::Quit => quit(),
         });
         let tray_ok = tray.is_some();
-        TRAY.with(|slot| *slot.borrow_mut() = tray);
+        *TRAY.lock().unwrap() = tray.map(TrayIcon);
         if background && !tray_ok {
             // Nowhere to live but the window, so show it after all.
             shell::show();
@@ -141,16 +153,13 @@ impl App {
         let rules: Rules = Arc::new(Mutex::new(settings.clone()));
         let serials = Arc::new(Mutex::new(Vec::new()));
         crate::appwatch::spawn(rules.clone(), tx.clone(), serials.clone());
-        let update: crate::updates::Found = Default::default();
         let capture = std::env::var_os("OPENRAZER_STUDIO_CAPTURE").map(|path| Capture {
             path: path.into(),
             page: std::env::var("OPENRAZER_STUDIO_PAGE").unwrap_or_default(),
             started: Instant::now(),
             requested: false,
         });
-        if settings.check_updates && capture.is_none() {
-            crate::updates::check(update.clone(), cc.egui_ctx.clone());
-        }
+        let updates = Updater::start(cc.egui_ctx.clone(), settings.check_updates && capture.is_none());
 
         App {
             shared,
@@ -168,7 +177,8 @@ impl App {
             lighting: Default::default(),
             macros: Default::default(),
             arts: Default::default(),
-            update,
+            updates,
+            notes: Default::default(),
             installed: install::installed(),
             started: Instant::now(),
             tray_ok,
@@ -190,6 +200,7 @@ impl App {
     pub fn save_settings(&mut self) {
         self.settings.save();
         *self.rules.lock().unwrap() = self.settings.clone();
+        self.updates.set_enabled(self.settings.check_updates);
     }
 
     /// Seconds since the window opened, for animations.
@@ -247,7 +258,7 @@ impl App {
 }
 
 fn quit() {
-    TRAY.with(|slot| drop(slot.borrow_mut().take()));
+    drop(TRAY.lock().unwrap().take());
     std::process::exit(0);
 }
 
@@ -265,6 +276,9 @@ impl eframe::App for App {
         let snap = self.shared.lock().unwrap().clone();
         self.sync(&snap);
         self.flush_pending(ctx);
+        if let Some(version) = self.updates.just_updated() {
+            self.toast(tf("Updated to {}", &[&version]), false);
+        }
 
         egui::SidePanel::left("nav")
             .exact_width(NAV_WIDTH)
@@ -282,7 +296,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        TRAY.with(|slot| drop(slot.borrow_mut().take()));
+        drop(TRAY.lock().unwrap().take());
     }
 }
 
@@ -327,7 +341,7 @@ impl App {
         nav_section(ui, t("Devices"), &snap.devices.len().to_string());
         // What the bottom of the column needs; the devices scroll in the rest.
         let tools = 2.0 * 42.0 + 40.0;
-        let bottom = 42.0 + 56.0 + if self.update.lock().unwrap().is_some() { 44.0 } else { 0.0 } + if snap.synapse.is_empty() { 0.0 } else { 20.0 };
+        let bottom = 2.0 * 42.0 + 56.0 + if snap.synapse.is_empty() { 0.0 } else { 20.0 };
         let room = (ui.available_height() - tools - bottom - 24.0).max(52.0);
         egui::ScrollArea::vertical().id_salt("nav-devices").max_height(room).auto_shrink([false, true]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
@@ -363,13 +377,9 @@ impl App {
             if nav_item(ui, Page::Settings.glyph(), Page::Settings.title(), self.page == Page::Settings) {
                 self.page = Page::Settings;
             }
-            let update = self.update.lock().unwrap().clone();
-            if let Some(update) = update {
-                let response = ui.add(widgets::Button::primary(&tf("Update {} is out", &[&update.version])).icon(icon::DOWNLOAD).width(ui.available_width()));
-                if response.on_hover_text(t("Open the release page")).clicked() {
-                    ui.ctx().open_url(egui::OpenUrl::new_tab(update.url));
-                }
-                ui.add_space(6.0);
+            let status = self.updates.status();
+            if nav_updates(ui, self.page == Page::Updates, &status) {
+                self.page = Page::Updates;
             }
         });
     }
@@ -456,6 +466,7 @@ impl App {
             Page::Device => super::device::page(self, ui, snap),
             Page::Macros => super::macros::page(self, ui, snap),
             Page::Integrations => super::integrations::page(self, ui, snap),
+            Page::Updates => super::updates::page(self, ui),
             Page::Settings => super::settings::page(self, ui, snap),
         }
     }
@@ -506,10 +517,14 @@ impl App {
                 "devices" | "lighting" => Page::Device,
                 "macros" => Page::Macros,
                 "integrations" => Page::Integrations,
+                "updates" => Page::Updates,
                 "settings" => Page::Settings,
                 _ => Page::Home,
             };
             self.page = page;
+            if let (Page::Updates, Some(state)) = (page, parts.get(1)) {
+                self.updates.pretend(state);
+            }
             if let Some(device) = parts.get(1).and_then(|i| i.parse::<usize>().ok()).and_then(|i| snap.devices.get(i)) {
                 self.selected = Some(device.serial.clone());
             }
@@ -565,6 +580,43 @@ fn paint_nav_item(ui: &egui::Ui, rect: Rect, selected: bool, hovered: bool) {
 
 /// An icon and a name in the navigation column. True when clicked.
 fn nav_item(ui: &mut egui::Ui, glyph: &str, label: &str, selected: bool) -> bool {
+    nav_row(ui, glyph, label, selected).clicked()
+}
+
+/// *Updates* in the navigation column: the same row whatever is going on,
+/// with a quiet mark at its right end when there is something to see.
+fn nav_updates(ui: &mut egui::Ui, selected: bool, status: &Status) -> bool {
+    let response = nav_row(ui, Page::Updates.glyph(), Page::Updates.title(), selected);
+    let rect = response.rect;
+    let right = pos2(rect.right() - 12.0, rect.center().y);
+    let painter = ui.painter();
+    match &status.phase {
+        Phase::Downloading(progress) => {
+            let fraction = if progress.total > 0 { (progress.done as f32 / progress.total as f32).clamp(0.0, 1.0) } else { 0.0 };
+            painter.text(right, Align2::RIGHT_CENTER, format!("{:.0}%", fraction * 100.0), theme::bold(11.5), ACCENT);
+            let track = Rect::from_min_max(pos2(rect.left() + 12.0, rect.bottom() - 4.0), pos2(rect.right() - 12.0, rect.bottom() - 2.0));
+            painter.rect_filled(track, CornerRadius::same(1), theme::BORDER);
+            painter.rect_filled(Rect::from_min_size(track.min, vec2(track.width() * fraction, track.height())), CornerRadius::same(1), ACCENT);
+        }
+        Phase::Ready => {
+            painter.text(right, Align2::RIGHT_CENTER, icon::CHECK, theme::icon_font(12.0), ACCENT);
+        }
+        _ => {
+            if let Some(release) = status.newest().filter(|_| status.worth_a_mention()) {
+                let version = painter.layout_no_wrap(release.version.clone(), theme::bold(11.5), ACCENT);
+                painter.circle_filled(pos2(right.x - version.size().x - 8.0, right.y), 3.0, ACCENT);
+                painter.galley(pos2(right.x - version.size().x, right.y - version.size().y / 2.0), version, ACCENT);
+            }
+        }
+    }
+    match status.newest().filter(|_| status.worth_a_mention()) {
+        Some(release) => response.on_hover_text(tf("Version {} is out", &[&release.version])).clicked(),
+        None => response.clicked(),
+    }
+}
+
+/// The row of an icon and a name.
+fn nav_row(ui: &mut egui::Ui, glyph: &str, label: &str, selected: bool) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::click());
     let hovered = response.hovered();
     paint_nav_item(ui, rect, selected, hovered);
@@ -572,7 +624,7 @@ fn nav_item(ui: &mut egui::Ui, glyph: &str, label: &str, selected: bool) -> bool
     painter.text(pos2(rect.left() + 22.0, rect.center().y), Align2::CENTER_CENTER, glyph, theme::icon_font(16.0), if selected { ACCENT } else if hovered { TEXT } else { TEXT_DIM });
     let text = widgets::galley_fit(ui, label, theme::body(14.0), TEXT, rect.width() - 52.0);
     painter.galley_with_override_text_color(pos2(rect.left() + 44.0, rect.center().y - text.size().y / 2.0), text, if selected || hovered { TEXT } else { TEXT_DIM });
-    response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// A small heading in the navigation column, with a count on the right.

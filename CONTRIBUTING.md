@@ -8,6 +8,19 @@ cd openrazer-win
 pip install -e ".[dev]"
 ```
 
+## Changelogs
+
+A change people will notice goes in `CHANGELOG.md` and, in Russian, in `CHANGELOG.ru.md`. A release's
+text on GitHub is made from both by `tools/release_notes.py`, and Studio shows it on its *Updates*
+page. The tests ask for a section in both for the version being released: with none in Russian,
+Studio would show Russian readers the English.
+
+## Trying an update without publishing one
+
+Build Studio with `OPENRAZER_STUDIO_TEST_FEED` set to a URL that answers like GitHub's list of
+releases, and that build takes its releases and installers from there. It is read when building, so
+nothing can redirect a released Studio.
+
 ## Before opening a pull request
 
 ```bash
