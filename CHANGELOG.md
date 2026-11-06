@@ -6,6 +6,29 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-06
+
+### Added
+
+- **Games with Razer Chroma.** Games made for Razer Chroma light your devices
+  without Synapse: health, ammunition, the keys a game uses. Switch it on in
+  Studio's *Integrations*, then add a game under *Games*: Studio puts a
+  stand-in for Razer's Chroma SDK DLL beside it, 64- or 32-bit as the game is.
+  The daemon also answers the SDK's REST API on `localhost:54235`, as Synapse
+  does. When the game closes, your own lighting comes back. Games with
+  anti-cheat should be left out, and games built on Razer's newer SDK, which
+  check Razer's signature, light nothing.
+- **The Windows accent colour on every device**, following it when it changes.
+  It is a switch in *Integrations*, and an effect, *Accent colour*, for one
+  device or one ear.
+- **Breathing and starlight** on devices that cannot do them themselves, the
+  Kraken Kitty V2 BT among them, on the whole headset or on one ear.
+- `openrazer-win integration` shows and switches both integrations.
+
+### Changed
+
+- Removing Studio takes its Chroma DLL back from the games it was given to.
+
 ## [1.5.4] - 2026-11-06
 
 ### Added
