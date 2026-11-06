@@ -13,6 +13,8 @@ import os
 import sys
 import types
 
+import upstream_source
+
 
 def _install_stubs() -> None:
     """Fake out dbus/gi/evdev so the hardware modules import on Windows."""
@@ -85,7 +87,9 @@ MODULE_TYPE_FALLBACK = {
 
 #: Devices upstream does not cover, added by this port.  They are kept here
 #: rather than hand-written into the generated JSON so that re-running the
-#: extractor against a newer OpenRazer does not silently drop them.
+#: extractor against a newer OpenRazer does not silently drop them.  A device
+#: waiting in an upstream pull request goes in tools/upstream_patches/ instead,
+#: which brings its driver quirks along with its record.
 #: Where Razer keeps its product photos.
 RAZER_IMAGES = 'https://medias-p1.phoenix.razer.com/sys-master-phoenix-images-container/'
 
@@ -188,7 +192,11 @@ def main(argv: list[str]) -> int:
     if len(argv) != 3:
         print(__doc__)
         return 2
-    upstream, out_path = argv[1], argv[2]
+    with upstream_source.checkout(argv[1]) as upstream:
+        return extract(upstream, argv[2])
+
+
+def extract(upstream: str, out_path: str) -> int:
     sys.path.insert(0, os.path.join(upstream, 'daemon'))
     _install_stubs()
 

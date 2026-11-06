@@ -28,6 +28,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import upstream_source  # noqa: E402
 from transpile_recipes import (  # noqa: E402
     _match_brace, load_constants, parse_block, strip_comments,
 )
@@ -115,7 +116,8 @@ def main(argv: list) -> int:
     if len(argv) != 3:
         print(__doc__)
         return 2
-    data = extract(argv[1])
+    with upstream_source.checkout(argv[1]) as upstream:
+        data = extract(upstream)
     with open(argv[2], 'w', encoding='utf-8', newline='\n') as handle:
         json.dump(data, handle, indent=1, sort_keys=True)
         handle.write('\n')

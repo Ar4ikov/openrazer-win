@@ -25,7 +25,8 @@ on Windows.
 This is a full port. The protocol layer moves into user space on top of the Windows HID class driver,
 D-Bus is replaced by a loopback JSON-RPC daemon, and **every device quirk is transpiled directly from
 the upstream C sources** — so all 274 USB devices OpenRazer knows about behave the same way here as they
-do on Linux, plus a Bluetooth headset upstream cannot reach at all and the BlackShark V2 HyperSpeed.
+do on Linux, plus the Pro Type Ultra from an upstream pull request still in review, a Bluetooth headset
+upstream cannot reach at all and the BlackShark V2 HyperSpeed.
 
 <p align="center"><img src="docs/images/studio-lighting.png" alt="OpenRazer Studio: a BlackWidow keyboard drawn from its own product photo, lit key by key in layers" width="860"></p>
 
@@ -242,7 +243,7 @@ Razer owners to look for it, in English or Russian.
 
 Each device is drawn from **its own product photo**: Studio traces the photo into a line drawing,
 fits the key layout onto the keycaps in it, and finds the logo and wheel where the photo shows them
-lit — so every one of the 277 devices gets a drawing of itself, not a generic shape, and the lights
+lit — so every one of the 279 devices gets a drawing of itself, not a generic shape, and the lights
 glow where they really are. Without a photo (offline, say) it draws one.
 
 <p align="center"><img src="docs/images/studio-home.png" alt="Studio's home page: each device drawn in its own light, with quick settings" width="820"></p>
@@ -367,7 +368,7 @@ against every known product id, and emits a small program per (attribute, device
  {"op": "send"}]
 ```
 
-603 distinct recipes cover all 274 USB devices. `openrazer_win/devices/recipes.py` interprets them at
+609 distinct recipes cover all 276 USB devices. `openrazer_win/devices/recipes.py` interprets them at
 runtime. Tracking a new upstream release means re-running the transpiler, not rewriting Python.
 
 **The device database** comes from the same place: `tools/extract_device_db.py` imports upstream's
@@ -529,7 +530,7 @@ pip install -e ".[dev]"
 
 pytest                              # 418 tests, no hardware needed
 ruff check .
-python tools/simulate_devices.py    # every capability of all 274 USB devices
+python tools/simulate_devices.py    # every capability of all 276 USB devices
 ```
 
 OpenRazer Studio and its installer are a Rust workspace in `studio/` — `core` (the daemon's
@@ -569,7 +570,10 @@ python tools/transpile_keys.py     /tmp/openrazer openrazer_win/devices/data/key
 pytest && python tools/simulate_devices.py
 ```
 
-New devices and changed quirks are picked up automatically.
+New devices and changed quirks are picked up automatically. A device still waiting in an upstream
+pull request is kept as that pull request's driver and daemon changes in `tools/upstream_patches/`,
+which the generators apply to a scratch copy of the checkout. Once upstream merges it, the
+generators say so, and the patch is deleted.
 
 ## Credits
 

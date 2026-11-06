@@ -22,6 +22,8 @@ import re
 import sys
 from typing import Any, Optional
 
+import upstream_source
+
 DRIVERS = {
     'kbd': 'razerkbd_driver.c',
     'mouse': 'razermouse_driver.c',
@@ -1013,4 +1015,6 @@ if __name__ == '__main__':
     if len(sys.argv) != 3:
         print(__doc__)
         raise SystemExit(2)
-    raise SystemExit(transpile(sys.argv[1], sys.argv[2]))
+    with upstream_source.checkout(sys.argv[1]) as checkout:
+        status = transpile(checkout, sys.argv[2])
+    raise SystemExit(status)
