@@ -26,7 +26,7 @@ nothing can redirect a released Studio.
 ```bash
 pytest                              # 391 tests, no hardware required
 ruff check .
-python tools/simulate_devices.py    # every capability of all 274 USB devices
+python tools/simulate_devices.py    # every capability of all 276 USB devices
 ```
 
 Everything runs against the built-in emulator, so all three pass on any machine — Windows or not.
@@ -49,6 +49,13 @@ python tools/transpile_keys.py     /tmp/openrazer openrazer_win/devices/data/key
 python tools/build_docs_data.py
 pytest && python tools/simulate_devices.py
 ```
+
+If upstream has a pull request for the device that is tested on the hardware but not merged yet,
+put its `driver/` and `daemon/` changes, rebased onto upstream master, in
+`tools/upstream_patches/openrazer-<PR number>-<device>.patch`, with a few lines on top saying where
+it came from. The three generators apply every patch there to a scratch copy of the checkout, so
+the device's quirks are transpiled like any other device's. When a sync reports that upstream
+already carries a patch, delete it; when one no longer applies, rebase it.
 
 ## Where things live
 

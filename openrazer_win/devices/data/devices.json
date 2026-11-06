@@ -9011,6 +9011,36 @@
    "transport": "hid"
   },
   {
+   "class_name": "RazerProTypeUltraWired",
+   "name": "Razer Pro Type Ultra (Wired)",
+   "vid": 5426,
+   "pid": 631,
+   "type": "keyboard",
+   "has_matrix": false,
+   "matrix_dims": null,
+   "dedicated_macro_keys": false,
+   "driver_mode": false,
+   "wave_dirs": [
+    1,
+    2
+   ],
+   "poll_rates": null,
+   "dpi_max": null,
+   "image": "https://assets2.razerzone.com/images/pnx.assets/60218b01153078857f2fe8f0f62071eb/razer-pro-type-ultra-hero-1920x699-new.jpg",
+   "methods": [
+    "get_battery",
+    "get_brightness",
+    "get_device_type_keyboard",
+    "get_keyboard_layout",
+    "is_charging",
+    "set_breath_single_effect",
+    "set_brightness",
+    "set_none_effect",
+    "set_static_effect"
+   ],
+   "transport": "hid"
+  },
+  {
    "class_name": "RazerBlade17Pro2021",
    "name": "Razer Blade 17 Pro (Mid 2021)",
    "vid": 5426,
@@ -9081,6 +9111,36 @@
     "set_none_effect",
     "set_reactive_effect",
     "set_spectrum_effect",
+    "set_static_effect"
+   ],
+   "transport": "hid"
+  },
+  {
+   "class_name": "RazerProTypeUltraWireless",
+   "name": "Razer Pro Type Ultra (Wireless)",
+   "vid": 5426,
+   "pid": 635,
+   "type": "keyboard",
+   "has_matrix": false,
+   "matrix_dims": null,
+   "dedicated_macro_keys": false,
+   "driver_mode": false,
+   "wave_dirs": [
+    1,
+    2
+   ],
+   "poll_rates": null,
+   "dpi_max": null,
+   "image": "https://assets2.razerzone.com/images/pnx.assets/60218b01153078857f2fe8f0f62071eb/razer-pro-type-ultra-hero-1920x699-new.jpg",
+   "methods": [
+    "get_battery",
+    "get_brightness",
+    "get_device_type_keyboard",
+    "get_keyboard_layout",
+    "is_charging",
+    "set_breath_single_effect",
+    "set_brightness",
+    "set_none_effect",
     "set_static_effect"
    ],
    "transport": "hid"
