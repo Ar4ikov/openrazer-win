@@ -65,6 +65,8 @@ pub struct Detail {
     pub idle_time: Option<i64>,
     pub low_battery: Option<f64>,
     pub game_mode: Option<bool>,
+    /// "typing" or "gaming", on a keyboard that has the choice.
+    pub keyswitch: Option<String>,
     pub brightness: HashMap<String, f64>,
     pub profiles: Vec<Value>,
     pub macros: Option<Value>,
@@ -413,6 +415,11 @@ impl Worker {
         if caps["game_mode"] == true {
             if let Ok(on) = self.with(|c| c.device(serial, "get_game_mode", vec![], None)) {
                 self.update(serial, |d| d.game_mode = on.as_bool());
+            }
+        }
+        if caps["keyswitch_optimization"] == true {
+            if let Ok(mode) = self.with(|c| c.device(serial, "get_keyswitch_optimization", vec![], None)) {
+                self.update(serial, |d| d.keyswitch = mode.as_str().map(str::to_string));
             }
         }
     }

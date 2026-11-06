@@ -186,9 +186,11 @@ def cmd_info(args) -> int:
                      'capabilities': capabilities}
             for key, getter in (('battery', 'battery_level'),
                                 ('charging', 'is_charging'),
-                                ('dpi', 'dpi'), ('poll_rate', 'poll_rate')):
+                                ('dpi', 'dpi'), ('poll_rate', 'poll_rate'),
+                                ('keyswitch_optimization', 'keyswitch_optimization')):
                 flag = {'battery': 'battery', 'charging': 'battery',
-                        'dpi': 'dpi', 'poll_rate': 'poll_rate'}[key]
+                        'dpi': 'dpi', 'poll_rate': 'poll_rate',
+                        'keyswitch_optimization': 'keyswitch_optimization'}[key]
                 if capabilities.get(flag):
                     try:
                         entry[key] = getattr(device, getter)
@@ -230,6 +232,8 @@ def cmd_info(args) -> int:
                     entry['poll_rate'],
                     ', '.join(str(r) for r in capabilities.get(
                         'supported_poll_rates', []))))
+            if entry.get('keyswitch_optimization'):
+                print('  keyswitch   {0}'.format(entry['keyswitch_optimization']))
             if 'battery' in entry and entry['battery'] is not None:
                 print('  battery     {0}%{1}'.format(
                     entry['battery'], ' (charging)' if entry.get('charging') else ''))
@@ -630,6 +634,26 @@ def cmd_poll_rate(args) -> int:
             device.poll_rate = args.rate
             if not args.quiet:
                 print('{0}: poll rate {1} Hz'.format(device.name, device.poll_rate))
+    return 0
+
+
+def cmd_keyswitch(args) -> int:
+    with open_manager(args) as manager:
+        found = False
+        for device in pick_devices(manager, args.device):
+            if not device.has('keyswitch_optimization'):
+                continue
+            found = True
+            if args.mode is None:
+                print('{0}: {1}'.format(device.name, device.keyswitch_optimization))
+                continue
+            device.keyswitch_optimization = args.mode
+            if not args.quiet:
+                print('{0}: keyswitch optimization {1}'.format(
+                    device.name, device.keyswitch_optimization))
+        if not found:
+            # A mode that went nowhere must not look as if it was set.
+            raise CliError('no connected keyboard has keyswitch optimization')
     return 0
 
 
@@ -1237,6 +1261,12 @@ def build_parser() -> argparse.ArgumentParser:
     poll = add('poll-rate', cmd_poll_rate, 'get or set the polling rate in Hz')
     poll.add_argument('rate', nargs='?', type=int)
     poll.add_argument('--device', '-d')
+
+    keyswitch = add('keyswitch', cmd_keyswitch,
+                    'get or set keyswitch optimization: typing keeps a debounce '
+                    'delay, gaming has none')
+    keyswitch.add_argument('mode', nargs='?', choices=('typing', 'gaming'))
+    keyswitch.add_argument('--device', '-d')
 
     battery = add('battery', cmd_battery, 'show battery level')
     battery.add_argument('--device', '-d')

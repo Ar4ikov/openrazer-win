@@ -67,6 +67,7 @@ DEVICE_METHODS = {
     # keyboard
     'get_game_mode', 'set_game_mode', 'get_macro_mode', 'set_macro_mode',
     'set_macro_effect', 'set_fn_toggle', 'get_keyboard_layout',
+    'get_keyswitch_optimization', 'set_keyswitch_optimization',
     # misc
     'get_device_mode', 'set_device_mode', 'restore', 'available_effects',
 }
@@ -384,7 +385,7 @@ class DaemonService:
             raise RpcError(NOT_SUPPORTED, str(error)) from error
         except (DeviceError, RecipeError) as error:
             raise RpcError(DEVICE_ERROR, str(error)) from error
-        except TypeError as error:
+        except (TypeError, ValueError) as error:
             raise RpcError(INVALID_PARAMS, str(error)) from error
         self.persistence.save()
         return result

@@ -45,6 +45,8 @@ pub struct Detail {
     pub dpi: Option<(i64, i64)>,
     pub dpi_stages: Option<(i64, Vec<(i64, i64)>)>,
     pub poll_rate: Option<i64>,
+    /// "typing" or "gaming", on a keyboard that has the choice.
+    pub keyswitch: Option<String>,
     pub idle_time: Option<i64>,
     pub low_battery: Option<f64>,
     pub brightness: HashMap<String, f64>,
@@ -314,6 +316,11 @@ impl Worker {
         if caps["poll_rate"] == true {
             if let Ok(rate) = self.with(|c| c.device(serial, "get_poll_rate", vec![], None)) {
                 self.update(serial, |d| d.poll_rate = rate.as_i64());
+            }
+        }
+        if caps["keyswitch_optimization"] == true {
+            if let Ok(mode) = self.with(|c| c.device(serial, "get_keyswitch_optimization", vec![], None)) {
+                self.update(serial, |d| d.keyswitch = mode.as_str().map(str::to_string));
             }
         }
     }

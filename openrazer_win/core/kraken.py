@@ -91,6 +91,7 @@ class KrakenDevice(RazerDevice):
             'poll_rate': False, 'supported_poll_rates': [],
             'battery': False, 'idle_time': False,
             'game_mode': False, 'macro_mode': False, 'keyboard_layout': False,
+            'keyswitch_optimization': False,
             'scroll_mode': False, 'custom_frame': False, 'software_effects': False,
             'readback': False,
             'transport': {

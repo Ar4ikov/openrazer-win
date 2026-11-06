@@ -158,6 +158,15 @@ class ControlPanel(ttk.Frame):
         self.poll_box.grid(row=2, column=1, sticky='w', pady=(4, 0))
         self.poll_box.bind('<<ComboboxSelected>>', self._on_poll_rate)
 
+        self.keyswitch_label = ttk.Label(self.performance, text='Keyswitches')
+        self.keyswitch_label.grid(row=3, column=0, sticky='w')
+        self.keyswitch_var = tk.StringVar()
+        self.keyswitch_box = ttk.Combobox(self.performance, textvariable=self.keyswitch_var,
+                                          state='readonly', width=8,
+                                          values=('typing', 'gaming'))
+        self.keyswitch_box.grid(row=3, column=1, sticky='w', pady=(4, 0))
+        self.keyswitch_box.bind('<<ComboboxSelected>>', self._on_keyswitch)
+
     def _build_status_bar(self) -> None:
         self.status_var = tk.StringVar(
             value='openrazer-win {0}  (device data from openrazer {1})'.format(
@@ -223,7 +232,8 @@ class ControlPanel(ttk.Frame):
         capabilities = device.capabilities
         has_dpi = bool(capabilities.get('dpi'))
         has_poll = bool(capabilities.get('poll_rate'))
-        if has_dpi or has_poll:
+        has_keyswitch = bool(capabilities.get('keyswitch_optimization'))
+        if has_dpi or has_poll or has_keyswitch:
             self.performance.grid()
         else:
             self.performance.grid_remove()
@@ -234,6 +244,13 @@ class ControlPanel(ttk.Frame):
             self.poll_box.config(values=[str(r) for r in device.supported_poll_rates])
             self._run(lambda: device.poll_rate,
                       lambda value: self.poll_var.set(str(value)))
+        if has_keyswitch:
+            self.keyswitch_label.grid()
+            self.keyswitch_box.grid()
+            self._run(lambda: device.keyswitch_optimization, self.keyswitch_var.set)
+        else:
+            self.keyswitch_label.grid_remove()
+            self.keyswitch_box.grid_remove()
         self._run(lambda: device._call('get_brightness', zone=self.zone_var.get()),
                   self._apply_brightness_readback)
 
@@ -384,6 +401,15 @@ class ControlPanel(ttk.Frame):
         self._run(lambda: setattr(device, 'poll_rate', rate),
                   lambda _r: self.status_var.set(
                       '{0}: {1} Hz'.format(device.name, rate)))
+
+    def _on_keyswitch(self, _event) -> None:
+        if self.current is None:
+            return
+        device = self.current
+        mode = self.keyswitch_var.get()
+        self._run(lambda: setattr(device, 'keyswitch_optimization', mode),
+                  lambda _r: self.status_var.set(
+                      '{0}: keyswitch optimization {1}'.format(device.name, mode)))
 
     # -- background work ---------------------------------------------------
     def _run(self, action, on_success=None) -> None:

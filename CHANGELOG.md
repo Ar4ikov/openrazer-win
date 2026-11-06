@@ -6,6 +6,15 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Keyswitch optimization** on the Razer Huntsman V2 and Huntsman V2
+  Tenkeyless: *Typing* keeps a debounce delay, *Gaming* has none, the same
+  choice as in Synapse. Use `openrazer-win keyswitch typing` or `gaming`, with
+  no mode to see which is set, or *Performance* in Studio and the control
+  panel. Python scripts have `device.keyswitch_optimization`. It follows
+  upstream's driver and has only run against an emulator here.
+
 ## [1.6.1] - 2026-11-06
 
 ### Added

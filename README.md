@@ -111,6 +111,7 @@ openrazer-win profile load night    # put it back
 openrazer-win brightness 60
 openrazer-win dpi 1800
 openrazer-win poll-rate 1000
+openrazer-win keyswitch gaming      # Huntsman V2: no debounce; `typing` puts the delay back
 openrazer-win battery
 ```
 
@@ -220,7 +221,7 @@ Razer owners to look for it, in English or Russian.
   most beside it: effect, colour, brightness, DPI stage, game mode. *All lights off* puts every
   device in the dark and back.
 - **Each device** — listed down the left, with tabs as in Synapse: *Performance* (DPI with stages,
-  polling rate), *Lighting*, *Sound* (on a headset that has settings), *Power* (battery, sleep), *Profiles*, *Keys* and *About*. Profiles save
+  polling rate, keyswitch optimization), *Lighting*, *Sound* (on a headset that has settings), *Power* (battery, sleep), *Profiles*, *Keys* and *About*. Profiles save
   what a device shows and put it back, and a profile linked to a game or app is applied whenever
   that app is in front.
 - **Lighting**, two ways. *Quick effects*: click a part of the device — the logo, the wheel, the
@@ -269,7 +270,8 @@ still shipped as a single file with the daemon inside. Pick a device on the left
 - **Lighting** — every effect the device has, as tiles with a preview; colours from a picker,
   presets or hex; speed, direction and brightness. Live, host-drawn effects (ripple, smooth wave)
   sit beside the device's own.
-- **Performance** — DPI with presets, the DPI stages the mouse button cycles, polling rate.
+- **Performance** — DPI with presets, the DPI stages the mouse button cycles, polling rate,
+  keyswitch optimization.
 - **Power** — battery, charging, sleep timer, low-battery warning.
 - **Macro keys** — what each key does, editing, recording and trying it out.
 - **Profiles** — save what is showing under a name, apply it later.
@@ -402,6 +404,7 @@ demand — `openrazer-win profile save night`, `profile load night`.
 **Features:** all hardware effects (static, spectrum, wave, wheel, reactive, blinking, breathing ×3,
 starlight ×3), per-key custom frames, per-zone brightness, DPI and DPI stages, polling rate up to
 8000 Hz, battery level and charging state, idle timeout, low-battery threshold, game mode, macro LED,
+keyswitch optimization (Typing or Gaming, Huntsman V2 and V2 Tenkeyless),
 scroll mode and acceleration, keyboard layout, addressable-RGB channels, a host-rendered ripple
 effect driven by a low-level keyboard hook, and autostart at logon.
 
