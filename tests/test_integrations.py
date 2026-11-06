@@ -105,16 +105,19 @@ def test_switches_are_off_until_turned_on_and_are_remembered(tmp_path):
 def test_turning_it_on_colours_every_device(service):
     status = service.rpc_integration_set('accent', True)
     assert status['accent']['enabled'] and status['accent']['colour'] == list(TEAL)
-    deadline = time.monotonic() + 2.0
-    keyboard = service.manager.find('BlackWidow')[0]
-    while time.monotonic() < deadline and service.persistence.get(
-            keyboard.serial, 'backlight', 'effect') != 'static':
+    parts = [(device.serial, zone) for device in service.manager.devices
+             for zone, caps in device.capabilities()['zones'].items() if 'static' in caps['effects']]
+
+    def coloured():
+        return [service.persistence.get(serial, zone, 'colors')[:3] == list(TEAL)
+                and service.persistence.get(serial, zone, 'effect') == 'static'
+                for serial, zone in parts]
+
+    # The watch colours one device after another, on a thread of its own.
+    deadline = time.monotonic() + 5.0
+    while not all(coloured()) and time.monotonic() < deadline:
         time.sleep(0.02)
-    for device in service.manager.devices:
-        zones = [z for z, c in device.capabilities()['zones'].items() if 'static' in c['effects']]
-        for zone in zones:
-            assert service.persistence.get(device.serial, zone, 'effect') == 'static'
-            assert service.persistence.get(device.serial, zone, 'colors')[:3] == list(TEAL)
+    assert parts and all(coloured())
 
 
 def test_a_host_drawn_effect_gives_way_to_it(service):
