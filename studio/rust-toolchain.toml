@@ -3,4 +3,6 @@
 # the same version as the classic control panel in gui/.
 channel = "1.96.0"
 components = ["clippy"]
+# The stand-in for Razer's Chroma SDK DLL is built 32-bit too, for 32-bit games.
+targets = ["i686-pc-windows-msvc"]
 profile = "minimal"

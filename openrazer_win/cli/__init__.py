@@ -35,7 +35,9 @@ EFFECT_HELP = """\
 none, on, static, spectrum, wave, wheel, reactive, blinking, custom,
 breath_random, breath_single, breath_dual, breath_triple,
 starlight_random, starlight_single, starlight_dual,
-ripple, ripple_random, music (host-rendered, needs the daemon)
+ripple, ripple_random, music, accent (host-rendered, need the daemon)
+
+accent lights a device in the colour Windows is set to, and follows it.
 
 On a headset, --zone left or --zone right gives one ear an effect of its own:
   openrazer-win effect music red --zone left
@@ -47,7 +49,18 @@ On a headset, --zone left or --zone right gives one ear an effect of its own:
 HOST_RENDERED_FALLBACK = {
     'spectrum': 'spectrum_soft',
     'wave': 'wave_soft',
+    'breath_single': 'breath_soft',
+    'starlight_single': 'starlight_soft',
 }
+
+INTEGRATION_HELP = """\
+Examples:
+  openrazer-win integration                  what is on, and what it is doing
+  openrazer-win integration accent on        every device in the Windows accent
+                                             colour, following it when it changes
+  openrazer-win integration chroma on        games that support Razer Chroma light
+                                             your devices, as they do with Synapse
+  openrazer-win integration chroma off"""
 
 PROFILE_HELP = """A profile is a named snapshot of what a device is showing: per-zone effect,
 colours and brightness. Devices do not store colours themselves -- the daemon
@@ -235,7 +248,8 @@ def cmd_effect(args) -> int:
             if not args.device and not device.zones:
                 continue        # nothing on it lights up
             zone = args.zone or device.zone_for_effect(
-                'custom' if args.effect in ('ripple', 'ripple_random', 'music') else args.effect)
+                'custom' if args.effect in ('ripple', 'ripple_random', 'music', 'accent')
+                else args.effect)
             fx = device.fx_for(zone)
             effect = args.effect
             rendered = False
@@ -298,6 +312,12 @@ def _apply_effect(fx, effect: str, colour, colour2, colour3, args) -> None:
         fx.ripple_random()
     elif effect == 'music':
         fx.music(*colour)
+    elif effect == 'breath_soft':
+        fx.breath_soft(*colour)
+    elif effect == 'starlight_soft':
+        fx.starlight_soft(*colour)
+    elif effect == 'accent':
+        fx.accent()
     elif effect == 'custom':
         fx.advanced.fill(colour).draw()
     else:
@@ -626,6 +646,46 @@ def cmd_battery(args) -> int:
         if not found:
             print('No battery-powered devices connected.')
     return 0
+
+
+def _shown(enabled: bool) -> str:
+    return 'on ' if enabled else 'off'
+
+
+def cmd_integration(args) -> int:
+    try:
+        client = RpcClient(timeout=10.0)
+    except DaemonUnavailable as error:
+        raise CliError('{0}\n\nIntegrations need the daemon:  openrazer-win daemon start'.format(
+            error)) from error
+    try:
+        if args.name:
+            if args.state is None:
+                raise CliError('on or off?  openrazer-win integration {0} on'.format(args.name))
+            status = client.call('integration.set', name=args.name, enabled=args.state == 'on')
+        else:
+            status = client.call('integration.status')
+    except RpcError as error:
+        raise CliError(str(error)) from error
+    finally:
+        client.close()
+    if args.json:
+        print(json.dumps(status, indent=2))
+        return 0
+    accent = status['accent']
+    colour = ('#{0:02X}{1:02X}{2:02X}'.format(*accent['colour'])
+              if accent.get('colour') else 'not available here')
+    print('accent      {0}   Windows accent colour {1}'.format(_shown(accent['enabled']), colour))
+    chroma = status['chroma']
+    line = 'chroma      {0}'.format(_shown(chroma['enabled']))
+    if chroma.get('listening'):
+        line += '   answering games on port {0}'.format(chroma['port'])
+    elif chroma.get('error'):
+        line += '   {0}'.format(chroma['error'])
+    print(line)
+    for app in chroma.get('apps') or []:
+        print('            {0}{1}'.format(app, '  (showing)' if app == chroma.get('showing') else ''))
+    return 1 if chroma['enabled'] and not chroma.get('listening') else 0
 
 
 def cmd_headset(args) -> int:
@@ -1188,6 +1248,14 @@ def build_parser() -> argparse.ArgumentParser:
                          choices=('sidetone', 'eq', 'dnd', 'led', 'sleep'))
     headset.add_argument('value', nargs='?')
     headset.add_argument('--device', '-d')
+
+    integration = add('integration', cmd_integration,
+                      'turn integrations on and off: the Windows accent colour, Chroma games',
+                      formatter_class=argparse.RawDescriptionHelpFormatter,
+                      epilog=INTEGRATION_HELP)
+    integration.add_argument('name', nargs='?', choices=('accent', 'chroma'))
+    integration.add_argument('state', nargs='?', choices=('on', 'off'))
+    integration.add_argument('--json', action='store_true')
 
     supported = add('supported', cmd_supported, 'list every device the port knows')
     supported.add_argument('search', nargs='?', default='')

@@ -73,7 +73,7 @@ def demo_daemon(tmp_path, monkeypatch):
     from openrazer_win.core.persistence import Persistence
     service = DaemonService(backend=build_demo_backend(),
                             persistence=Persistence(str(tmp_path / 'p.json')),
-                            enable_effects=True)
+                            enable_effects=True, chroma_port=0)
     service.start()
     server = DaemonServer(service, port=0)
     path = str(tmp_path / 'daemon.json')
@@ -194,6 +194,22 @@ def test_an_effect_for_everything_passes_over_what_has_no_lights(demo_daemon, ca
 def test_music_is_an_effect_of_the_daemon(demo_daemon, capsys):
     assert main(['effect', 'music', 'cyan', '--device', 'blackwidow']) == 0
     assert 'music' in capsys.readouterr().out
+
+
+def test_integrations_are_switched_from_the_command_line(demo_daemon, capsys):
+    assert main(['integration']) == 0
+    output = capsys.readouterr().out
+    assert 'accent      off' in output and 'chroma      off' in output
+    assert main(['integration', 'chroma', 'on']) == 0
+    assert 'answering games on port' in capsys.readouterr().out
+    assert main(['integration', 'chroma', 'off']) == 0
+    assert main(['integration', 'accent']) == 2
+    assert 'on or off' in capsys.readouterr().err
+
+
+def test_the_accent_colour_is_an_effect_of_the_daemon(demo_daemon, capsys):
+    assert main(['effect', 'accent', '--device', 'blackwidow']) == 0
+    assert 'accent' in capsys.readouterr().out
 
 
 def test_daemon_status(demo_daemon, capsys):

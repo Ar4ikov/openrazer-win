@@ -6,8 +6,10 @@
 
 #![windows_subsystem = "windows"]
 
+mod accent;
 mod appwatch;
 mod art;
+mod chroma;
 mod daemon;
 mod images;
 mod layout;

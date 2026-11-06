@@ -1,0 +1,14 @@
+[package]
+name = "openrazer-chroma"
+description = "A stand-in for Razer's Chroma SDK DLL that passes games' lighting to the openrazer-win daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Built as RzChromaSDK64.dll for 64-bit games and RzChromaSDK.dll for 32-bit
+# ones: the names games load Razer's SDK by.
+[lib]
+name = "rzchromasdk"
+crate-type = ["cdylib", "rlib"]

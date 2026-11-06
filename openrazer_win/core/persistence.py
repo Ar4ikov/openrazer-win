@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 ZONES = ('backlight', 'logo', 'scroll', 'left', 'right',
          'charging', 'fast_charging', 'fully_charged')
 
+#: What a device keeps of its lighting outside its zones.
+LIGHTING_VALUES = ('zone_colours',)
+
 DEFAULT_ZONE_STATE = {
     'effect': 'spectrum',
     'brightness': 75,
@@ -45,6 +48,9 @@ class Persistence:
         self._lock = threading.RLock()
         self._data: dict = {}
         self._dirty = False
+        #: Devices whose lighting is on loan -- to a game, say: what is shown
+        #: on them meanwhile is not what the user chose, so it is not kept.
+        self._held: set = set()
         self.load()
 
     # -- storage -----------------------------------------------------------
@@ -108,11 +114,22 @@ class Persistence:
             state = zones.get(zone) if isinstance(zones, dict) else None
             return copy.deepcopy(state) if isinstance(state, dict) else None
 
+    def hold_lighting(self, serial: str) -> None:
+        """Stop keeping what `serial` is lit with, until :meth:`release_lighting`."""
+        with self._lock:
+            self._held.add(serial)
+
+    def release_lighting(self, serial: str) -> None:
+        with self._lock:
+            self._held.discard(serial)
+
     def set(self, serial: str, zone: str, key: str, value: Any) -> None:
         # Only the key being set is stored.  Filling in the rest of the defaults
         # here is what used to turn "the user changed the brightness" into "the
         # user chose spectrum" on the next restore.
         with self._lock:
+            if serial in self._held:
+                return
             zones = self.device(serial).setdefault('zones', {})
             zones.setdefault(zone, {})[key] = value
             self._dirty = True
@@ -122,6 +139,8 @@ class Persistence:
 
     def set_device_value(self, serial: str, key: str, value: Any) -> None:
         with self._lock:
+            if serial in self._held and key in LIGHTING_VALUES:
+                return
             self.device(serial)[key] = value
             self._dirty = True
 

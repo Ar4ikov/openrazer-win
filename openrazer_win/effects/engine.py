@@ -16,10 +16,11 @@ import time
 
 from ..core.device import RazerDevice
 from ..devices.recipes import NotSupported, RecipeError
+from ..integrations.accent import ACCENT_POLL, WINDOWS_BLUE, read_accent
 from .audio import open_meter
 from .frame import Frame, keymap_for
 from .keyboard_hook import KeyboardHook
-from .layers import LayerStack, layers_from_options
+from .layers import BREATH_PERIOD, STARLIGHT_PERIOD, LayerStack, layers_from_options, twinkle_phase
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +36,24 @@ MUSIC = 'music'
 #: An effect of its own for each of a device's zones: a headset's two ears.
 ZONES = 'zones'
 
+#: In the colour Windows is set to, following it when it changes.
+ACCENT = 'accent'
+
+#: Drawn by the host for a device that cannot breathe or twinkle by itself.
+BREATH_SOFT = 'breath_soft'
+STARLIGHT_SOFT = 'starlight_soft'
+
 SOFTWARE_EFFECTS = ('ripple', 'ripple_random', 'wave_soft', 'spectrum_soft', 'layers',
-                    MUSIC, ZONES)
+                    MUSIC, ZONES, BREATH_SOFT, STARLIGHT_SOFT, ACCENT)
 
 #: What one zone of ``zones`` can show.  The same drawing as on the whole
 #: device, taken at that zone's place in it -- so a wave on both ears still
 #: travels from one to the other.
-ZONE_EFFECTS = ('none', 'static', 'spectrum_soft', 'wave_soft', MUSIC)
+ZONE_EFFECTS = ('none', 'static', 'spectrum_soft', 'wave_soft', MUSIC,
+                BREATH_SOFT, STARLIGHT_SOFT, ACCENT)
+
+#: Drawn cell by cell from the clock, the same way on a whole device or a zone.
+CELL_EFFECTS = (BREATH_SOFT, STARLIGHT_SOFT, ACCENT)
 
 #: Zone effects a device can show by itself, with nothing drawn by the host.
 STILL_ZONE_EFFECTS = ('none', 'static')
@@ -171,6 +183,13 @@ class EffectThread(threading.Thread):
         #: For ``zones``: each zone's effect and colour, in frame order.
         self.zone_effects = [(zone['effect'], tuple(zone['colour']))
                              for zone in (options.get('zones') or {}).values()]
+        self.started = time.monotonic()
+        #: Nothing on it moves: what is shown is held, the way a colour set
+        #: by hand is, rather than left to fade on a device that forgets.
+        self.still = effect == ACCENT or (effect == ZONES and all(
+            zone_effect in STILL_ZONE_EFFECTS + (ACCENT,) for zone_effect, _ in self.zone_effects))
+        self._accent = WINDOWS_BLUE
+        self._accent_read_at: float = float('-inf')
         if effect == 'layers':
             self.stack = LayerStack(layers_from_options(options, self.frame.rows,
                                                         self.frame.columns),
@@ -262,8 +281,11 @@ class EffectThread(threading.Thread):
                 elif self.effect == MUSIC:
                     if not self._render_music():
                         continue
-                elif self.effect == ZONES:
-                    changed = self._render_zones(phase)
+                elif self.effect in (ZONES,) + CELL_EFFECTS:
+                    if self.effect == ZONES:
+                        changed = self._render_zones(phase)
+                    else:
+                        changed = self._render_cells(self.effect, self.colour)
                     phase = (phase + self.refresh) % 10.0
                     if changed:
                         self._push()
@@ -368,11 +390,44 @@ class EffectThread(threading.Thread):
             self._fill_column(column, self._music_at(column, level, self.colour))
         return self.frame != before
 
+    def _accent_colour(self) -> tuple:
+        """The Windows accent colour, looked at again every couple of seconds."""
+        now = time.monotonic()
+        if now - self._accent_read_at >= ACCENT_POLL:
+            self._accent_read_at = now
+            self._accent = read_accent() or self._accent
+        return self._accent
+
+    def _cell_at(self, effect: str, colour, row: int, column: int) -> tuple:
+        """One cell of an effect drawn from the clock alone."""
+        elapsed = time.monotonic() - self.started
+        if effect == BREATH_SOFT:
+            return _scale(colour, 0.5 - 0.5 * math.cos(elapsed / BREATH_PERIOD * 2 * math.pi))
+        if effect == STARLIGHT_SOFT:
+            # The same twinkle as Studio's starlight layer: a short flash, then dark.
+            cycle = elapsed / STARLIGHT_PERIOD + twinkle_phase(row, column) * 7.0
+            return _scale(colour, max(0.0, math.sin(cycle * 2 * math.pi)) ** 6)
+        if effect == ACCENT:
+            return self._accent_colour()
+        return (0, 0, 0)
+
+    def _render_cells(self, effect: str, colour) -> bool:
+        """Draw a clock-driven effect over the whole device.  False if nothing changed."""
+        before = self.frame.copy()
+        for row in range(self.frame.rows):
+            for column in range(self.frame.columns):
+                self.frame.set(row, column, *self._cell_at(effect, colour, row, column))
+        return self.frame != before
+
     def _render_zones(self, phase: float) -> bool:
         """Draw each zone's own effect in its column.  False if nothing changed."""
         level = self._hear() if self.meter is not None else 0.0
         before = self.frame.copy()
         for column, (effect, colour) in enumerate(self.zone_effects):
+            if effect in CELL_EFFECTS:
+                for row in range(self.frame.rows):
+                    self.frame.set(row, column, *self._cell_at(effect, colour, row, column))
+                continue
             if effect == 'static':
                 shown = colour
             elif effect == 'spectrum_soft':
@@ -387,6 +442,10 @@ class EffectThread(threading.Thread):
         return self.frame != before
 
     def _push(self) -> None:
+        if self.still and hasattr(self.device, 'set_zone_colours'):
+            self.device.set_zone_colours([self.frame.get(0, column)
+                                          for column in range(self.frame.columns)])
+            return
         # The ARGB controller wipes a frame written before the switch to custom
         # mode, so there the mode goes first, and only once.
         transport = getattr(self.device, 'transport', None)

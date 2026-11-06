@@ -1,15 +1,19 @@
-//! Integrations: what Studio will connect to, and the one thing it already does.
+//! Integrations: what works today, with its switches, and what is still to come.
 //!
 //! Nothing here pretends to work. Each tile says plainly whether it is
 //! planned or only an idea, and asks for a vote, so what gets built next is
 //! what people actually want.
 
 use super::app::{scroll, App};
-use crate::worker::Snapshot;
+use crate::chroma;
+use crate::worker::{Command, Snapshot};
 use egui::{vec2, CornerRadius, Frame, Margin, RichText, Sense, Stroke};
 use openrazer_studio_core::install::REPOSITORY;
 use openrazer_studio_core::theme::{self, icon, ACCENT, BORDER, SURFACE, SURFACE_HI, TEXT, TEXT_DIM};
-use openrazer_studio_core::{t, widgets};
+use openrazer_studio_core::widgets::Button;
+use openrazer_studio_core::{t, tf, widgets};
+use serde_json::Value;
+use std::path::Path;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Status {
@@ -27,9 +31,7 @@ struct Item {
 
 fn apps() -> Vec<Item> {
     vec![
-        Item { glyph: icon::GAME, name: t("Games with Razer Chroma"), text: t("Games that light Razer devices through Razer's Chroma SDK, lighting them here instead."), status: Status::Planned },
         Item { glyph: icon::MUSIC, name: t("Music and sound"), text: t("Keys that pulse with whatever is playing."), status: Status::Ready },
-        Item { glyph: icon::PALETTE, name: t("Windows accent colour"), text: t("Every device in the colour Windows is set to, following it when it changes."), status: Status::Planned },
         Item { glyph: icon::CHAT, name: "Discord", text: t("Calls, mentions and a muted microphone shown on the keyboard."), status: Status::Idea },
         Item { glyph: icon::SCREEN, name: t("Screen ambience"), text: t("Devices glowing in the colours at the edges of the screen."), status: Status::Idea },
         Item { glyph: icon::RECORD, name: "OBS Studio", text: t("A key that lights up while recording or streaming."), status: Status::Idea },
@@ -48,15 +50,132 @@ fn devices() -> Vec<Item> {
 }
 
 pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
-    let _ = (app, snap);
     widgets::page_header(ui, t("Integrations"), t("Most of this is still to come: vote for what should come first."), |ui| {
         widgets::link_button(ui, t("Suggest an integration"), &format!("{REPOSITORY}/issues/new?title=Integration:%20&labels=integration"));
     });
     scroll(ui, "integrations", |ui| {
+        widgets::columns(ui, 0.5, 860.0, |ui, column| {
+            if column == 0 {
+                games(app, ui, &snap.integrations);
+            } else {
+                accent(app, ui, &snap.integrations);
+            }
+        });
         developers(ui);
         grid(ui, "apps", t("Apps and games"), apps());
         grid(ui, "devices", t("Other devices"), devices());
     });
+}
+
+/// A switch for one of the daemon's integrations, or why there is none.
+fn switch(app: &mut App, ui: &mut egui::Ui, status: &Value, name: &str, label: &str, help: &str) -> bool {
+    let mut on = status[name]["enabled"] == true;
+    let known = status[name].is_object();
+    widgets::row(ui, label, help, |ui| {
+        if !known {
+            ui.label(widgets::faint(t("Needs the daemon from Studio 1.6.0 or later, running")));
+        } else if widgets::toggle(ui, &mut on).changed() {
+            app.send(Command::Integration { name: name.into(), enabled: on });
+        }
+    });
+    on
+}
+
+fn accent(app: &mut App, ui: &mut egui::Ui, status: &Value) {
+    widgets::panel_with(
+        ui,
+        t("Windows accent colour"),
+        |ui| {
+            widgets::badge(ui, t("Works now"), ACCENT);
+        },
+        |ui| {
+            widgets::help(ui, t("Every device in the colour Windows is set to, following it when it changes."));
+            let on = switch(app, ui, status, "accent", t("Follow the accent colour"), t("While on, a new colour chosen in Windows' personalisation settings is put on every device."));
+            widgets::divider(ui);
+            widgets::row(ui, t("The colour now"), "", |ui| {
+                let colour = crate::accent::colour();
+                widgets::swatch(ui, colour, 26.0, false);
+                ui.label(widgets::dim(super::effects::hex(colour)));
+            });
+            if !on {
+                widgets::help(ui, t("One device or one ear can follow it on its own too: choose Windows accent colour as its effect, under Lighting."));
+            }
+        },
+    );
+}
+
+fn games(app: &mut App, ui: &mut egui::Ui, status: &Value) {
+    widgets::panel_with(
+        ui,
+        t("Games with Razer Chroma"),
+        |ui| {
+            widgets::badge(ui, t("Works now"), ACCENT);
+        },
+        |ui| {
+            widgets::help(ui, t("Games made for Razer Chroma light your devices as they would with Synapse: health, ammunition, the keys a game uses."));
+            let on = switch(app, ui, status, "chroma", t("Let games light devices"), t("While a game shows something, it has the devices; when it closes, your own lighting comes back."));
+            let chroma = &status["chroma"];
+            if on {
+                if chroma["listening"] == true {
+                    let text = match chroma["showing"].as_str() {
+                        Some(game) => tf("Showing now: {}", &[&game]),
+                        None => t("Ready: no game is showing anything").to_string(),
+                    };
+                    widgets::status_dot(ui, ACCENT, &text);
+                } else if chroma["error"].is_string() {
+                    widgets::status_dot(ui, theme::WARN, t("Razer Synapse holds the port games look for. Close it, then switch this off and on again."));
+                }
+            }
+            widgets::divider(ui);
+            game_list(app, ui);
+            widgets::help(ui, t("Leave out games with anti-cheat, such as online shooters: it may take a file it does not know for a cheat. Games built on Razer's newer SDK check that the file is Razer's own, and light nothing here."));
+        },
+    );
+}
+
+fn game_list(app: &mut App, ui: &mut egui::Ui) {
+    let available = chroma::available();
+    widgets::row(ui, t("Games"), t("Most games look for Razer's SDK beside their program, and find it only once it is put there."), |ui| {
+        if ui.add(Button::secondary(t("Add a game…")).icon(icon::ADD).enabled(available)).clicked() {
+            if let Some(path) = rfd::FileDialog::new().add_filter(t("Programs"), &["exe"]).set_title(t("Which game should light your devices?")).pick_file() {
+                match chroma::give(&path) {
+                    Ok(()) => {
+                        let path = path.display().to_string();
+                        if !app.settings.chroma_games.contains(&path) {
+                            app.settings.chroma_games.push(path);
+                            app.save_settings();
+                        }
+                        app.toast(t("The game can light your devices from its next start"), false);
+                    }
+                    Err(error) => app.toast(tf("Could not add it: {}", &[&error]), true),
+                }
+            }
+        }
+    });
+    if !available {
+        widgets::help(ui, t("This build of Studio has no Chroma DLL to give games; the one installed from a release has."));
+    }
+    let mut removed = None;
+    for (index, game) in app.settings.chroma_games.iter().enumerate() {
+        let path = Path::new(game);
+        let name = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| game.clone());
+        widgets::row(ui, &name, game, |ui| {
+            if ui.add(Button::ghost(t("Remove")).icon(icon::DELETE).small()).clicked() {
+                removed = Some(index);
+            }
+            if !chroma::given(path) {
+                ui.label(widgets::faint(t("Updated or moved: add it again")));
+            }
+        });
+    }
+    if let Some(index) = removed {
+        let game = app.settings.chroma_games.remove(index);
+        app.save_settings();
+        match chroma::take_back(Path::new(&game)) {
+            Ok(()) => app.toast(t("Removed from beside the game"), false),
+            Err(error) => app.toast(tf("Could not remove it: {}", &[&error]), true),
+        }
+    }
 }
 
 fn grid(ui: &mut egui::Ui, id: &str, title: &str, items: Vec<Item>) {

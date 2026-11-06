@@ -266,6 +266,10 @@ pub fn uninstall(dir: &Path, removal: Removal, progress: &dyn Progress) -> Resul
     }
     let _ = std::fs::remove_file(desktop_link());
     install::unregister().map_err(|e| e.to_string())?;
+    let taken = take_back_chroma();
+    if taken > 0 {
+        progress.note(tf("Took the Chroma DLL back from {} game(s)", &[&taken]));
+    }
 
     progress.step(tf("Deleting {}…", &[&dir.display()]), 0.55);
     let manifest = Manifest::read(dir).unwrap_or_default();
@@ -316,6 +320,27 @@ pub fn uninstall(dir: &Path, removal: Removal, progress: &dyn Progress) -> Resul
     }
     progress.step(t("Done").into(), 1.0);
     Ok(())
+}
+
+/// Take the stand-in for Razer's Chroma SDK DLL back from beside the games
+/// Studio gave it to: with no daemon to pass their lighting to, it would only
+/// tell them Synapse is there. A DLL without its mark is Razer's, and stays.
+fn take_back_chroma() -> usize {
+    const MARK: &[u8] = b"openrazer-chroma";
+    let Ok(text) = std::fs::read_to_string(paths::studio_dir().join("settings.json")) else { return 0 };
+    let Ok(settings) = serde_json::from_str::<serde_json::Value>(&text) else { return 0 };
+    let mut taken = 0;
+    for game in settings["chroma_games"].as_array().into_iter().flatten().filter_map(|g| g.as_str()) {
+        let Some(dir) = Path::new(game).parent() else { continue };
+        for name in ["RzChromaSDK64.dll", "RzChromaSDK.dll"] {
+            let dll = dir.join(name);
+            let ours = std::fs::read(&dll).is_ok_and(|bytes| bytes.windows(MARK.len()).any(|w| w == MARK));
+            if ours && std::fs::remove_file(&dll).is_ok() {
+                taken += 1;
+            }
+        }
+    }
+    taken
 }
 
 /// Have Windows delete `file` once this process has exited.

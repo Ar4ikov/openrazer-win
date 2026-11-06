@@ -278,7 +278,8 @@ pub fn hardware(effect: &str, colours: &[Color32; 3], speed: i64, direction: i64
         // What is playing is not known here, so a likeness at 120 beats a minute.
         "music" => scale(c1, 0.12 + 0.88 * (1.0 - (t * 2.0).fract()).powi(3)),
         "wheel" => hue(x * 0.5 + seed * 0.5 - t / WAVE_PERIOD),
-        "breath_single" => scale(c1, 0.5 - 0.5 * (t / BREATH_PERIOD * std::f32::consts::TAU).cos()),
+        "breath_single" | "breath_soft" => scale(c1, 0.5 - 0.5 * (t / BREATH_PERIOD * std::f32::consts::TAU).cos()),
+        "accent" => crate::accent::colour(),
         "breath_dual" | "breath_triple" => {
             let count = if effect == "breath_dual" { 2 } else { 3 };
             let cycle = t / BREATH_PERIOD;
@@ -313,7 +314,7 @@ pub fn hardware(effect: &str, colours: &[Color32; 3], speed: i64, direction: i64
 
 /// Whether a device effect changes over time.
 pub fn hardware_animated(effect: &str) -> bool {
-    !matches!(effect, "none" | "" | "static" | "custom" | "on" | "reactive" | "ripple" | "ripple_random")
+    !matches!(effect, "none" | "" | "static" | "custom" | "on" | "reactive" | "ripple" | "ripple_random" | "accent")
 }
 
 #[cfg(test)]
