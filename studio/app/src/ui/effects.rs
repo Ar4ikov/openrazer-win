@@ -7,9 +7,11 @@ use openrazer_studio_core::t;
 use serde_json::{json, Value};
 
 /// Drawn by the daemon, frame by frame, rather than by the device.
-pub const SOFTWARE: [&str; 5] = ["ripple", "ripple_random", "spectrum_soft", "wave_soft", "music"];
+pub const SOFTWARE: [&str; 8] = ["ripple", "ripple_random", "spectrum_soft", "wave_soft", "music", "breath_soft", "starlight_soft", "accent"];
 /// Drawn by the daemon on one zone alone, on a device whose zones it can light one by one.
-pub const ZONE_SOFTWARE: [&str; 3] = ["spectrum_soft", "wave_soft", "music"];
+pub const ZONE_SOFTWARE: [&str; 6] = ["spectrum_soft", "wave_soft", "music", "breath_soft", "starlight_soft", "accent"];
+/// A host-drawn effect, and the device's own that makes it unneeded where there is one.
+const STANDS_IN_FOR: [(&str, &str); 2] = [("breath_soft", "breath_single"), ("starlight_soft", "starlight_single")];
 /// Need a key press to place; pointless below this many LEDs.
 const KEY_REACTIVE: [&str; 2] = ["ripple", "ripple_random"];
 const MIN_RIPPLE_CELLS: i64 = 8;
@@ -51,6 +53,9 @@ pub fn label(effect: &str) -> &'static str {
         "spectrum_soft" => t("Smooth spectrum"),
         "wave_soft" => t("Smooth wave"),
         "music" => t("Music"),
+        "breath_soft" => t("Breathing"),
+        "starlight_soft" => t("Starlight"),
+        "accent" => t("Accent colour"),
         "custom" | "layers" => t("Per-key (Studio)"),
         "zones" => t("Each ear on its own"),
         _ => t("Other"),
@@ -59,7 +64,7 @@ pub fn label(effect: &str) -> &'static str {
 
 pub fn colour_count(effect: &str) -> usize {
     match effect {
-        "static" | "blinking" | "reactive" | "breath_single" | "starlight_single" | "ripple" | "wave_soft" | "music" => 1,
+        "static" | "blinking" | "reactive" | "breath_single" | "starlight_single" | "ripple" | "wave_soft" | "music" | "breath_soft" | "starlight_soft" => 1,
         "breath_dual" | "starlight_dual" => 2,
         "breath_triple" => 3,
         _ => 0,
@@ -69,7 +74,7 @@ pub fn colour_count(effect: &str) -> usize {
 pub fn speeds(effect: &str) -> Option<Vec<(i64, String)>> {
     match effect {
         "reactive" => Some(vec![(1, t("Short").into()), (2, t("Medium").into()), (3, t("Long").into()), (4, t("Longest").into())]),
-        e if e.starts_with("starlight") => Some(vec![(1, t("Fast").into()), (2, t("Medium").into()), (3, t("Slow").into())]),
+        e if e.starts_with("starlight") && e != "starlight_soft" => Some(vec![(1, t("Fast").into()), (2, t("Medium").into()), (3, t("Slow").into())]),
         _ => None,
     }
 }
@@ -157,6 +162,10 @@ pub fn effects_for(caps: &Value, zone: &str) -> Vec<String> {
             if KEY_REACTIVE.contains(&effect) && cells < MIN_RIPPLE_CELLS {
                 continue;
             }
+            // Breathing drawn by the host is for a device that cannot breathe.
+            if STANDS_IN_FOR.iter().any(|(soft, own)| *soft == effect && effects.iter().any(|e| e == own)) {
+                continue;
+            }
             if !effects.iter().any(|e| e == effect) {
                 effects.push(effect.to_string());
             }
@@ -240,11 +249,21 @@ mod tests {
             "zones": { "backlight": { "effects": ["none", "static"] }, "left": { "effects": ["none", "static"] }, "right": { "effects": ["none", "static"] } },
         });
         assert_eq!(own_zones(&caps), vec!["left".to_string(), "right".to_string()]);
-        assert_eq!(effects_for(&caps, "left"), vec!["none", "static", "spectrum_soft", "wave_soft", "music"]);
+        assert_eq!(effects_for(&caps, "left"), vec!["none", "static", "spectrum_soft", "wave_soft", "music", "breath_soft", "starlight_soft", "accent"]);
         // A ripple needs keys to spread over, on the whole headset as on one ear.
         assert!(!effects_for(&caps, "backlight").iter().any(|e| e.starts_with("ripple")));
         let keyboard = json!({ "software_effects": true, "zones": { "logo": { "effects": ["static"] } } });
         assert_eq!(effects_for(&keyboard, "logo"), vec!["static"]);
+    }
+
+    #[test]
+    fn breathing_is_drawn_only_where_the_device_cannot_breathe() {
+        let caps = |own: &[&str]| json!({ "software_effects": true, "matrix_dimensions": [6, 22], "zones": { "backlight": { "effects": own } } });
+        let keyboard = effects_for(&caps(&["static", "breath_single", "starlight_single"]), "backlight");
+        assert!(!keyboard.iter().any(|e| e == "breath_soft" || e == "starlight_soft"));
+        assert!(keyboard.iter().any(|e| e == "accent"));
+        let plain = effects_for(&caps(&["static"]), "backlight");
+        assert!(plain.iter().any(|e| e == "breath_soft") && plain.iter().any(|e| e == "starlight_soft"));
     }
 
     #[test]

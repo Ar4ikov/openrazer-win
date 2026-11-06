@@ -100,6 +100,9 @@ openrazer-win zones                  # list a device's zones
 openrazer-win zones red blue        # one colour each: left ear red, right ear blue
 openrazer-win effect music red --zone left   # an effect for one ear, the other kept as it is
 
+openrazer-win integration accent on # every device in the Windows accent colour, and following it
+openrazer-win integration chroma on # games made for Razer Chroma light your devices
+
 openrazer-win profile save night    # remember what is showing now
 openrazer-win profile               # list saved profiles
 openrazer-win profile load night    # put it back
@@ -228,8 +231,9 @@ Razer owners to look for it, in English or Russian.
   Studio closed and comes back after a restart; profiles carry it too.
 - **Macros** — a library of macros, built step by step (press, hold, let go, wait), recorded in the
   window, or as text to type or a program to open, then put on any macro key of any keyboard.
-- **Integrations** — what is planned, to vote on, and what works today: the local API, and
-  *Music*, an effect that makes a device pulse with whatever the PC is playing.
+- **Integrations** — what works today, with its switches: **games with Razer Chroma**, the
+  **Windows accent colour** on every device, *Music*, and the local API; and what is planned, to
+  vote on.
 - **Updates** — what changed in each version, in English or Russian, and a new one downloaded and
   installed when you say so. Studio looks about once a day and never interrupts; a new version is a
   small mark in the navigation. It can be skipped, and the checks turned off.
@@ -281,6 +285,41 @@ restart.
 
 After `pip install`, `openrazer-win-gui` opens the older, Tk-based panel, which needs nothing
 beyond Python.
+
+### Games with Razer Chroma
+
+A game made for Razer Chroma talks to Razer's Chroma SDK, which Synapse installs; without Synapse it
+finds none and lights nothing. With **Games with Razer Chroma** on (Studio's *Integrations*, or
+`openrazer-win integration chroma on`), the daemon takes the SDK's place:
+
+- It answers the SDK's **REST API** on `localhost:54235`, where Razer's does, so a program written
+  against the REST API — some games, and web pages that light the keyboard — works unchanged.
+- Most games load the SDK's **DLL** instead, `RzChromaSDK64.dll` or, 32-bit, `RzChromaSDK.dll`.
+  Studio carries a stand-in for it, built from [`studio/chroma`](studio/chroma), and puts the right
+  one beside a game's program when it is added under *Games*; a game finds a DLL beside it before
+  looking anywhere else. The stand-in passes what the game shows to the daemon, never makes the game
+  wait, and is taken away again from the list or when Studio is uninstalled — Razer's own DLL, where
+  a game ships one, is never touched.
+
+A game draws on kinds of device — the keyboard on Razer's 6 × 22 grid, the mouse on 9 × 7, the
+headset, mousepad, keypad and Chroma Link — and the daemon puts each on whatever of that kind is
+plugged in: key by key on a keyboard, LED by LED on a strip, a mouse's logo and wheel from where
+Razer's grid puts them, a headset's first two LEDs on its ears. Whichever game showed something last
+has the devices; when it closes, or goes quiet for fifteen seconds as in Razer's SDK, each device
+gets back exactly what it had, host-drawn effects included. Nothing a game shows is saved as your
+lighting.
+
+Two limits, honestly. Games with **anti-cheat** — online shooters and the like — may take a DLL they
+do not know for a cheat, so leave those out. And games built on Razer's newer SDK check that the
+DLL is signed by Razer, which this one cannot be: they light nothing here. Older games, and
+everything on the REST API, work. If Synapse is running it holds the port, and Studio says so.
+
+### The Windows accent colour
+
+With **Windows accent colour** on, every device takes the colour Windows is set to, and takes it
+again the moment it is changed in *Settings › Personalisation › Colours*; a device plugged in later
+is told too. One device or one ear can follow it on its own instead: *Accent colour* is an effect
+under *Lighting*, and `openrazer-win effect accent`.
 
 ## How it works
 
@@ -384,8 +423,8 @@ the traffic dead — so this port renders them the same way, through its own eff
 `effect spectrum` and `effect wave` fall back to the frame-by-frame renderer on any device whose
 firmware has no such mode, and say so when they do.
 
-Each ear can have an effect of its own: smooth spectrum, smooth wave or music on one, a static colour
-or another effect on the other. Studio does it when an ear is picked under *Part*; on the command
+Each ear can have an effect of its own: smooth spectrum, smooth wave, music, breathing, starlight or
+the Windows accent colour on one, a static colour or another effect on the other. Studio does it when an ear is picked under *Part*; on the command
 line it is `--zone left` or `--zone right`. The daemon draws both ears in one frame, so a wave on
 both still travels from one ear to the other, and an ear set to a plain colour while the other is
 animated joins the drawing rather than being painted over by it.
@@ -478,6 +517,7 @@ each product id is in the database.
 | Nothing at all listed | Only Razer devices (vendor `1532`) are handled. |
 | The control panel says the daemon did not start | It shows what the daemon printed; the same is in `%LOCALAPPDATA%\openrazer-win\daemon-start.log`. |
 | Devices do nothing after the daemon starts with Windows | `openrazer-win daemon status` lists devices still waiting to be set up; the daemon keeps retrying them. If it reports an older version, `openrazer-win daemon restart`. |
+| A game made for Razer Chroma lights nothing | `openrazer-win integration` says whether games can reach the daemon, and which is showing something. Add the game under *Integrations › Games* in Studio and restart it. A game built on Razer's newer SDK, which checks Razer's signature, cannot be lit. |
 | Macro keys do nothing | `openrazer-win macro` says whether the keyboard's keys are being handled; `openrazer-win macro watch` shows whether its key report arrives at all. |
 
 ## Development

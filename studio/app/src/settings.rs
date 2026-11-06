@@ -43,6 +43,8 @@ pub struct Settings {
     /// Brightness before "Lights off", by serial and zone, to put back.
     pub lights_before: BTreeMap<String, BTreeMap<String, f64>>,
     pub recent_colours: Vec<[u8; 3]>,
+    /// Games given the stand-in for Razer's Chroma SDK DLL, by their program.
+    pub chroma_games: Vec<String>,
 }
 
 impl Default for Settings {
@@ -59,6 +61,7 @@ impl Default for Settings {
             macros: Vec::new(),
             lights_before: BTreeMap::new(),
             recent_colours: Vec::new(),
+            chroma_games: Vec::new(),
         }
     }
 }

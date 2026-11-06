@@ -18,9 +18,12 @@ from .._version import __version__
 from ..core.device import DeviceError, RazerDevice
 from ..core.manager import DeviceManager
 from ..core.persistence import Persistence
+from ..chroma import PORT as CHROMA_PORT
+from ..chroma import ChromaBridge, ChromaServer
 from ..core.profiles import ProfileError, ProfileStore, apply_profile, snapshot
 from ..devices.recipes import NotSupported, RecipeError
 from ..effects.engine import EffectEngine, zone_order
+from ..integrations import AccentWatch, IntegrationSettings, read_accent
 from . import protocol
 from .protocol import (
     DEVICE_ERROR, DEVICE_NOT_FOUND, INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST,
@@ -108,7 +111,9 @@ class DaemonService:
     def __init__(self, backend=None, persistence: Optional[Persistence] = None,
                  enable_effects: bool = True,
                  profiles: Optional[ProfileStore] = None,
-                 enable_keys: bool = False, keys=None, macros=None):
+                 enable_keys: bool = False, keys=None, macros=None,
+                 integrations: Optional[IntegrationSettings] = None,
+                 chroma_port: int = CHROMA_PORT):
         self.persistence = persistence or Persistence()
         self.profiles = profiles if profiles is not None else ProfileStore()
         self.manager = DeviceManager(backend=backend, persistence=self.persistence)
@@ -128,6 +133,16 @@ class DaemonService:
         self.state = 'starting'
         #: Devices still waiting to be set up: device -> (attempts, retry at).
         self._pending: dict = {}
+        #: Switched on and off by the user, and remembered beside the lighting.
+        self.integrations = integrations if integrations is not None else IntegrationSettings(
+            os.path.join(os.path.dirname(self.persistence.path), 'integrations.json'))
+        self.accent = AccentWatch(self._follow_accent)
+        self.chroma = ChromaBridge(lambda: self.manager.devices, effects=self.effects,
+                                   persistence=self.persistence, on_release=self._after_game)
+        self.chroma_port = chroma_port
+        self.chroma_server: Optional[ChromaServer] = None
+        #: Why games cannot reach the daemon, when they cannot.
+        self.chroma_error: Optional[str] = None
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -138,6 +153,10 @@ class DaemonService:
             self._initialise(device)
         if self.effects is not None:
             self.effects.start()
+        if self.integrations.enabled('accent'):
+            self.accent.start()
+        if self.integrations.enabled('chroma'):
+            self._start_chroma()
         self.state = 'ready'
 
     def _initialise(self, device) -> bool:
@@ -168,6 +187,8 @@ class DaemonService:
         return True
 
     def stop(self) -> None:
+        self.accent.stop()
+        self._stop_chroma()
         if self.effects is not None:
             self.effects.stop()
         for device in self.manager.devices:
@@ -190,8 +211,9 @@ class DaemonService:
         current = self.manager.devices
         present = {device.serial for device in current}
         for device in current:
-            if device not in before:
-                self._initialise(device)
+            if device not in before and self._initialise(device) and self.accent.colour:
+                # Away when the colour last changed, perhaps: it is told now.
+                self._paint_accent(device, self.accent.colour)
         now = time.monotonic()
         for device, (_attempts, retry_at) in list(self._pending.items()):
             if device not in current:
@@ -208,6 +230,88 @@ class DaemonService:
             # then be reached to stop it.
             for serial in known - present:
                 self.effects.clear_serial(serial)
+
+    # -- integrations --------------------------------------------------------
+    def _paint_accent(self, device, colour) -> None:
+        """Light every part of `device` that takes a colour in `colour`."""
+        if self.chroma.drawing(device):
+            return      # a game has it; it is told when the game is done
+        zones = [zone for zone, caps in (device.capabilities().get('zones') or {}).items()
+                 if 'static' in (caps.get('effects') or [])]
+        if not zones:
+            return
+        try:
+            if self.effects is not None:
+                self.effects.stop_for(device)
+            if hasattr(device, 'set_zone_colours'):
+                device.set_zone_colours([list(colour)])
+            else:
+                for zone in zones:
+                    device.set_static(*colour, zone=zone)
+        except Exception as error:  # noqa: BLE001 - the others still follow
+            logger.debug('could not colour %s: %s', device.name, error)
+
+    def _follow_accent(self, colour) -> None:
+        logger.info('following the accent colour #%02X%02X%02X', *colour)
+        for device in self.manager.devices:
+            self._paint_accent(device, colour)
+        self.persistence.save()
+
+    def _after_game(self, device) -> None:
+        if self.accent.running and self.accent.colour:
+            self._paint_accent(device, self.accent.colour)
+
+    def _start_chroma(self) -> None:
+        if self.chroma_server is not None:
+            return
+        try:
+            server = ChromaServer(self.chroma, port=self.chroma_port)
+        except OSError as error:
+            self.chroma_error = 'port {0} is taken, most likely by Razer Synapse: {1}'.format(
+                self.chroma_port, error)
+            logger.warning('games cannot reach the daemon: %s', self.chroma_error)
+            return
+        self.chroma_error = None
+        self.chroma.start()
+        server.start()
+        self.chroma_server = server
+        logger.info('answering Razer Chroma on port %d', server.server_address[1])
+
+    def _stop_chroma(self) -> None:
+        server, self.chroma_server = self.chroma_server, None
+        if server is not None:
+            server.stop()
+        self.chroma.stop()
+
+    def rpc_integration_status(self) -> dict:
+        switches = self.integrations.as_dict()
+        colour = read_accent()
+        server = self.chroma_server
+        return {
+            'accent': {'enabled': switches['accent'], 'available': colour is not None,
+                       'colour': list(colour) if colour else None},
+            'chroma': dict(self.chroma.status(), enabled=switches['chroma'],
+                           listening=server is not None,
+                           port=server.server_address[1] if server is not None else self.chroma_port,
+                           error=self.chroma_error),
+        }
+
+    def rpc_integration_set(self, name: str, enabled: bool) -> dict:
+        try:
+            self.integrations.set(name, bool(enabled))
+        except ValueError as error:
+            raise RpcError(INVALID_PARAMS, str(error)) from error
+        if name == 'accent':
+            if enabled:
+                self.accent.start()
+            else:
+                self.accent.stop()
+        elif name == 'chroma':
+            if enabled:
+                self._start_chroma()
+            else:
+                self._stop_chroma()
+        return self.rpc_integration_status()
 
     # -- lookups -----------------------------------------------------------
     def _device(self, serial: str) -> RazerDevice:
@@ -509,6 +613,8 @@ class DaemonServer(socketserver.ThreadingTCPServer):
             'device.call': service.rpc_call,
             'effect.set': service.rpc_effect,
             'effect.status': service.rpc_effect_status,
+            'integration.status': service.rpc_integration_status,
+            'integration.set': service.rpc_integration_set,
             'profile.list': service.rpc_profile_list,
             'profile.save': service.rpc_profile_save,
             'profile.load': service.rpc_profile_load,

@@ -322,6 +322,22 @@ class Fx:
         return self._drawn('music', {'colour': [red, green, blue],
                                      'refresh_rate': refresh_rate})
 
+    def breath_soft(self, red: int = 0, green: int = 255, blue: int = 0,
+                    refresh_rate: float = 0.040):
+        """Breathing drawn frame by frame, for hardware that cannot breathe."""
+        return self._drawn('breath_soft', {'colour': [red, green, blue],
+                                           'refresh_rate': refresh_rate})
+
+    def starlight_soft(self, red: int = 0, green: int = 255, blue: int = 0,
+                       refresh_rate: float = 0.040):
+        """Starlight drawn frame by frame, for hardware that cannot twinkle."""
+        return self._drawn('starlight_soft', {'colour': [red, green, blue],
+                                              'refresh_rate': refresh_rate})
+
+    def accent(self, refresh_rate: float = 0.040):
+        """The colour Windows is set to, following it when it changes."""
+        return self._drawn('accent', {'refresh_rate': refresh_rate})
+
     def stop_software_effect(self):
         return self._device._software_effect('none', {})
 
