@@ -6,6 +6,17 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-06
+
+### Added
+
+- **Razer Pro Type Ultra**: `1532:0277` on its cable and `1532:027B` on its
+  HyperSpeed receiver. Upstream has not merged it yet, so it comes from the
+  pull request that adds it there (openrazer/openrazer#2888), tested by its
+  author on the keyboard. Static, breathing and off for its white backlight,
+  brightness, battery and charging. It has only run against an emulator here.
+  Reported in [#11](https://github.com/Ar4ikov/openrazer-win/issues/11).
+
 ## [1.6.0] - 2026-11-06
 
 ### Added

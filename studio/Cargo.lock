@@ -2103,11 +2103,11 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "openrazer-chroma"
-version = "1.6.0"
+version = "1.6.1"
 
 [[package]]
 name = "openrazer-studio"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "eframe",
  "egui",
@@ -2126,7 +2126,7 @@ dependencies = [
 
 [[package]]
 name = "openrazer-studio-core"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "egui",
  "serde",
@@ -2137,7 +2137,7 @@ dependencies = [
 
 [[package]]
 name = "openrazer-studio-setup"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
  "eframe",
  "egui",
