@@ -146,8 +146,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, serial: &str, art: &Art, colours: 
     let slot = app.arts.slots.get_mut(serial);
     let Some(slot) = slot else { return Picked::default() };
     // Only what is shown lights the drawing: a zone drawn LED by LED must not
-    // also glow as the zone.
-    let colours: Vec<Color32> = art.shapes.iter().zip(colours).map(|(shape, c)| if (view.visible)(shape) { *c } else { Color32::BLACK }).collect();
+    // also glow as the zone. A hidden part can still own pixels it shares with
+    // one that is shown -- a headset's "both ears" sits on the same cups as each
+    // ear's LED -- and those take the colour of the part shown there.
+    let shown = |shape: &crate::art::Shape| {
+        art.shapes.iter().zip(colours).rev().find(|(other, _)| (view.visible)(other) && other.geom == shape.geom).map(|(_, c)| *c)
+    };
+    let colours: Vec<Color32> = art.shapes.iter().zip(colours).map(|(shape, c)| if (view.visible)(shape) { *c } else { shown(shape).unwrap_or(Color32::BLACK) }).collect();
     let colours = colours.as_slice();
     if slot.painted != colours || slot.texture.is_none() {
         let image = art.paint(colours);

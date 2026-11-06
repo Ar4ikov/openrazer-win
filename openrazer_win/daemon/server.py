@@ -20,7 +20,7 @@ from ..core.manager import DeviceManager
 from ..core.persistence import Persistence
 from ..core.profiles import ProfileError, ProfileStore, apply_profile, snapshot
 from ..devices.recipes import NotSupported, RecipeError
-from ..effects.engine import EffectEngine
+from ..effects.engine import EffectEngine, zone_order
 from . import protocol
 from .protocol import (
     DEVICE_ERROR, DEVICE_NOT_FOUND, INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST,
@@ -75,8 +75,11 @@ HARDWARE_EFFECTS = {
     'set_none', 'set_on', 'set_static', 'set_spectrum', 'set_wave', 'set_wheel',
     'set_reactive', 'set_blinking', 'set_breath_random', 'set_breath_single',
     'set_breath_dual', 'set_breath_triple', 'set_starlight_random',
-    'set_starlight_single', 'set_starlight_dual',
+    'set_starlight_single', 'set_starlight_dual', 'set_zone_colours',
 }
+
+#: What a zone with an effect of its own can be given by the device's own calls.
+ZONE_CALLS = {'set_static': 'static', 'set_none': 'none'}
 
 
 def _device_summary(device: RazerDevice) -> dict:
@@ -255,6 +258,19 @@ class DaemonService:
             raise RpcError(METHOD_NOT_FOUND, 'unknown method: {0}'.format(method))
         args = list(args or [])
         kwargs = dict(kwargs or {})
+        zone = kwargs.get('zone', 'backlight')
+        if (self.effects is not None and method in ZONE_CALLS and self.effects.drawing(device)
+                and zone in zone_order(device)):
+            # The host is drawing the other ear: this one joins in, rather than
+            # being painted over by the next frame.
+            colour = (args + [kwargs.get(k) for k in ('red', 'green', 'blue')])[:3]
+            try:
+                self.effects.set_zone_effect(device, zone, ZONE_CALLS[method],
+                                             {'colour': colour if method == 'set_static' else None})
+            except (NotSupported, ValueError) as error:
+                raise RpcError(INVALID_PARAMS, str(error)) from error
+            self.persistence.save()
+            return None
         if (self.effects is not None and method in HARDWARE_EFFECTS
                 and kwargs.get('zone', 'backlight') == 'backlight'):
             self.effects.stop_for(device)

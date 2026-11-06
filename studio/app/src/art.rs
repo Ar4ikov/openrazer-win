@@ -29,7 +29,7 @@ pub enum Region {
     Zone(&'static str),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Geom {
     Rect(Rect),
     Dot(Pos2, f32),

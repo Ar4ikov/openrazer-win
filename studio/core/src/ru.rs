@@ -202,6 +202,7 @@ pub const RU: &[(&str, &str)] = &[
     ("Smooth spectrum", "Плавный спектр"),
     ("Smooth wave", "Плавная волна"),
     ("Per-key (Studio)", "Поклавишная (Студия)"),
+    ("Each ear on its own", "Каждый наушник отдельно"),
     ("Other", "Другое"),
     ("Short", "Короткое"),
     ("Medium", "Среднее"),

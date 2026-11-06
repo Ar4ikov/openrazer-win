@@ -40,7 +40,9 @@ fn main() -> eframe::Result<()> {
     }
     let background = args.iter().any(|a| a == "--background" || a == "--tray");
 
-    if !shell::claim_single_instance() {
+    // A run that only takes a screenshot leaves a Studio already open alone.
+    let capturing = std::env::var_os("OPENRAZER_STUDIO_CAPTURE").is_some();
+    if !capturing && !shell::claim_single_instance() {
         if !background {
             shell::show();
         }

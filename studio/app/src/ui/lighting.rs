@@ -122,24 +122,31 @@ pub fn now_showing(app: &mut App, art: &Art, device: &Device, caps: &Value, snap
     let layers = if layers_running { stack_from(snap, serial).unwrap_or_default() } else { Vec::new() };
     let lit = preview::render_layers(&layers, time, &[]);
     let cells_for_backlight = zones.iter().any(|z| z == "backlight") && art.shapes.iter().any(|s| matches!(s.region, Region::Cell(..)));
+    // A headset's ears: each LED shows its own ear's effect, at its place in the daemon's frame.
+    let own = effects::own_zones(caps);
     let edit = app.edits.entry(serial.clone()).or_default();
     // Where the device has addressable LEDs they are drawn one by one, so a
     // wave rolls across them.
-    let zone_colour = |zone: &str, shape: &Shape, i: usize| {
+    let zone_colour = |zone: &str, x: f32, i: usize| {
         let state = edit.zones.get(zone).cloned().unwrap_or_default();
         let effect = if zone == "backlight" { software.clone().unwrap_or(state.effect.clone()) } else { state.effect.clone() };
-        let level = state.brightness.unwrap_or(100.0) / 100.0;
-        let x = (shape.bounds(art).center().x / art.w as f32).clamp(0.0, 1.0);
+        let level = edit.zones.get("backlight").filter(|_| own.iter().any(|o| o == zone)).unwrap_or(&state).brightness.unwrap_or(100.0) / 100.0;
         preview::hardware(&effect, &state.colours, state.speed, state.direction, time, x, preview::twinkle_phase((i / 256) as u8, (i % 256) as u8)).gamma_multiply(0.25 + 0.75 * level)
     };
+    let across = |shape: &Shape| (shape.bounds(art).center().x / art.w as f32).clamp(0.0, 1.0);
+    let ear = |r: u8, c: u8| own.get(c as usize).filter(|_| r == 0);
     let colours = art
         .shapes
         .iter()
         .enumerate()
         .map(|(i, shape)| match shape.region {
             Region::Cell(r, c) if layers_running => lit.get(&(r, c)).copied().unwrap_or(Color32::BLACK),
-            Region::Cell(..) => zone_colour("backlight", shape, i),
-            Region::Zone(z) => zone_colour(z, shape, i),
+            Region::Cell(r, c) if ear(r, c).is_some() => zone_colour(ear(r, c).unwrap(), c as f32 / own.len() as f32, i),
+            Region::Cell(..) => zone_colour("backlight", across(shape), i),
+            Region::Zone(z) => {
+                let x = own.iter().position(|o| o == z).map_or_else(|| across(shape), |c| c as f32 / own.len() as f32);
+                zone_colour(z, x, i)
+            }
         })
         .collect();
     Look { colours, layers_running, cells_for_backlight }
@@ -334,6 +341,18 @@ fn quick(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value, snap: 
             });
         });
     });
+    // Both ears given one look: each ear has it now, ready to be changed on its own.
+    let own = effects::own_zones(caps);
+    if zone == "backlight" && !own.is_empty() && (!commands.is_empty() || debounced.iter().any(|(key, ..)| key.starts_with("light:"))) {
+        let edit = app.edits.entry(serial.clone()).or_default();
+        if let Some(both) = edit.zones.get("backlight").cloned().filter(|both| both.effect != "zones") {
+            for ear in &own {
+                let target = edit.zones.entry(ear.clone()).or_default();
+                target.effect = both.effect.clone();
+                target.colours = both.colours;
+            }
+        }
+    }
     if let Some(look) = sync {
         sync_all(app, snap, &look);
     }

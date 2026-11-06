@@ -296,10 +296,15 @@ class Fx:
         return self._device._software_effect(
             'ripple_random', {'refresh_rate': refresh_rate})
 
+    def _drawn(self, effect: str, options: dict):
+        """Start a host-drawn effect: on this zone alone, where the device allows it."""
+        if self._zone in (self._device.capabilities.get('zone_order') or []):
+            options = dict(options, zone=self._zone)
+        return self._device._software_effect(effect, options)
+
     def spectrum_soft(self, refresh_rate: float = 0.040):
         """Spectrum drawn frame by frame, for hardware that has no spectrum."""
-        return self._device._software_effect(
-            'spectrum_soft', {'refresh_rate': refresh_rate})
+        return self._drawn('spectrum_soft', {'refresh_rate': refresh_rate})
 
     def wave_soft(self, red: int = 0, green: int = 255, blue: int = 0,
                   refresh_rate: float = 0.040):
@@ -308,15 +313,14 @@ class Fx:
         The renderer sweeps in one direction only, so there is no `direction`
         here -- unlike the hardware effect.
         """
-        return self._device._software_effect(
-            'wave_soft', {'colour': [red, green, blue],
-                          'refresh_rate': refresh_rate})
+        return self._drawn('wave_soft', {'colour': [red, green, blue],
+                                         'refresh_rate': refresh_rate})
 
     def music(self, red: int = 0, green: int = 255, blue: int = 0,
               refresh_rate: float = 0.040):
         """Pulse in time with whatever the PC is playing."""
-        return self._device._software_effect(
-            'music', {'colour': [red, green, blue], 'refresh_rate': refresh_rate})
+        return self._drawn('music', {'colour': [red, green, blue],
+                                     'refresh_rate': refresh_rate})
 
     def stop_software_effect(self):
         return self._device._software_effect('none', {})
