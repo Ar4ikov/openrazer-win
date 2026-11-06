@@ -98,6 +98,7 @@ openrazer-win effect music cyan     # host-rendered, pulses with whatever is pla
 
 openrazer-win zones                  # list a device's zones
 openrazer-win zones red blue        # one colour each: left ear red, right ear blue
+openrazer-win effect music red --zone left   # an effect for one ear, the other kept as it is
 
 openrazer-win profile save night    # remember what is showing now
 openrazer-win profile               # list saved profiles
@@ -188,6 +189,7 @@ headset = DeviceManager().by_name('Kraken Kitty V2 BT')[0]
 headset.colour_zones()                          # ['left', 'right']
 headset.set_colour_zones([(255, 0, 0), (0, 0, 255)])
 headset.fx_for('left').static(0, 255, 0)        # or one ear at a time
+headset.fx_for('right').music(0, 0, 255)        # an ear can have an effect of its own
 ```
 
 Profiles are named snapshots of a device's lighting, kept on the PC — up to ten per device, in
@@ -381,6 +383,12 @@ audio-reactive modes are drawn by the host, one frame at a time — which is why
 the traffic dead — so this port renders them the same way, through its own effect engine:
 `effect spectrum` and `effect wave` fall back to the frame-by-frame renderer on any device whose
 firmware has no such mode, and say so when they do.
+
+Each ear can have an effect of its own: smooth spectrum, smooth wave or music on one, a static colour
+or another effect on the other. Studio does it when an ear is picked under *Part*; on the command
+line it is `--zone left` or `--zone right`. The daemon draws both ears in one frame, so a wave on
+both still travels from one ear to the other, and an ear set to a plain colour while the other is
+animated joins the drawing rather than being painted over by it.
 
 Brightness, battery level and charging state work over Bluetooth too: the vendor service answers
 requests on a notify characteristic, since nothing in it can be read directly. Brightness the device

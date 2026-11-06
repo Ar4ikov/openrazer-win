@@ -35,7 +35,11 @@ EFFECT_HELP = """\
 none, on, static, spectrum, wave, wheel, reactive, blinking, custom,
 breath_random, breath_single, breath_dual, breath_triple,
 starlight_random, starlight_single, starlight_dual,
-ripple, ripple_random, music (host-rendered, needs the daemon)"""
+ripple, ripple_random, music (host-rendered, needs the daemon)
+
+On a headset, --zone left or --zone right gives one ear an effect of its own:
+  openrazer-win effect music red --zone left
+  openrazer-win effect spectrum --zone right"""
 
 #: Effects the host can draw frame by frame for hardware that lacks them.
 #: Reached automatically, because "spectrum" is what a user asks for whether or

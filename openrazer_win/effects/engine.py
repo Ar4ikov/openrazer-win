@@ -32,8 +32,19 @@ RIPPLE_DURATION = 0.6
 #: Lit by what the PC is playing rather than by the clock or the keyboard.
 MUSIC = 'music'
 
+#: An effect of its own for each of a device's zones: a headset's two ears.
+ZONES = 'zones'
+
 SOFTWARE_EFFECTS = ('ripple', 'ripple_random', 'wave_soft', 'spectrum_soft', 'layers',
-                    MUSIC)
+                    MUSIC, ZONES)
+
+#: What one zone of ``zones`` can show.  The same drawing as on the whole
+#: device, taken at that zone's place in it -- so a wave on both ears still
+#: travels from one to the other.
+ZONE_EFFECTS = ('none', 'static', 'spectrum_soft', 'wave_soft', MUSIC)
+
+#: Zone effects a device can show by itself, with nothing drawn by the host.
+STILL_ZONE_EFFECTS = ('none', 'static')
 
 #: Where a device's host-drawn effect is remembered in persistence, so the
 #: daemon can start it again after a restart or a reconnect.
@@ -89,6 +100,50 @@ def can_render_keys(device) -> bool:
     return can_render(device) and _cells(device) >= MIN_RIPPLE_CELLS
 
 
+def zone_order(device) -> list:
+    """The zones of `device` that can each be given an effect, left to right.
+
+    Only a device that says where its zones sit in its frame has any: zone
+    ``i`` is column ``i``.
+    """
+    return list(device.capabilities().get('zone_order') or [])
+
+
+def _clean_colour(value, default=(0, 255, 0)) -> list:
+    try:
+        return [min(max(int(part), 0), 255) for part in list(value)[:3]] if value else list(default)
+    except (TypeError, ValueError) as error:
+        raise ValueError('a colour is three numbers 0-255: {0!r}'.format(value)) from error
+
+
+def clean_zones(device, zones) -> dict:
+    """A validated copy of a ``zones`` effect's zones, every zone of `device` in it."""
+    order = zone_order(device)
+    if not order:
+        raise NotSupported('{0} has no zones to give effects of their own'.format(device.name))
+    if not isinstance(zones, dict):
+        raise ValueError('"zones" maps each zone to {"effect": ..., "colour": [r, g, b]}')
+    clean = {}
+    for zone in order:
+        wanted = zones.get(zone) or {'effect': 'none'}
+        if not isinstance(wanted, dict):
+            raise ValueError('zone {0!r}: expected {{"effect": ..., "colour": ...}}'.format(zone))
+        effect = wanted.get('effect') or 'none'
+        if effect not in ZONE_EFFECTS:
+            raise ValueError('zone {0!r}: unknown effect {1!r}; expected one of {2}'.format(
+                zone, effect, ', '.join(ZONE_EFFECTS)))
+        clean[zone] = {'effect': effect, 'colour': _clean_colour(wanted.get('colour'))}
+    unknown = sorted(set(zones) - set(order))
+    if unknown:
+        raise ValueError('{0} has no zone {1}; it has {2}'.format(
+            device.name, ', '.join(unknown), ', '.join(order)))
+    return clean
+
+
+def _scale(colour, amount: float) -> tuple:
+    return int(colour[0] * amount), int(colour[1] * amount), int(colour[2] * amount)
+
+
 class EffectThread(threading.Thread):
     """Renders one software effect onto one device."""
 
@@ -113,6 +168,9 @@ class EffectThread(threading.Thread):
         self.meter = None
         self.recent_peak = 0.0
         self.level = 0.0
+        #: For ``zones``: each zone's effect and colour, in frame order.
+        self.zone_effects = [(zone['effect'], tuple(zone['colour']))
+                             for zone in (options.get('zones') or {}).values()]
         if effect == 'layers':
             self.stack = LayerStack(layers_from_options(options, self.frame.rows,
                                                         self.frame.columns),
@@ -147,7 +205,7 @@ class EffectThread(threading.Thread):
         listening = self.needs_keys
         if listening:
             self._hook_source.subscribe(self.on_key)
-        if self.effect == MUSIC:
+        if self.effect == MUSIC or any(effect == MUSIC for effect, _ in self.zone_effects):
             # Here rather than in __init__: COM belongs to the thread that uses it.
             self.meter = open_meter()
         try:
@@ -204,6 +262,12 @@ class EffectThread(threading.Thread):
                 elif self.effect == MUSIC:
                     if not self._render_music():
                         continue
+                elif self.effect == ZONES:
+                    changed = self._render_zones(phase)
+                    phase = (phase + self.refresh) % 10.0
+                    if changed:
+                        self._push()
+                    continue
                 else:
                     return
                 phase = (phase + self.refresh) % 10.0
@@ -255,22 +319,41 @@ class EffectThread(threading.Thread):
                         max(existing[2], int(colour[2] * intensity)))
         return True
 
+    def _fill_column(self, column: int, colour) -> None:
+        for row in range(self.frame.rows):
+            self.frame.set(row, column, *colour)
+
+    def _spectrum_at(self, column: int, phase: float) -> tuple:
+        hue = ((phase / 5.0) + column / max(self.frame.columns, 1)) % 1.0
+        red, green, blue = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
+        return int(red * 255), int(green * 255), int(blue * 255)
+
+    def _wave_at(self, column: int, phase: float, colour) -> tuple:
+        # One period spans the device, so on two cells the light goes from
+        # one to the other and back, rather than pulsing on both at once.
+        position = column / max(self.frame.columns, 1) - (phase / 2.0) % 1.0
+        return _scale(colour, max(0.0, math.cos(position * math.pi * 2) * 0.5 + 0.5))
+
+    def _hear(self) -> float:
+        """How brightly to light up for what is playing, from the floor to 1."""
+        peak = max(self.meter.peak(), 0.0)
+        self.recent_peak = max(peak, self.recent_peak * MUSIC_PEAK_FALL, MUSIC_QUIETEST)
+        heard = (peak / self.recent_peak) ** 2
+        self.level = max(heard, self.level * MUSIC_FALL)
+        return max(self.level, MUSIC_FLOOR)
+
+    def _music_at(self, column: int, level: float, colour) -> tuple:
+        centre = (self.frame.columns - 1) / 2.0
+        distance = abs(column - centre) / max(centre, 1.0)
+        return _scale(colour, level * (1.0 - distance * (1.0 - level)))
+
     def _render_spectrum(self, phase: float) -> None:
         for column in range(self.frame.columns):
-            hue = ((phase / 5.0) + column / max(self.frame.columns, 1)) % 1.0
-            red, green, blue = colorsys.hsv_to_rgb(hue, 1.0, 1.0)
-            for row in range(self.frame.rows):
-                self.frame.set(row, column, int(red * 255), int(green * 255),
-                               int(blue * 255))
+            self._fill_column(column, self._spectrum_at(column, phase))
 
     def _render_wave(self, phase: float) -> None:
-        red, green, blue = self.colour
         for column in range(self.frame.columns):
-            position = (column / max(self.frame.columns - 1, 1)) - (phase / 2.0) % 1.0
-            intensity = max(0.0, math.cos(position * math.pi * 2) * 0.5 + 0.5)
-            for row in range(self.frame.rows):
-                self.frame.set(row, column, int(red * intensity),
-                               int(green * intensity), int(blue * intensity))
+            self._fill_column(column, self._wave_at(column, phase, self.colour))
 
     def _render_music(self) -> bool:
         """Light the device by how loud the PC is.  False if nothing changed.
@@ -279,20 +362,28 @@ class EffectThread(threading.Thread):
         takes something loud to reach the edges.  A device of two cells has no
         middle, and simply pulses.
         """
-        peak = max(self.meter.peak(), 0.0)
-        self.recent_peak = max(peak, self.recent_peak * MUSIC_PEAK_FALL, MUSIC_QUIETEST)
-        heard = (peak / self.recent_peak) ** 2
-        self.level = max(heard, self.level * MUSIC_FALL)
-        level = max(self.level, MUSIC_FLOOR)
+        level = self._hear()
         before = self.frame.copy()
-        red, green, blue = self.colour
-        centre = (self.frame.columns - 1) / 2.0
         for column in range(self.frame.columns):
-            distance = abs(column - centre) / max(centre, 1.0)
-            intensity = level * (1.0 - distance * (1.0 - level))
-            for row in range(self.frame.rows):
-                self.frame.set(row, column, int(red * intensity),
-                               int(green * intensity), int(blue * intensity))
+            self._fill_column(column, self._music_at(column, level, self.colour))
+        return self.frame != before
+
+    def _render_zones(self, phase: float) -> bool:
+        """Draw each zone's own effect in its column.  False if nothing changed."""
+        level = self._hear() if self.meter is not None else 0.0
+        before = self.frame.copy()
+        for column, (effect, colour) in enumerate(self.zone_effects):
+            if effect == 'static':
+                shown = colour
+            elif effect == 'spectrum_soft':
+                shown = self._spectrum_at(column, phase)
+            elif effect == 'wave_soft':
+                shown = self._wave_at(column, phase, colour)
+            elif effect == MUSIC:
+                shown = self._music_at(column, level, colour)
+            else:
+                shown = (0, 0, 0)
+            self._fill_column(column, shown)
         return self.frame != before
 
     def _push(self) -> None:
@@ -440,13 +531,75 @@ class EffectEngine:
         self.set_effect(device, 'none', {})
         return True
 
+    def _running(self, serial: str):
+        with self._lock:
+            thread = self._threads.get(serial)
+        return thread if thread is not None and thread.is_alive() else None
+
+    def drawing(self, device) -> bool:
+        """Whether the host is drawing on `device` right now."""
+        return self._running(device.serial) is not None
+
+    def zones_now(self, device) -> dict:
+        """What each of `device`'s zones shows now, as a ``zones`` effect has it."""
+        order = zone_order(device)
+        running = self._running(device.serial)
+        if running is not None and running.effect == ZONES:
+            return {zone: dict(state) for zone, state in running.options['zones'].items()}
+        if running is not None and running.effect in ZONE_EFFECTS:
+            # The same effect on the whole device is the same effect on each zone.
+            return {zone: {'effect': running.effect, 'colour': list(running.colour)}
+                    for zone in order}
+        reader = getattr(device, 'zone_colours_now', None)
+        shown = reader() if reader is not None else []
+        zones = {}
+        for index, zone in enumerate(order):
+            colour = list(shown[index]) if index < len(shown) else [0, 0, 0]
+            zones[zone] = {'effect': 'static' if any(colour) else 'none', 'colour': colour}
+        return zones
+
+    def set_zone_effect(self, device, zone: str, effect: str, options: dict) -> dict:
+        """Give one zone an effect of its own, leaving the others as they are."""
+        if zone not in zone_order(device):
+            raise NotSupported('{0} cannot light {1} on its own; it draws {2} on the '
+                               'whole device'.format(device.name, zone, effect))
+        effect = 'none' if effect in ('off', '') else effect
+        if effect not in ZONE_EFFECTS:
+            raise NotSupported('{0} is drawn on the whole device, not on one zone; a zone '
+                               'can show {1}'.format(effect, ', '.join(ZONE_EFFECTS)))
+        zones = self.zones_now(device)
+        zones[zone] = {'effect': effect, 'colour': options.get('colour')}
+        settings = {key: value for key, value in options.items() if key == 'refresh_rate'}
+        return self.set_effect(device, ZONES, dict(settings, zones=zones))
+
+    def _show_still(self, device, zones: dict) -> dict:
+        """Zones that need nothing drawn: the device is told once, and holds them."""
+        self.clear(device)
+        self.forget(device.serial)
+        colours = [zone['colour'] if zone['effect'] == 'static' else [0, 0, 0]
+                   for zone in zones.values()]
+        if hasattr(device, 'set_zone_colours'):
+            device.set_zone_colours(colours)
+        else:
+            for name, colour in zip(zones, colours):
+                device.set_static(*colour, zone=name)
+        return {'effect': None, 'zones': zones}
+
     def set_effect(self, device: RazerDevice, effect: str, options: dict) -> dict:
+        options = dict(options)
+        zone = options.pop('zone', None)
+        if zone not in (None, '', 'backlight'):
+            return self.set_zone_effect(device, zone, effect, options)
         if effect in ('none', 'off', ''):
             self.clear(device)
             self.forget(device.serial)
             return {'effect': None}
         if effect not in SOFTWARE_EFFECTS:
             raise NotSupported('unknown software effect: {0}'.format(effect))
+        if effect == ZONES:
+            options['zones'] = clean_zones(device, options.get('zones'))
+            if all(state['effect'] in STILL_ZONE_EFFECTS for state in options['zones'].values()):
+                return self._show_still(device, options['zones'])
         if not can_render(device):
             raise NotSupported(
                 '{0} has no addressable matrix big enough to render {1}'.format(
@@ -456,7 +609,6 @@ class EffectEngine:
                 '{0} has {1} addressable cells; a ripple needs somewhere to '
                 'spread'.format(device.name, _cells(device)))
 
-        options = dict(options)
         if effect == 'layers':
             rows, columns = device.matrix_dimensions or (1, 1)
             # Raises LayerError, a ValueError, on a stack it cannot draw.

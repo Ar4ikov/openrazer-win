@@ -270,7 +270,9 @@ pub fn hardware(effect: &str, colours: &[Color32; 3], speed: i64, direction: i64
         "none" | "" => Color32::BLACK,
         "static" | "custom" => c1,
         "on" => Color32::from_rgb(0xE0, 0xF0, 0xDC),
-        "spectrum" | "spectrum_soft" => hue(t / SPECTRUM_PERIOD),
+        "spectrum" => hue(t / SPECTRUM_PERIOD),
+        // The daemon's: one turn of the wheel in five seconds, spread across the device.
+        "spectrum_soft" => hue(t / 5.0 + x),
         "wave" => hue(if direction == 2 { x + t / WAVE_PERIOD } else { x - t / WAVE_PERIOD }),
         "wave_soft" => scale(c1, 0.25 + 0.75 * (0.5 + 0.5 * ((x - t / 2.0) * std::f32::consts::TAU).cos())),
         // What is playing is not known here, so a likeness at 120 beats a minute.

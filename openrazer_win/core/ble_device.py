@@ -192,6 +192,10 @@ class BleDevice:
         self.persistence.set(self.serial, AGGREGATE_ZONE, 'colors',
                              (list(flat) + [0] * 9)[:9])
 
+    def zone_colours_now(self) -> list:
+        """What each zone is showing, in :data:`ZONE_NAMES` order."""
+        return self._current_colours()
+
     def _current_colours(self) -> list:
         """What each ear is showing, black for one never written to."""
         stored = self.persistence.get_device_value(self.serial, 'zone_colours') or []

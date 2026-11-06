@@ -8,6 +8,8 @@ use serde_json::{json, Value};
 
 /// Drawn by the daemon, frame by frame, rather than by the device.
 pub const SOFTWARE: [&str; 5] = ["ripple", "ripple_random", "spectrum_soft", "wave_soft", "music"];
+/// Drawn by the daemon on one zone alone, on a device whose zones it can light one by one.
+pub const ZONE_SOFTWARE: [&str; 3] = ["spectrum_soft", "wave_soft", "music"];
 /// Need a key press to place; pointless below this many LEDs.
 const KEY_REACTIVE: [&str; 2] = ["ripple", "ripple_random"];
 const MIN_RIPPLE_CELLS: i64 = 8;
@@ -50,6 +52,7 @@ pub fn label(effect: &str) -> &'static str {
         "wave_soft" => t("Smooth wave"),
         "music" => t("Music"),
         "custom" | "layers" => t("Per-key (Studio)"),
+        "zones" => t("Each ear on its own"),
         _ => t("Other"),
     }
 }
@@ -99,7 +102,11 @@ pub fn apply_commands(serial: &str, zone: &str, edit: &ZoneEdit, software_runnin
     let effect = edit.effect.as_str();
     let [c1, c2, c3] = edit.colours.map(rgb);
     if SOFTWARE.contains(&effect) {
-        let options = if colour_count(effect) > 0 { json!({ "colour": c1 }) } else { json!({}) };
+        let mut options = if colour_count(effect) > 0 { json!({ "colour": c1 }) } else { json!({}) };
+        if zone != "backlight" {
+            // One ear of a headset: the daemon keeps the other as it is.
+            options["zone"] = json!(zone);
+        }
         return vec![Command::Software { serial: serial.into(), effect: effect.into(), options }];
     }
     let mut commands = Vec::new();
@@ -130,6 +137,14 @@ pub fn apply_commands(serial: &str, zone: &str, edit: &ZoneEdit, software_runnin
     commands
 }
 
+/// The zones of a device that can each be given an effect of their own, left to right.
+pub fn own_zones(caps: &Value) -> Vec<String> {
+    if caps["software_effects"] != true {
+        return Vec::new();
+    }
+    caps["zone_order"].as_array().map(|zones| zones.iter().filter_map(|z| z.as_str().map(str::to_string)).collect()).unwrap_or_default()
+}
+
 /// Effects `zone` offers, the daemon's live ones included where they make sense.
 pub fn effects_for(caps: &Value, zone: &str) -> Vec<String> {
     let mut effects: Vec<String> = caps["zones"][zone]["effects"]
@@ -142,6 +157,13 @@ pub fn effects_for(caps: &Value, zone: &str) -> Vec<String> {
             if KEY_REACTIVE.contains(&effect) && cells < MIN_RIPPLE_CELLS {
                 continue;
             }
+            if !effects.iter().any(|e| e == effect) {
+                effects.push(effect.to_string());
+            }
+        }
+    }
+    if own_zones(caps).iter().any(|z| z == zone) {
+        for effect in ZONE_SOFTWARE {
             if !effects.iter().any(|e| e == effect) {
                 effects.push(effect.to_string());
             }
@@ -199,6 +221,30 @@ mod tests {
     fn music_is_drawn_by_the_daemon_in_the_colour_chosen() {
         let commands = apply_commands("S", "backlight", &zone("music"), false);
         assert!(matches!(&commands[0], Command::Software { effect, options, .. } if effect == "music" && options["colour"] == json!([1, 2, 3])));
+    }
+
+    #[test]
+    fn one_ear_is_drawn_by_the_daemon_with_its_zone_named() {
+        let commands = apply_commands("S", "left", &zone("music"), false);
+        assert!(matches!(&commands[0], Command::Software { effect, options, .. } if effect == "music" && options["zone"] == "left"));
+        let both = apply_commands("S", "backlight", &zone("music"), false);
+        assert!(matches!(&both[0], Command::Software { options, .. } if options.get("zone").is_none()));
+    }
+
+    #[test]
+    fn each_ear_offers_what_the_daemon_can_draw_on_it() {
+        let caps = json!({
+            "software_effects": true,
+            "zone_order": ["left", "right"],
+            "matrix_dimensions": [1, 2],
+            "zones": { "backlight": { "effects": ["none", "static"] }, "left": { "effects": ["none", "static"] }, "right": { "effects": ["none", "static"] } },
+        });
+        assert_eq!(own_zones(&caps), vec!["left".to_string(), "right".to_string()]);
+        assert_eq!(effects_for(&caps, "left"), vec!["none", "static", "spectrum_soft", "wave_soft", "music"]);
+        // A ripple needs keys to spread over, on the whole headset as on one ear.
+        assert!(!effects_for(&caps, "backlight").iter().any(|e| e.starts_with("ripple")));
+        let keyboard = json!({ "software_effects": true, "zones": { "logo": { "effects": ["static"] } } });
+        assert_eq!(effects_for(&keyboard, "logo"), vec!["static"]);
     }
 
     #[test]

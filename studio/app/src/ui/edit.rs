@@ -5,9 +5,10 @@
 //! user touched something moments ago -- a reload then would snap a slider
 //! back under their hand.
 
+use super::effects::{own_zones, ZONE_SOFTWARE};
 use crate::worker::{Command, Detail, Device, Snapshot};
 use egui::Color32;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -122,6 +123,7 @@ impl DeviceEdit {
 
         let saved = &snap.persistence[&device.serial];
         let zone_names: Vec<String> = caps["zones"].as_object().map(|z| z.keys().cloned().collect()).unwrap_or_default();
+        let own = own_zones(caps);
         if self.zone.as_ref().is_none_or(|z| !zone_names.contains(z)) {
             self.zone = order_zones(&zone_names).into_iter().next();
         }
@@ -155,6 +157,21 @@ impl DeviceEdit {
             if zone == "backlight" {
                 if let Some(effect) = snap.software.get(&device.serial) {
                     edit.effect = effect.clone();
+                }
+            }
+            if own.contains(zone) {
+                // An ear the daemon draws: its effect and colour are in what it draws.
+                let options = snap.software_options.get(&device.serial).cloned().unwrap_or_default();
+                let drawn = match snap.software.get(&device.serial).map(String::as_str) {
+                    Some("zones") => Some(options["zones"][zone].clone()),
+                    Some(effect) if ZONE_SOFTWARE.contains(&effect) => Some(json!({ "effect": effect, "colour": options["colour"] })),
+                    _ => None,
+                };
+                if let Some(drawn) = drawn {
+                    edit.effect = drawn["effect"].as_str().unwrap_or("none").to_string();
+                    if drawn["colour"].is_array() {
+                        edit.colours[0] = rgb(&drawn["colour"], 0);
+                    }
                 }
             }
             edit.speed = state["speed"].as_i64().unwrap_or(1).clamp(1, 4);
@@ -254,6 +271,28 @@ mod tests {
         edit.refresh(&device, &detail, &snap);
         assert_eq!(edit.zones["left"].effect, "static");
         assert_eq!(edit.zones["left"].colours[0], Color32::from_rgb(0x44, 0xD6, 0x2C));
+    }
+
+    #[test]
+    fn ears_the_daemon_draws_read_as_what_it_draws_on_them() {
+        let (device, mut detail, mut snap) = headset([0, 0, 0], [255, 0, 0]);
+        detail.caps.as_mut().unwrap()["software_effects"] = json!(true);
+        detail.caps.as_mut().unwrap()["zone_order"] = json!(["left", "right"]);
+        snap.software.insert("BLE1".into(), "zones".into());
+        snap.software_options.insert("BLE1".into(), json!({ "zones": { "left": { "effect": "music", "colour": [0, 0, 255] }, "right": { "effect": "static", "colour": [255, 0, 0] } } }));
+        let mut edit = DeviceEdit::default();
+        edit.refresh(&device, &detail, &snap);
+        assert_eq!(edit.zones["left"].effect, "music");
+        assert_eq!(edit.zones["left"].colours[0], Color32::from_rgb(0, 0, 255));
+        assert_eq!(edit.zones["right"].effect, "static");
+        assert_eq!(edit.zones["backlight"].effect, "zones");
+        // One effect on the whole headset is that effect on each ear.
+        snap.software.insert("BLE1".into(), "wave_soft".into());
+        snap.software_options.insert("BLE1".into(), json!({ "colour": [1, 2, 3] }));
+        snap.generation += 1;
+        edit.refresh(&device, &detail, &snap);
+        assert_eq!(edit.zones["right"].effect, "wave_soft");
+        assert_eq!(edit.zones["right"].colours[0], Color32::from_rgb(1, 2, 3));
     }
 
     #[test]
