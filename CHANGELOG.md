@@ -6,6 +6,30 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-11-06
+
+### Added
+
+- **An effect for each ear of the Kraken Kitty V2 BT.** Smooth spectrum, smooth
+  wave and music can go on one ear, with a colour or another effect on the
+  other. In Studio, pick *Left ear* or *Right ear* under *Part* and choose an
+  effect; on the command line, `openrazer-win effect music red --zone left`.
+  Studio says *Each ear on its own* while it runs, and it comes back with the
+  daemon.
+
+### Changed
+
+- *Smooth wave* on the headset goes from one ear to the other, rather than
+  pulsing on both at once.
+- Studio's preview of *Smooth spectrum* runs across the device the way the
+  daemon draws it.
+
+### Fixed
+
+- Studio drew the Kraken Kitty V2 BT dark, whatever it was showing.
+- A colour set on one ear while the daemon was drawing an effect was painted
+  over by the next frame.
+
 ## [1.5.3] - 2026-11-04
 
 ### Added
