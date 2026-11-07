@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 #: How long to listen for advertisements before giving up.
 DEFAULT_SCAN_SECONDS = 6.0
 
+#: How often a sweep checks that its watcher is still running.
+WATCHER_POLL = 0.1
+
 #: GattCommunicationStatus.SUCCESS, and .ACCESS_DENIED -- which is what
 #: Windows answers while another program holds the service open.
 STATUS_SUCCESS = 0
@@ -141,11 +144,19 @@ def _read_buffer(buffer) -> bytes:
 
 
 async def _scan(seconds: float, company_id: Optional[int]) -> dict:
+    from winrt.windows.devices.bluetooth import BluetoothAdapter
     from winrt.windows.devices.bluetooth.advertisement import (
-        BluetoothLEAdvertisementWatcher, BluetoothLEScanningMode,
+        BluetoothLEAdvertisementWatcher, BluetoothLEAdvertisementWatcherStatus,
+        BluetoothLEScanningMode,
     )
 
     seen: dict = {}
+    # A PC without a Bluetooth radio has no default adapter.  Without this
+    # check the watcher starts, reports Aborted at once, and the sweep then
+    # sleeps the whole window listening to nothing -- 6 s on every start-up
+    # and on every poll that happens to be due.
+    if await BluetoothAdapter.get_default_async() is None:
+        return seen
 
     def on_received(_sender, args):
         # A device splits what it says across packets: this headset sends its
@@ -182,7 +193,16 @@ async def _scan(seconds: float, company_id: Optional[int]) -> dict:
     watcher.add_received(on_received)
     watcher.start()
     try:
-        await asyncio.sleep(seconds)
+        deadline = time.monotonic() + seconds
+        while True:
+            # The watcher also aborts when the radio is switched off or
+            # disappears mid-sweep; nothing more will arrive then either.
+            if watcher.status == BluetoothLEAdvertisementWatcherStatus.ABORTED:
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(remaining, WATCHER_POLL))
     finally:
         watcher.stop()
     if company_id is not None:

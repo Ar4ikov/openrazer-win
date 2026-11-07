@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ctypes
 import sys
+import threading
 from typing import Optional
 
 from .base import HidDeviceInfo, HidError
@@ -322,6 +323,11 @@ class Win32HidBackend:
             raise HidError('the win32 HID backend requires Windows')
         self._hid_guid = GUID()
         _hid.HidD_GetHidGuid(ctypes.byref(self._hid_guid))
+        #: path -> what _describe read.  Describing a collection opens it and
+        #: reads three strings over USB; the daemon enumerates every few
+        #: seconds, and nothing it reads can change while the path exists.
+        self._described: dict = {}
+        self._described_lock = threading.Lock()
 
     # -- enumeration -------------------------------------------------------
     def _interface_paths(self):
@@ -405,7 +411,14 @@ class Win32HidBackend:
     def enumerate(self, vendor_id: Optional[int] = None,
                   product_id: Optional[int] = None) -> list:
         found = []
-        for path in self._interface_paths():
+        paths = list(self._interface_paths())
+        with self._described_lock:
+            # A path that has gone is a device that was unplugged; if it comes
+            # back it is read afresh instead of being served from memory.
+            present = set(paths)
+            for path in [p for p in self._described if p not in present]:
+                del self._described[path]
+        for path in paths:
             if vendor_id is not None:
                 # Fast path: the device path embeds vid/pid, so skip the open.
                 if 'vid_{0:04x}'.format(vendor_id).lower() not in path.lower():
@@ -413,9 +426,20 @@ class Win32HidBackend:
             if product_id is not None:
                 if 'pid_{0:04x}'.format(product_id).lower() not in path.lower():
                     continue
-            info = self._describe(path)
+            with self._described_lock:
+                info = self._described.get(path)
             if info is None:
-                continue
+                # Not remembered when it fails: a collection another program
+                # holds exclusively may be readable later.
+                info = self._describe(path)
+                if info is None:
+                    continue
+                # A collection whose capabilities could not be read comes back
+                # with no usage page; that is not remembered either, or it
+                # would stay half-described until the device was replugged.
+                if info.usage_page:
+                    with self._described_lock:
+                        self._described[path] = info
             if vendor_id is not None and info.vendor_id != vendor_id:
                 continue
             if product_id is not None and info.product_id != product_id:

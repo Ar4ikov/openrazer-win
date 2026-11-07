@@ -5,7 +5,7 @@ use super::app::{draw_picture, kind_label, scroll, App};
 use super::device::Tab;
 use super::edit::light_up;
 use super::effects::{self, PALETTE};
-use crate::worker::{Command, Device, Snapshot, Then};
+use crate::worker::{Command, DaemonState, Device, Snapshot, Then};
 use egui::{vec2, Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke};
 use openrazer_studio_core::theme::{self, icon, ACCENT, BORDER, BORDER_HI, SURFACE, TEXT, TEXT_DIM, TEXT_FAINT};
 use openrazer_studio_core::widgets::{self, Button};
@@ -33,6 +33,16 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
     });
     scroll(ui, "home", |ui| {
         notices(app, ui, snap);
+        if looking_for_devices(snap) {
+            // The daemon answers before it has looked: "none found, close
+            // Synapse" would be an accusation made before the search began.
+            widgets::plain_panel(ui, |ui| {
+                widgets::empty_state(ui, t("Looking for devices…"), t("The daemon has only just started. This takes a few seconds."), |ui| {
+                    ui.add(egui::Spinner::new().size(18.0).color(ACCENT));
+                });
+            });
+            return;
+        }
         if snap.devices.is_empty() {
             widgets::plain_panel(ui, |ui| {
                 widgets::empty_state(
@@ -65,6 +75,19 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
             });
         }
     });
+}
+
+/// The daemon is up but has not finished its first look for devices: its
+/// start-up scan, or the first sweep of the Bluetooth radio after it. An older
+/// daemon has no `first_sweep_pending` and is taken as done.
+pub(crate) fn still_starting(snap: &Snapshot) -> bool {
+    matches!(&snap.daemon, DaemonState::Running(info)
+        if info["state"] == "starting" || info["first_sweep_pending"] == true)
+}
+
+/// Whether to say "Looking for devices…" rather than "none found".
+pub(crate) fn looking_for_devices(snap: &Snapshot) -> bool {
+    snap.devices.is_empty() && still_starting(snap)
 }
 
 fn notices(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
@@ -388,5 +411,52 @@ fn quick_settings(app: &mut App, ui: &mut egui::Ui, device: &Device, detail: &cr
         if widgets::toggle_row(ui, t("Game mode"), "", &mut on) {
             app.send(Command::Call { serial: serial.clone(), method: "set_game_mode".into(), args: vec![json!(on)], zone: None, then: Then::Keyboard });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::worker::DaemonState;
+    use serde_json::json;
+
+    fn snapshot(daemon: DaemonState) -> Snapshot {
+        Snapshot { daemon, ..Default::default() }
+    }
+
+    #[test]
+    fn a_daemon_that_is_starting_has_not_looked_yet() {
+        assert!(still_starting(&snapshot(DaemonState::Running(json!({ "state": "starting" })))));
+    }
+
+    #[test]
+    fn a_ready_daemon_with_nothing_found_is_not_starting() {
+        assert!(!still_starting(&snapshot(DaemonState::Running(json!({ "state": "ready" })))));
+        // An older daemon says nothing about its state at all.
+        assert!(!still_starting(&snapshot(DaemonState::Running(json!({ "version": "1.6.1" })))));
+    }
+
+    #[test]
+    fn the_first_bluetooth_sweep_still_counts_as_looking() {
+        let sweeping = |v| snapshot(DaemonState::Running(v));
+        assert!(still_starting(&sweeping(json!({ "state": "ready", "first_sweep_pending": true }))));
+        assert!(!still_starting(&sweeping(json!({ "state": "ready", "first_sweep_pending": false }))));
+    }
+
+    #[test]
+    fn looking_is_shown_only_while_nothing_is_found() {
+        let mut snap = snapshot(DaemonState::Running(json!({ "state": "starting" })));
+        assert!(looking_for_devices(&snap));
+        snap.daemon = DaemonState::Running(json!({ "state": "ready" }));
+        assert!(!looking_for_devices(&snap));
+        snap.daemon = DaemonState::Running(json!({ "state": "starting" }));
+        snap.devices.push(Default::default());
+        assert!(!looking_for_devices(&snap));
+    }
+
+    #[test]
+    fn no_daemon_is_not_a_daemon_that_is_starting() {
+        assert!(!still_starting(&snapshot(DaemonState::Connecting)));
+        assert!(!still_starting(&snapshot(DaemonState::NotRunning("gone".into()))));
     }
 }

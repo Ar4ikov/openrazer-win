@@ -201,7 +201,12 @@ class KeyService:
             if serial in self._bindings:
                 return True
         binding = _Binding(device, serial, self.table_for(device.pid))
-        for info in self.backend.enumerate(vendor_id=VENDOR_ID, product_id=device.pid):
+        # The scan that found the device already listed its collections; asking
+        # Windows again reads every string descriptor over USB once more.
+        collections = getattr(device, 'hid_collections', None)
+        if collections is None:
+            collections = self.backend.enumerate(vendor_id=VENDOR_ID, product_id=device.pid)
+        for info in collections:
             if not is_event_collection(info):
                 continue
             try:

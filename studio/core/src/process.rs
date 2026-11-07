@@ -20,12 +20,12 @@ pub struct Process {
 mod win {
     use super::Process;
     use std::path::PathBuf;
-    use windows_sys::Win32::Foundation::{CloseHandle, BOOL, HWND, INVALID_HANDLE_VALUE, LPARAM, WAIT_OBJECT_0};
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, BOOL, ERROR_INVALID_PARAMETER, HWND, INVALID_HANDLE_VALUE, LPARAM, WAIT_OBJECT_0};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
     };
     use windows_sys::Win32::System::Threading::{
-        CreateEventW, OpenEventW, OpenProcess, QueryFullProcessImageNameW, SetEvent, TerminateProcess,
+        CreateEventW, GetExitCodeProcess, OpenEventW, OpenProcess, QueryFullProcessImageNameW, SetEvent, TerminateProcess,
         WaitForSingleObject, EVENT_MODIFY_STATE, INFINITE, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
         PROCESS_TERMINATE,
     };
@@ -92,6 +92,29 @@ mod win {
             CloseHandle(handle);
             ok
         }
+    }
+
+    /// Whether `pid` is a process that is still running. Only "there is no such
+    /// process" and "it has exited" answer no; a process this user may not
+    /// look into, or any other doubt, answers yes.
+    pub fn is_alive(pid: u32) -> bool {
+        const STILL_ACTIVE: u32 = 259;
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                return alive_after_open_failed(GetLastError());
+            }
+            let mut code = 0u32;
+            let known = GetExitCodeProcess(handle, &mut code) != 0;
+            CloseHandle(handle);
+            !known || code == STILL_ACTIVE
+        }
+    }
+
+    /// Only "no such process" means gone; access denied (a process of another
+    /// user, or an elevated one) and anything else is doubt, so alive.
+    pub fn alive_after_open_failed(last_error: u32) -> bool {
+        last_error != ERROR_INVALID_PARAMETER
     }
 
     /// Wait for `pid` to exit; true if it did within `ms`.
@@ -191,6 +214,9 @@ mod win {
     pub fn terminate(_pid: u32) -> bool {
         false
     }
+    pub fn is_alive(_pid: u32) -> bool {
+        true
+    }
     pub fn wait_exit(_pid: u32, _ms: u32) -> bool {
         true
     }
@@ -241,6 +267,11 @@ pub fn stop_everything_in(dir: &Path) -> Vec<String> {
     stuck
 }
 
+/// Whether the process `pid` is still running; when that cannot be told, yes.
+pub fn is_alive(pid: u32) -> bool {
+    win::is_alive(pid)
+}
+
 /// The executable file name of the app in front, lower-cased: `game.exe`.
 pub fn foreground_exe() -> Option<String> {
     let pid = win::foreground_pid()?;
@@ -258,4 +289,29 @@ pub fn windowed_apps() -> Vec<String> {
     names.sort();
     names.dedup();
     names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn this_process_is_alive() {
+        assert!(is_alive(std::process::id()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn access_denied_is_not_gone() {
+        // ERROR_ACCESS_DENIED: the process exists, this user may not look in.
+        assert!(win::alive_after_open_failed(5));
+        // ERROR_INVALID_PARAMETER: no such process.
+        assert!(!win::alive_after_open_failed(87));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_process_that_does_not_exist_is_not() {
+        assert!(!is_alive(0xFFFF_FFF0));
+    }
 }
