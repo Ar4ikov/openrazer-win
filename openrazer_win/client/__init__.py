@@ -624,6 +624,15 @@ class RazerDevice:
     def keyboard_layout(self) -> str:
         return self._call('get_keyboard_layout')
 
+    @property
+    def keyswitch_optimization(self) -> str:
+        """``'typing'`` or ``'gaming'``; upstream's client has a bool here instead."""
+        return self._call('get_keyswitch_optimization')
+
+    @keyswitch_optimization.setter
+    def keyswitch_optimization(self, mode: str) -> None:
+        self._call('set_keyswitch_optimization', mode)
+
 
 class DeviceManager:
     """Entry point: discovers devices through the daemon, or directly."""

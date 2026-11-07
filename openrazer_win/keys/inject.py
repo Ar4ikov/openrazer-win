@@ -111,6 +111,27 @@ class Injector:
         else:
             self._emit([(vk, 0, flags)])
 
+    def batch(self, events) -> int:
+        """Send ``(scan, extended, down)`` events in one call; how many went.
+
+        By scan code, as the key's own press came, so the same key arrives
+        whatever the layout.  One call also means nothing can get in between
+        them.  Failure is the caller's to count: this runs inside the hook's
+        callback, where a log line would be I/O.
+        """
+        if self._send is None or not events:
+            return 0
+        array = (_INPUT * len(events))()
+        for slot, (scan, extended, down) in zip(array, events):
+            flags = KEYEVENTF_SCANCODE
+            if extended:
+                flags |= KEYEVENTF_EXTENDEDKEY
+            if not down:
+                flags |= KEYEVENTF_KEYUP
+            slot.type = INPUT_KEYBOARD
+            slot.union.ki = _KEYBDINPUT(0, scan, flags, 0, MARKER)
+        return self._send(len(events), array, ctypes.sizeof(_INPUT))
+
     def text(self, text: str) -> None:
         """Type `text` character by character, independent of keyboard layout."""
         events = []
@@ -140,6 +161,10 @@ class RecordingInjector:
 
     def raw(self, vk: int, scan: int, extended: bool, down: bool) -> None:
         self.sent.append(('raw', vk, scan, extended, down))
+
+    def batch(self, events) -> int:
+        self.sent.append(('batch', tuple(events)))
+        return len(events)
 
     def text(self, text: str) -> None:
         self.sent.append(('text', text))

@@ -126,6 +126,10 @@ def checks_for(device: RazerDevice) -> list:
     if caps['macro_mode']:
         checks.append(('macro_mode', lambda: (device.set_macro_mode(True),
                                               device.get_macro_mode())))
+    if caps['keyswitch_optimization']:
+        checks.append(('keyswitch_optimization', lambda: (
+            device.set_keyswitch_optimization('gaming'),
+            device.get_keyswitch_optimization())))
     if caps['scroll_mode']:
         checks.append(('scroll_mode', lambda: (device.set_scroll_mode(1),
                                                device.get_scroll_mode())))

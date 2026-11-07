@@ -27,6 +27,10 @@ MODULES = [
     'openrazer_win.daemon.demo',
     'openrazer_win.effects',
     'openrazer_win.effects.keyboard_hook',
+    'openrazer_win.keys.hook',
+    'openrazer_win.keys.inject',
+    'openrazer_win.keys.snaptap',
+    'openrazer_win.keys.snaptap_host',
     'openrazer_win.client',
     'openrazer_win.cli',
 ]
@@ -94,3 +98,24 @@ def test_the_keyboard_hook_declines_gracefully_off_windows(monkeypatch):
     assert hook.start() is False
     assert hook.running is False
     hook.stop()          # must not raise even though nothing was started
+
+
+def test_snap_tap_declines_gracefully_off_windows(tmp_path, monkeypatch):
+    from openrazer_win.keys import hook, snaptap_host
+    from openrazer_win.keys.inject import RecordingInjector
+    from openrazer_win.keys.snaptap import SnapTapSettings
+
+    monkeypatch.setattr(hook.sys, 'platform', 'linux')
+    snaptap_host._win32.cache_clear()
+    try:
+        settings = SnapTapSettings(str(tmp_path / 'snaptap.json'))
+        settings.update(enabled=True, acknowledged=True)
+        host = snaptap_host.SnapTapHost(settings, injector=RecordingInjector())
+        host.start()
+        assert host.status()['enabled'] is True
+        assert host.status()['running'] is False
+        assert snaptap_host.foreground_exe() is None
+        assert snaptap_host.key_is_down(0x41) is False
+        host.stop()      # must not raise even though nothing was started
+    finally:
+        snaptap_host._win32.cache_clear()

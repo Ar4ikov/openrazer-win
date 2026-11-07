@@ -484,7 +484,7 @@ impl App {
             tabs.push(Tab::Lighting);
         }
         if let Some(caps) = caps {
-            if caps["dpi"] == true || caps["poll_rate"] == true {
+            if caps["dpi"] == true || caps["poll_rate"] == true || caps["keyswitch_optimization"] == true {
                 tabs.push(Tab::Performance);
             }
             if caps["battery"] == true || caps["idle_time"] == true {

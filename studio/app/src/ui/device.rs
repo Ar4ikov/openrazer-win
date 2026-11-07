@@ -75,7 +75,7 @@ fn tabs_for(device: &Device, snap: &Snapshot) -> Vec<Tab> {
     let caps = detail.and_then(|d| d.caps.as_ref());
     let mut tabs = vec![];
     if let Some(caps) = caps {
-        if caps["dpi"] == true || caps["poll_rate"] == true {
+        if caps["dpi"] == true || caps["poll_rate"] == true || caps["keyswitch_optimization"] == true || super::snaptap::shown_on(device) {
             tabs.push(Tab::Performance);
         }
         if caps["zones"].as_object().is_some_and(|z| !z.is_empty()) {
@@ -119,7 +119,10 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
         return super::lighting::page(app, ui, snap, &device);
     }
     scroll(ui, "device-tab", |ui| match app.device_ui.tab {
-        Tab::Performance => performance(app, ui, &device, snap),
+        Tab::Performance => {
+            performance(app, ui, &device, snap);
+            super::snaptap::panel(app, ui, &device, snap);
+        }
         Tab::Sound => super::audio::page(app, ui, &device, snap),
         Tab::Power => power(app, ui, &device, snap),
         Tab::Profiles => profiles(app, ui, &device, snap),
@@ -197,7 +200,7 @@ fn performance(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapsho
     let mut later: Vec<(String, Command)> = Vec::new();
     let edit = app.edits.entry(serial.clone()).or_default();
     let has_dpi = caps["dpi"] == true;
-    let has_side = caps["dpi_stages"] == true && edit.stages.is_some() || caps["poll_rate"] == true;
+    let has_side = caps["dpi_stages"] == true && edit.stages.is_some() || caps["poll_rate"] == true || caps["keyswitch_optimization"] == true;
 
     let two = has_dpi && has_side;
     widgets::columns(ui, if two { 0.56 } else { 1.0 }, if two { TWO_COLUMNS } else { f32::INFINITY }, |ui, column| {
@@ -336,6 +339,19 @@ fn performance(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapsho
                         if widgets::segmented(ui, &rates, &mut rate) {
                             edit.poll_rate = Some(rate);
                             send.push(Command::Call { serial: serial.clone(), method: "set_poll_rate".into(), args: vec![json!(rate)], zone: None, then: Then::Performance });
+                        }
+                    });
+                });
+            }
+            // A keyboard's own settings: another one goes in as a second row.
+            if caps["keyswitch_optimization"] == true {
+                widgets::panel(ui, t("Keyboard"), |ui| {
+                    let modes = [("typing".to_string(), t("Typing").to_string()), ("gaming".to_string(), t("Gaming").to_string())];
+                    let mut mode = edit.keyswitch.clone().unwrap_or_default();
+                    widgets::row(ui, t("Keyswitch optimization"), t("Typing keeps a short delay that filters out accidental double presses. Gaming removes it, so a key registers at once."), |ui| {
+                        if widgets::segmented(ui, &modes, &mut mode) {
+                            edit.keyswitch = Some(mode.clone());
+                            send.push(Command::Call { serial: serial.clone(), method: "set_keyswitch_optimization".into(), args: vec![json!(mode)], zone: None, then: Then::Keyboard });
                         }
                     });
                 });
@@ -698,6 +714,7 @@ fn about(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
                     ("battery", t("Battery")),
                     ("idle_time", t("Sleep timer")),
                     ("game_mode", t("Game mode")),
+                    ("keyswitch_optimization", t("Keyswitch optimization")),
                     ("dedicated_macro_keys", t("Macro keys")),
                     ("custom_frame", t("Per-key lighting")),
                     ("software_effects", t("Live effects")),

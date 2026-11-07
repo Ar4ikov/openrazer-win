@@ -134,6 +134,23 @@ pub fn performance(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Sna
         });
     }
 
+    if caps["keyswitch_optimization"] == true {
+        ui.add_space(12.0);
+        widgets::card(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Keyswitch optimization").font(theme::bold(16.0)));
+                ui.add_space(16.0);
+                let modes = [("typing".to_string(), "Typing".to_string()), ("gaming".to_string(), "Gaming".to_string())];
+                let mut mode = edit.keyswitch.clone().unwrap_or_default();
+                if widgets::segmented(ui, &modes, &mut mode) {
+                    edit.keyswitch = Some(mode.clone());
+                    send.push(Command::Call { serial: serial.clone(), method: "set_keyswitch_optimization".into(), args: vec![json!(mode)], zone: None, then: Then::Performance });
+                }
+            });
+            ui.label(RichText::new("Typing keeps a short delay that filters out accidental double presses. Gaming removes it, so a key registers at once.").size(12.5).color(TEXT_FAINT));
+        });
+    }
+
     if !send.is_empty() || !later.is_empty() {
         edit.touch();
     }
@@ -261,6 +278,7 @@ pub fn info(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) 
                 ("battery", "Battery"),
                 ("idle_time", "Sleep timer"),
                 ("game_mode", "Game mode"),
+                ("keyswitch_optimization", "Keyswitch optimization"),
                 ("dedicated_macro_keys", "Macro keys"),
                 ("custom_frame", "Per-key lighting"),
                 ("software_effects", "Live effects"),
