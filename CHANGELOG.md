@@ -6,6 +6,24 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The daemon is ready sooner after sign-in.** On a PC without a Bluetooth
+  radio it spent about 6 seconds listening for headsets before it looked at
+  the keyboard; it now sets up USB devices first, stops listening as soon as
+  Windows says there is no radio, and looks for Bluetooth devices straight
+  after the USB scan. It also reads each USB device's names once instead of every
+  few seconds.
+- **Studio no longer waits on a daemon that is gone.** After sign-in, a stale
+  `daemon.json` pointing at a closed port made Studio wait about two seconds
+  before starting the daemon, and sometimes twice. It now checks that the
+  recorded process is alive, starts the daemon before its first poll, and
+  shows *Looking for devices…* instead of "No Razer devices found" while the
+  daemon is still starting.
+  Studio also keeps saying so until the daemon's first look at Bluetooth has
+  finished (the daemon now makes it straight after start-up instead of three
+  seconds later), and the sidebar shows a dash rather than "None found" meanwhile.
+
 ## [1.6.1] - 2026-11-06
 
 ### Added

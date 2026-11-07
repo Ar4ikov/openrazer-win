@@ -150,8 +150,18 @@ pub enum Then {
 
 pub type Shared = Arc<Mutex<Snapshot>>;
 
-pub fn spawn(shared: Shared, repaint: impl Fn() + Send + 'static) -> Sender<Command> {
+/// Studio is how most people start the daemon. Queued before the thread
+/// exists, so it runs ahead of the first poll: polling first meant waiting
+/// out a stale endpoint file's refused connection only to start the daemon
+/// afterwards.
+fn startup_queue() -> (Sender<Command>, Receiver<Command>) {
     let (tx, rx) = std::sync::mpsc::channel();
+    let _ = tx.send(Command::StartDaemon);
+    (tx, rx)
+}
+
+pub fn spawn(shared: Shared, repaint: impl Fn() + Send + 'static) -> Sender<Command> {
+    let (tx, rx) = startup_queue();
     std::thread::Builder::new()
         .name("daemon".into())
         .spawn(move || {
@@ -689,4 +699,16 @@ fn parse_device(row: &Value) -> Device {
 /// Positional arguments for `device.call`.
 pub fn args(values: &[i64]) -> Vec<Value> {
     values.iter().map(|v| json!(v)).collect()
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    #[test]
+    fn starting_the_daemon_is_the_first_thing_queued() {
+        let (_tx, rx) = startup_queue();
+        assert!(matches!(rx.try_recv(), Ok(Command::StartDaemon)));
+        assert!(rx.try_recv().is_err(), "nothing else is queued ahead of the first poll");
+    }
 }

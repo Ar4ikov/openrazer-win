@@ -131,6 +131,10 @@ class DaemonService:
         #: ``starting`` until the first scan and set-up have finished; the
         #: daemon answers requests long before that.
         self.state = 'starting'
+        #: True until the first sweep of the radio has finished: ``ready``
+        #: comes after the USB scan alone, so a Bluetooth-only PC would
+        #: otherwise be told "no devices" while that sweep is still running.
+        self.first_sweep_pending = True
         #: Devices still waiting to be set up: device -> (attempts, retry at).
         self._pending: dict = {}
         #: Switched on and off by the user, and remembered beside the lighting.
@@ -148,7 +152,10 @@ class DaemonService:
     def start(self) -> None:
         if self.keys is not None:
             self.keys.start()
-        self.manager.scan()
+        # USB first: a sweep of the radio listens for seconds (6 s with no radio
+        # at all, before it learned to stop), and the keyboard was not set up
+        # until it ended.  The first poll does the sweep.
+        self.manager.scan(sweep_bluetooth=False)
         for device in self.manager.devices:
             self._initialise(device)
         if self.effects is not None:
@@ -158,6 +165,17 @@ class DaemonService:
         if self.integrations.enabled('chroma'):
             self._start_chroma()
         self.state = 'ready'
+
+    def first_sweep(self) -> None:
+        """The first full scan, radio included, straight after `start`.
+
+        Run once, at once -- not after the hot-plug interval -- and the flag
+        ``first_sweep_pending`` is cleared whether or not it worked.
+        """
+        try:
+            self.poll_hotplug()
+        finally:
+            self.first_sweep_pending = False
 
     def _initialise(self, device) -> bool:
         """Take a device over and give it back its saved lighting.
@@ -334,6 +352,8 @@ class DaemonService:
             'backend': self.manager.backend.name,
             'devices': len(self.manager.devices),
             'state': self.state,
+            #: Absent from older daemons; Studio treats absence as False.
+            'first_sweep_pending': self.first_sweep_pending,
             #: Found, but not yet willing to take their settings.
             'pending': sorted(device.name for device in self._pending),
         }
@@ -638,6 +658,25 @@ class DaemonServer(socketserver.ThreadingTCPServer):
         return self._shutdown_requested.is_set()
 
 
+def device_loop(service: 'DaemonService', stop: threading.Event) -> None:
+    """Set devices up, look once at the radio at once, then poll until `stop`."""
+    try:
+        service.start()
+    except Exception:  # noqa: BLE001 - the daemon keeps serving regardless
+        logger.exception('setting up devices failed')
+        service.state = 'ready'
+    logger.info('%d device(s) ready', len(service.manager.devices))
+    try:
+        service.first_sweep()
+    except Exception:  # noqa: BLE001 - a bad scan must not kill the daemon
+        logger.debug('first hot-plug scan failed', exc_info=True)
+    while not stop.wait(HOTPLUG_INTERVAL):
+        try:
+            service.poll_hotplug()
+        except Exception:  # noqa: BLE001 - a bad scan must not kill the daemon
+            logger.debug('hot-plug scan failed', exc_info=True)
+
+
 def serve(backend=None, host: str = '127.0.0.1', port: int = 0,
           enable_effects: bool = True, enable_keys: bool = True) -> bool:
     """Run the daemon until it is asked to stop.
@@ -664,20 +703,8 @@ def serve(backend=None, host: str = '127.0.0.1', port: int = 0,
 
     stop = threading.Event()
 
-    def device_loop() -> None:
-        try:
-            service.start()
-        except Exception:  # noqa: BLE001 - the daemon keeps serving regardless
-            logger.exception('setting up devices failed')
-            service.state = 'ready'
-        logger.info('%d device(s) ready', len(service.manager.devices))
-        while not stop.wait(HOTPLUG_INTERVAL):
-            try:
-                service.poll_hotplug()
-            except Exception:  # noqa: BLE001 - a bad scan must not kill the daemon
-                logger.debug('hot-plug scan failed', exc_info=True)
-
-    watcher = threading.Thread(target=device_loop, name='devices', daemon=True)
+    watcher = threading.Thread(target=device_loop, args=(service, stop), name='devices',
+                               daemon=True)
     watcher.start()
 
     try:

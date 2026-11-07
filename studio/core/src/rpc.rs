@@ -15,6 +15,25 @@ use std::time::Duration;
 /// Long enough for a Bluetooth call, which can take seconds on a cold link.
 const READ_TIMEOUT: Duration = Duration::from_secs(40);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+/// A live daemon on loopback accepts at once. Windows takes about 2 s to refuse
+/// a connection to a closed loopback port -- what a stale endpoint file at
+/// sign-in points at -- so on loopback this is how long to wait before asking
+/// whether the daemon is even alive.
+const LOOPBACK_CONNECT_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// A connect that merely took longer than the short loopback wait is not a
+/// daemon that has gone: it is retried with the full time. Any other failure
+/// (refused) is final.
+fn slow_not_gone(kind: std::io::ErrorKind) -> bool {
+    kind == std::io::ErrorKind::TimedOut
+}
+
+/// Whether a failed short loopback connect earns the full-time retry: it must
+/// have been a timeout, and the process the file names must not have gone in
+/// the meantime (a pid of 0 or none is not recorded, so it is trusted).
+fn retry_after_short_connect(kind: std::io::ErrorKind, pid: Option<u32>, alive: impl Fn(u32) -> bool) -> bool {
+    slow_not_gone(kind) && pid.is_none_or(|pid| pid == 0 || alive(pid))
+}
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Endpoint {
@@ -73,8 +92,23 @@ impl Client {
             .map_err(|e| RpcError::Unavailable(e.to_string()))?
             .next()
             .ok_or_else(|| RpcError::Unavailable("bad endpoint address".into()))?;
-        let stream = TcpStream::connect_timeout(&address, CONNECT_TIMEOUT)
-            .map_err(|_| RpcError::Unavailable(crate::t("the daemon is not running (its endpoint file is stale)").into()))?;
+        let stale = || RpcError::Unavailable(crate::t("the daemon is not running (its endpoint file is stale)").into());
+        let stream = if address.ip().is_loopback() {
+            // The process the file names is gone: nothing to wait for.
+            if endpoint.pid.is_some_and(|pid| pid != 0 && !crate::process::is_alive(pid)) {
+                return Err(stale());
+            }
+            match TcpStream::connect_timeout(&address, LOOPBACK_CONNECT_TIMEOUT) {
+                Ok(stream) => stream,
+                // Slow to accept is not the same as not there. Only a daemon
+                // known to be gone is given up on early: a false "not running"
+                // would have Studio start a second one.
+                Err(e) if retry_after_short_connect(e.kind(), endpoint.pid, crate::process::is_alive) => TcpStream::connect_timeout(&address, CONNECT_TIMEOUT).map_err(|_| stale())?,
+                Err(_) => return Err(stale()),
+            }
+        } else {
+            TcpStream::connect_timeout(&address, CONNECT_TIMEOUT).map_err(|_| stale())?
+        };
         stream.set_read_timeout(Some(READ_TIMEOUT)).ok();
         stream.set_nodelay(true).ok();
         let writer = stream.try_clone().map_err(|e| RpcError::Unavailable(e.to_string()))?;
@@ -136,4 +170,68 @@ pub fn shutdown_daemon(wait: Duration) -> bool {
         std::thread::sleep(Duration::from_millis(200));
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+    use std::time::Instant;
+
+    fn endpoint(port: u16, pid: Option<u32>) -> Endpoint {
+        Endpoint { host: "127.0.0.1".into(), port, token: "t".into(), pid }
+    }
+
+    /// A port nothing listens on: bound, then let go of.
+    fn closed_port() -> u16 {
+        TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn a_daemon_that_is_listening_is_reached() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(Client::connect_to(endpoint(port, Some(std::process::id()))).is_ok());
+        // An endpoint file with no pid, as an older daemon wrote it, still works.
+        assert!(Client::connect_to(endpoint(port, None)).is_ok());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_stale_endpoint_naming_a_dead_process_fails_at_once() {
+        let started = Instant::now();
+        // No process has an id this large.
+        assert!(Client::connect_to(endpoint(closed_port(), Some(0xFFFF_FFF0))).is_err());
+        assert!(started.elapsed() < Duration::from_millis(200), "took {:?}", started.elapsed());
+    }
+
+    #[test]
+    fn only_a_timeout_is_given_the_long_wait() {
+        use std::io::ErrorKind::*;
+        // Slow to accept: the daemon may be busy, so it is not given up on.
+        assert!(slow_not_gone(TimedOut));
+        // Refused is an answer.
+        assert!(!slow_not_gone(ConnectionRefused));
+        assert!(!slow_not_gone(Other));
+    }
+
+    #[test]
+    fn the_long_retry_needs_a_timeout_and_a_process_that_may_be_alive() {
+        use std::io::ErrorKind::*;
+        assert!(retry_after_short_connect(TimedOut, Some(7), |_| true));
+        assert!(retry_after_short_connect(TimedOut, None, |_| false));
+        assert!(retry_after_short_connect(TimedOut, Some(0), |_| false));
+        // Gone while we waited: no second wait.
+        assert!(!retry_after_short_connect(TimedOut, Some(7), |_| false));
+        // Refused is final, however alive the process.
+        assert!(!retry_after_short_connect(ConnectionRefused, Some(7), |_| true));
+        assert!(!retry_after_short_connect(ConnectionRefused, None, |_| true));
+    }
+
+    #[test]
+    fn a_closed_port_is_still_refused_when_the_process_may_be_alive() {
+        // The pid is ours, so it is alive: the full timeout applies, and the
+        // answer is the same -- not running.
+        assert!(Client::connect_to(endpoint(closed_port(), Some(std::process::id()))).is_err());
+    }
 }
