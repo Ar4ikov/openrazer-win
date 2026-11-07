@@ -62,6 +62,23 @@ Examples:
                                              your devices, as they do with Synapse
   openrazer-win integration chroma off"""
 
+SNAPTAP_HELP = """\
+Of two opposing keys, the one pressed last wins: the other is released for as
+long as it is overridden. Done on this PC, not in the keyboard, so it applies to
+every keyboard, and only while the daemon runs.
+
+Examples:
+  openrazer-win snaptap                  what is set, and what it is doing
+  openrazer-win snaptap on               asks you to read a warning the first time
+  openrazer-win snaptap on --accept      the same, having read it, for scripts
+  openrazer-win snaptap off
+  openrazer-win snaptap pair add a d     keys by position, whatever the layout
+  openrazer-win snaptap pair remove a d
+  openrazer-win snaptap deny add game.exe       stay out of this program
+  openrazer-win snaptap deny remove cs2.exe
+  openrazer-win snaptap allow add game.exe      work only in the programs listed
+  openrazer-win snaptap allow remove game.exe"""
+
 PROFILE_HELP = """A profile is a named snapshot of what a device is showing: per-zone effect,
 colours and brightness. Devices do not store colours themselves -- the daemon
 holds them -- so a profile is kept here and re-applied on demand.
@@ -712,6 +729,92 @@ def cmd_integration(args) -> int:
     return 1 if chroma['enabled'] and not chroma.get('listening') else 0
 
 
+def _snaptap_changes(args, status: dict) -> dict:
+    """What ``snaptap.set`` should be told for this command line."""
+    from ..keys.codes import canonical_name
+
+    if args.action == 'pair':
+        if len(args.items) != 2:
+            raise CliError('openrazer-win snaptap pair add|remove KEY KEY')
+        pairs = [list(pair) for pair in status['pairs']]
+        if args.verb == 'add':
+            return {'pairs': pairs + [args.items]}
+        wanted = {canonical_name(item) for item in args.items}
+        left = [pair for pair in pairs if set(pair) != wanted]
+        if len(left) == len(pairs):
+            raise CliError('no such pair: {0}'.format(' '.join(args.items)))
+        return {'pairs': left}
+    if len(args.items) != 1:
+        raise CliError('openrazer-win snaptap {0} add|remove PROGRAM.exe'.format(args.action))
+    programs = list(status[args.action])
+    name = args.items[0].strip().lower()
+    if args.verb == 'add':
+        return {args.action: programs + [name]}
+    if name not in programs:
+        raise CliError('{0} is not on the {1} list'.format(name, args.action))
+    programs.remove(name)
+    return {args.action: programs}
+
+
+def _snaptap_accepted(args, status: dict) -> bool:
+    """Whether the warning has been read, showing it and asking if it has to be."""
+    print(status['warning'], file=sys.stderr)
+    if args.accept:
+        return True
+    if not sys.stdin.isatty():
+        raise CliError('nothing to answer with here; having read that, add --accept')
+    return input('Turn Snap Tap on? [y/N] ').strip().lower() in ('y', 'yes')
+
+
+def cmd_snaptap(args) -> int:
+    if args.action in ('on', 'off') and (args.verb or args.items):
+        raise CliError('snaptap {0} takes nothing more'.format(args.action))
+    if args.action is None and (args.verb or args.items):
+        raise CliError('openrazer-win snaptap [on|off|pair|deny|allow]')
+    try:
+        client = RpcClient(timeout=10.0)
+    except DaemonUnavailable as error:
+        raise CliError('{0}\n\nSnap Tap needs the daemon:  openrazer-win daemon start'.format(
+            error)) from error
+    try:
+        status = client.call('snaptap.status')
+        if args.action == 'on':
+            changes = {'enabled': True}
+            if not status['acknowledged']:
+                if not _snaptap_accepted(args, status):
+                    print('Left off.')
+                    return 0
+                changes['acknowledged'] = True
+            status = client.call('snaptap.set', **changes)
+        elif args.action == 'off':
+            status = client.call('snaptap.set', enabled=False)
+        elif args.action is not None and args.verb is not None:
+            status = client.call('snaptap.set', **_snaptap_changes(args, status))
+    except RpcError as error:
+        raise CliError(str(error)) from error
+    finally:
+        client.close()
+    if args.json:
+        print(json.dumps(status, indent=2))
+        return 0
+    print('snap tap    {0}   {1}'.format(_shown(status['enabled']), status['scope']))
+    if status['enabled']:
+        print('            {0}'.format(status['warning_short']))
+        if status['running']:
+            state = 'paused: {0}'.format(status['paused']) if status['paused'] else 'working'
+            print('state       {0}  (in front: {1})'.format(state, status['foreground'] or 'unknown'))
+        else:
+            print('state       not working: the key filter is not available')
+    print('pairs       {0}'.format(', '.join(
+        ' + '.join(key[4:] for key in pair) for pair in status['pairs']) or 'none'))
+    print('deny        {0}'.format(', '.join(status['deny']) or 'none'))
+    print('allow       {0}'.format(', '.join(status['allow']) or 'every program not denied'))
+    latency = status['latency_us']
+    if latency['samples']:
+        print('hook        p50 {p50} us, p99 {p99} us, max {max} us, {samples} keys'.format(**latency))
+    return 1 if status['enabled'] and not status['running'] else 0
+
+
 def cmd_headset(args) -> int:
     with open_manager(args) as manager:
         headsets = [device for device in pick_devices(manager, args.device)
@@ -1286,6 +1389,17 @@ def build_parser() -> argparse.ArgumentParser:
     integration.add_argument('name', nargs='?', choices=('accent', 'chroma'))
     integration.add_argument('state', nargs='?', choices=('on', 'off'))
     integration.add_argument('--json', action='store_true')
+
+    snaptap = add('snaptap', cmd_snaptap,
+                  'of two opposing keys, the one pressed last wins; on every keyboard',
+                  formatter_class=argparse.RawDescriptionHelpFormatter,
+                  epilog=SNAPTAP_HELP)
+    snaptap.add_argument('action', nargs='?', choices=('on', 'off', 'pair', 'deny', 'allow'))
+    snaptap.add_argument('verb', nargs='?', choices=('add', 'remove'))
+    snaptap.add_argument('items', nargs='*', metavar='item')
+    snaptap.add_argument('--accept', action='store_true',
+                         help='you have read the warning shown by the first "on"')
+    snaptap.add_argument('--json', action='store_true')
 
     supported = add('supported', cmd_supported, 'list every device the port knows')
     supported.add_argument('search', nargs='?', default='')

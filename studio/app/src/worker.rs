@@ -109,6 +109,11 @@ pub struct Snapshot {
     pub unsupported: Vec<(u16, String)>,
     /// The daemon's integrations: the accent colour, Chroma games.
     pub integrations: Value,
+    /// Snap Tap, as the daemon has it.
+    pub snaptap: Value,
+    /// Why the daemon refused the last change to the programs Snap Tap stays
+    /// out of. The panel shows it under the box, where the name was typed.
+    pub snaptap_deny_error: Option<String>,
 }
 
 pub enum Command {
@@ -137,6 +142,8 @@ pub enum Command {
     CloseSynapse,
     /// Switch one of the daemon's integrations on or off.
     Integration { name: String, enabled: bool },
+    /// Change Snap Tap: whichever of `snaptap.set`'s parameters are given.
+    SnapTap(Value),
 }
 
 /// What to re-read after a call succeeds.
@@ -241,6 +248,7 @@ impl Worker {
         let keys = self.with(|c| c.call("keys.status", json!({}))).unwrap_or(Value::Null);
         let effects = self.with(|c| c.call("effect.status", json!({}))).unwrap_or(Value::Null);
         let integrations = self.with(|c| c.call("integration.status", json!({}))).unwrap_or(Value::Null);
+        let snaptap = self.with(|c| c.call("snaptap.status", json!({}))).unwrap_or(Value::Null);
         let devices: Vec<Device> = devices.as_array().map(|rows| rows.iter().map(parse_device).collect()).unwrap_or_default();
         let software = effects
             .get("active")
@@ -261,6 +269,7 @@ impl Worker {
             shared.software = software;
             shared.software_options = software_options;
             shared.integrations = integrations;
+            shared.snaptap = snaptap;
             let new = devices.iter().filter(|d| first || !shared.details.contains_key(&d.serial)).map(|d| d.serial.clone()).collect();
             shared.devices = devices;
             new
@@ -505,6 +514,20 @@ impl Worker {
                 }
                 // The accent colour, just put on every device.
                 self.load_persistence();
+            }
+            Command::SnapTap(params) => {
+                let deny = params.get("deny").is_some();
+                let result = self.with(|c| c.call("snaptap.set", params));
+                if !deny {
+                    self.report(&result, None);
+                }
+                let mut shared = self.shared.lock().unwrap();
+                if deny {
+                    shared.snaptap_deny_error = result.as_ref().err().map(ToString::to_string);
+                }
+                if let Ok(status) = result {
+                    shared.snaptap = status;
+                }
             }
             Command::Profile { action, serial, name, quiet } => {
                 let method = format!("profile.{action}");

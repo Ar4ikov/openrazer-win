@@ -114,19 +114,25 @@ class DaemonService:
                  profiles: Optional[ProfileStore] = None,
                  enable_keys: bool = False, keys=None, macros=None,
                  integrations: Optional[IntegrationSettings] = None,
-                 chroma_port: int = CHROMA_PORT):
+                 chroma_port: int = CHROMA_PORT, snaptap=None):
         self.persistence = persistence or Persistence()
         self.profiles = profiles if profiles is not None else ProfileStore()
         self.manager = DeviceManager(backend=backend, persistence=self.persistence)
         self.effects = (EffectEngine(self.manager, persistence=self.persistence)
                         if enable_effects else None)
         from ..keys import KeyService, MacroStore
+        from ..keys.snaptap import SnapTapSettings
+        from ..keys.snaptap_host import SnapTapHost
         #: Bindings can be edited whether or not keys are being handled.
         self.macros = macros if macros is not None else MacroStore()
         #: Off unless asked for: it installs a system-wide keyboard hook.
         self.keys = keys
         if self.keys is None and enable_keys:
             self.keys = KeyService(self.manager.backend, macros=self.macros)
+        #: Off until asked for, and it rides on the hook above when there is one.
+        self.snaptap = snaptap if snaptap is not None else SnapTapHost(
+            SnapTapSettings(os.path.join(os.path.dirname(self.persistence.path), 'snaptap.json')),
+            keys=self.keys)
         self.started_at = time.time()
         self._lock = threading.RLock()
         #: ``starting`` until the first scan and set-up have finished; the
@@ -149,6 +155,7 @@ class DaemonService:
     def start(self) -> None:
         if self.keys is not None:
             self.keys.start()
+        self.snaptap.start()
         self.manager.scan()
         for device in self.manager.devices:
             self._initialise(device)
@@ -201,6 +208,8 @@ class DaemonService:
             except Exception:  # noqa: BLE001 - shutting down regardless
                 logger.debug('could not hand %s back to its firmware', device.name,
                              exc_info=True)
+        # First: what it undoes lives on the thread of the hook stopped next.
+        self.snaptap.stop()
         if self.keys is not None:
             self.keys.stop()
         self.manager.close()
@@ -313,6 +322,20 @@ class DaemonService:
             else:
                 self._stop_chroma()
         return self.rpc_integration_status()
+
+    # -- Snap Tap ------------------------------------------------------------
+    def rpc_snaptap_status(self) -> dict:
+        return self.snaptap.status()
+
+    def rpc_snaptap_set(self, enabled: Optional[bool] = None, pairs=None, deny=None, allow=None,
+                        acknowledged: Optional[bool] = None) -> dict:
+        from ..keys.snaptap import SnapTapError
+        try:
+            self.snaptap.configure(enabled=enabled, pairs=pairs, deny=deny, allow=allow,
+                                   acknowledged=acknowledged)
+        except SnapTapError as error:
+            raise RpcError(INVALID_PARAMS, str(error)) from error
+        return self.snaptap.status()
 
     # -- lookups -----------------------------------------------------------
     def _device(self, serial: str) -> RazerDevice:
@@ -616,6 +639,8 @@ class DaemonServer(socketserver.ThreadingTCPServer):
             'effect.status': service.rpc_effect_status,
             'integration.status': service.rpc_integration_status,
             'integration.set': service.rpc_integration_set,
+            'snaptap.status': service.rpc_snaptap_status,
+            'snaptap.set': service.rpc_snaptap_set,
             'profile.list': service.rpc_profile_list,
             'profile.save': service.rpc_profile_save,
             'profile.load': service.rpc_profile_load,

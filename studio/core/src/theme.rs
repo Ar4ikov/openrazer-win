@@ -197,6 +197,7 @@ pub mod icon {
     pub const SHIELD: &str = "\u{EA18}";
     pub const WRENCH: &str = "\u{E90F}";
     pub const CLOSE: &str = "\u{E711}";
+    pub const SWITCH: &str = "\u{E8AB}";
     pub const PROFILE: &str = "\u{E77B}";
     pub const TEXT: &str = "\u{E8D2}";
     pub const TIMER: &str = "\u{E916}";

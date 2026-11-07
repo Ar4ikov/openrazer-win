@@ -75,7 +75,7 @@ fn tabs_for(device: &Device, snap: &Snapshot) -> Vec<Tab> {
     let caps = detail.and_then(|d| d.caps.as_ref());
     let mut tabs = vec![];
     if let Some(caps) = caps {
-        if caps["dpi"] == true || caps["poll_rate"] == true || caps["keyswitch_optimization"] == true {
+        if caps["dpi"] == true || caps["poll_rate"] == true || caps["keyswitch_optimization"] == true || super::snaptap::shown_on(device) {
             tabs.push(Tab::Performance);
         }
         if caps["zones"].as_object().is_some_and(|z| !z.is_empty()) {
@@ -119,7 +119,10 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
         return super::lighting::page(app, ui, snap, &device);
     }
     scroll(ui, "device-tab", |ui| match app.device_ui.tab {
-        Tab::Performance => performance(app, ui, &device, snap),
+        Tab::Performance => {
+            performance(app, ui, &device, snap);
+            super::snaptap::panel(app, ui, &device, snap);
+        }
         Tab::Sound => super::audio::page(app, ui, &device, snap),
         Tab::Power => power(app, ui, &device, snap),
         Tab::Profiles => profiles(app, ui, &device, snap),
