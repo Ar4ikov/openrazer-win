@@ -21,7 +21,7 @@ from ..core.persistence import Persistence
 from ..chroma import PORT as CHROMA_PORT
 from ..chroma import ChromaBridge, ChromaServer
 from ..core.profiles import (
-    ProfileError, ProfileStore, apply_profile, default_state, snapshot,
+    ProfileError, ProfileStore, apply_profile, default_state, snapshot, verify_poll_rate,
 )
 from ..devices.recipes import NotSupported, RecipeError
 from ..effects.engine import EffectEngine, zone_order
@@ -580,19 +580,20 @@ class DaemonService:
         try:
             try:
                 apply_profile(device, self.persistence, profile)
+                if self.effects is not None:
+                    # A profile saved with a host-drawn effect brings it back; one
+                    # saved without stops whatever is running, or it would paint
+                    # over the profile's own lighting.
+                    if (profile.get('device') or {}).get('software'):
+                        self.effects.restore(device)
+                    else:
+                        self.effects.stop_for(device)
+                self._apply_snaptap(device, profile)
+                verify_poll_rate(device, profile.get('device') or {})
             except NotSupported as error:
                 raise RpcError(NOT_SUPPORTED, str(error)) from error
             except (DeviceError, RecipeError) as error:
                 raise RpcError(DEVICE_ERROR, str(error)) from error
-            if self.effects is not None:
-                # A profile saved with a host-drawn effect brings it back; one
-                # saved without stops whatever is running, or it would paint
-                # over the profile's own lighting.
-                if (profile.get('device') or {}).get('software'):
-                    self.effects.restore(device)
-                else:
-                    self.effects.stop_for(device)
-            self._apply_snaptap(device, profile)
         finally:
             # Even when a step above failed: apply_profile writes persistence
             # before it touches the device, so what the daemon keeps is this

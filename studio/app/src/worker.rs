@@ -507,14 +507,17 @@ impl Worker {
             Command::Call { serial, method, args, zone, then } => {
                 let result = self.with(|c| c.device(&serial, &method, args, zone.as_deref()));
                 self.report(&result, None);
-                if result.is_ok() {
+                if result.is_ok() || then == Then::Performance {
                     let caps = self.caps(&serial);
                     match (then, caps) {
                         (Then::Lighting, Some(caps)) => {
                             self.load_persistence();
                             self.read_lighting(&serial, &caps);
                         }
-                        (Then::Performance, Some(caps)) => self.read_performance(&serial, &caps),
+                        (Then::Performance, Some(caps)) => {
+                            self.read_performance(&serial, &caps);
+                            self.load_persistence();
+                        }
                         (Then::Power, _) => self.read_power(&serial, true),
                         (Then::Keyboard, Some(caps)) => self.read_keyboard(&serial, &caps),
                         (Then::Audio, _) => self.read_audio(&serial),

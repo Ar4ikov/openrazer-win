@@ -25,6 +25,7 @@ import logging
 import os
 import tempfile
 import threading
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -308,6 +309,31 @@ def _capture_poll_rate(device, stored: dict) -> None:
     except (DeviceError, NotSupported) as error:
         # A disconnected device must not prevent saving the rest of a profile.
         logger.warning('could not capture the polling rate of %s: %s', device.name, error)
+
+
+def verify_poll_rate(device, stored: dict) -> None:
+    """Confirm the saved rate after the whole profile has been replayed.
+
+    A successful write acknowledgement alone does not tell us what the device
+    ended up using. Retry a mismatched rate after the other profile commands,
+    then report an error rather than saying the profile was fully applied.
+    """
+    expected = stored.get('poll_rate')
+    if expected is None or not device.capabilities().get('poll_rate'):
+        return
+    for attempt in range(3):
+        reported = device.get_poll_rate()
+        if reported == expected:
+            return
+        if attempt < 2:
+            logger.info('reapplying polling rate on %s: device reports %s Hz, expected %s Hz',
+                        device.name, reported, expected)
+            device.set_poll_rate(expected)
+            time.sleep(0.05)
+    message = '{0} reports {1} Hz after applying the saved {2} Hz'.format(
+        device.name, reported, expected)
+    logger.warning(message)
+    raise DeviceError(message)
 
 
 def apply_profile(device, persistence, profile: dict) -> None:

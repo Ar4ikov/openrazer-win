@@ -349,6 +349,11 @@ fn performance(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapsho
                             send.push(Command::Call { serial: serial.clone(), method: "set_poll_rate".into(), args: vec![json!(rate)], zone: None, then: Then::Performance });
                         }
                     });
+                    if let (Some(saved), Some(reported)) = (snap.persistence[&serial]["poll_rate"].as_i64(), snap.details.get(&serial).and_then(|d| d.poll_rate)) {
+                        if saved != reported {
+                            ui.label(RichText::new(tf("The device reports {} Hz. The saved setting is {} Hz.", &[&reported, &saved])).color(theme::WARN));
+                        }
+                    }
                 });
             }
             // A keyboard's own settings: another one goes in as a second row.

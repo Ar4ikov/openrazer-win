@@ -2,6 +2,7 @@
 //! its translation.  `{}` marks where a value goes, in the same order.
 
 pub const RU: &[(&str, &str)] = &[
+    ("The device reports {} Hz. The saved setting is {} Hz.", "Устройство сообщает {} Гц. Сохранённая настройка — {} Гц."),
     ("{} of {}", "{} — {}"),
     // -- the daemon --------------------------------------------------------------
     ("The daemon is not on this computer: there is no openrazer-win.exe beside this program or on PATH, and no Python with openrazer-win installed in it.", "Демона нет на этом компьютере: рядом с программой и в PATH нет openrazer-win.exe, и нет Python с установленным openrazer-win."),

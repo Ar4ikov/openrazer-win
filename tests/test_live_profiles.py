@@ -49,6 +49,14 @@ def service(tmp_path):
     made.stop()
 
 
+@pytest.fixture(params=[0x026B, 0x026C], ids=['tenkeyless', 'full-size'])
+def huntsman_service(tmp_path, request):
+    made = make_service(tmp_path, product_ids=(request.param,))
+    made.start()
+    yield made
+    made.stop()
+
+
 def by_pid(service, pid):
     return next(d for d in service.manager.devices if d.info.pid == pid)
 
@@ -247,6 +255,48 @@ def test_a_mouse_profile_carries_no_snap_tap(service):
     mouse = by_pid(service, MOUSE)
     service.rpc_profile_save(mouse.serial, 'Desktop')
     assert 'snaptap' not in service.profiles.get(mouse.serial, 'Desktop')
+
+
+def test_switching_verifies_polling_after_the_rest_of_the_profile(huntsman_service, monkeypatch):
+    service = huntsman_service
+    keyboard = service.manager.devices[0]
+    serial = keyboard.serial
+    service.rpc_call(serial, 'set_poll_rate', [1000])
+    service.rpc_profile_save(serial, 'Desktop')
+    service.rpc_profile_create(serial, 'Gaming')
+    service.rpc_call(serial, 'set_poll_rate', [8000])
+    fake = next(d for d in service.manager.backend.devices if d.state.serial == serial)
+    restore = keyboard.restore
+
+    def restore_with_reset():
+        restore()
+        fake.state.poll_rate = 8000
+
+    monkeypatch.setattr(keyboard, 'restore', restore_with_reset)
+    service.rpc_profile_load(serial, 'Desktop')
+    assert keyboard.get_poll_rate() == 1000
+    assert ProfileStore(service.profiles.path).get(serial, 'Desktop')['device']['poll_rate'] == 1000
+
+
+def test_switching_reports_when_the_keyboard_does_not_accept_its_saved_rate(huntsman_service, monkeypatch):
+    from openrazer_win.daemon.protocol import DEVICE_ERROR, RpcError
+
+    service = huntsman_service
+    keyboard = service.manager.devices[0]
+    serial = keyboard.serial
+    service.rpc_call(serial, 'set_poll_rate', [1000])
+    service.rpc_profile_save(serial, 'Desktop')
+    service.rpc_profile_create(serial, 'Gaming')
+    service.rpc_call(serial, 'set_poll_rate', [8000])
+    monkeypatch.setattr(keyboard, 'set_poll_rate', lambda rate: None)
+
+    with pytest.raises(RpcError, match='8000.*1000') as error:
+        service.rpc_profile_load(serial, 'Desktop')
+    assert error.value.code == DEVICE_ERROR
+    # Neither readback nor a failed write can overwrite the user's saved choice.
+    assert service.profiles.active(serial) == 'Desktop'
+    assert ProfileStore(service.profiles.path).get(serial, 'Desktop')['device']['poll_rate'] == 1000
+    assert service.persistence.get_device_value(serial, 'poll_rate') == 1000
 
 
 # -- Snap Tap goes with the keyboard's profile --------------------------------
