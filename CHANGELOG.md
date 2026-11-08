@@ -25,6 +25,22 @@ uses [semantic versioning](https://semver.org/).
   administrator, and it may not work in every game. Choose the pairs with
   `snaptap pair`, and the programs it stays out of with `snaptap deny`, which
   starts with `cs2.exe`. So far it has only run against simulated key events.
+- **Profiles that keep themselves.** The profile last created or applied is
+  the device's active one: Studio shows it in the picker at the top of the
+  page and marks it in the list, and every change after that is written into
+  it, with nothing to save. Switching profiles now switches the keyswitch
+  mode, DPI and polling rate as well as the lighting, and a keyboard's
+  profiles carry Snap Tap, so a *Desktop* profile can type with Snap Tap off
+  and a *Gaming* one play with it on. A profile never turns Snap Tap on before
+  its warning has been accepted. Profiles saved before keep working and change
+  only what they hold. A new profile in Studio starts from the defaults
+  (Typing, Snap Tap off, the default lighting) rather than from the active
+  one, and *Duplicate* copies an existing profile under a new name; either is
+  applied at once. Choosing the active profile again re-applies it. On the
+  command line, `profile save` makes the saved profile active and `profile`
+  marks the active one with `*`. For clients, `profile.list` marks the active
+  profile with `active`, and `profile.create` makes a new profile from the
+  defaults or, given `source`, as a copy.
 
 ## [1.6.1] - 2026-11-06
 

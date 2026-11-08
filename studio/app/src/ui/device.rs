@@ -4,7 +4,7 @@
 
 use super::app::{draw_picture, kind_label, scroll, App};
 use crate::settings::AppRule;
-use crate::worker::{Command, Device, Snapshot, Then};
+use crate::worker::{Command, Created, Device, Snapshot, Then};
 use egui::{vec2, Align, CornerRadius, Frame, Layout, Margin, Rect, RichText, Sense, Stroke};
 use openrazer_studio_core::theme::{self, icon, ACCENT, BORDER, SURFACE_HI, TEXT, TEXT_DIM};
 use openrazer_studio_core::widgets::{self, Button, IconButton};
@@ -57,6 +57,14 @@ impl Tab {
 pub struct DeviceUi {
     pub tab: Tab,
     pub profile_name: String,
+    /// The profile being copied, as (serial, profile), and the name the copy
+    /// is to have.
+    pub duplicating: Option<(String, String)>,
+    pub duplicate_name: String,
+    /// Forms sent and not yet answered: they close once the daemon has made
+    /// the profile, and keep what was typed when it refused.
+    awaiting_new: Option<Created>,
+    awaiting_copy: Option<Created>,
     /// The profile an app is being chosen for.
     pub linking: Option<String>,
     pub app_name: String,
@@ -450,18 +458,36 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
 
 // -- profiles -------------------------------------------------------------------------------
 
-/// The profile picker in the device's header. It applies a saved profile;
-/// with none saved it says so, at the same size.
+/// The profile the daemon writes this device's changes into, if any.
+fn active_profile(profiles: &[serde_json::Value]) -> Option<&str> {
+    profiles.iter().find(|p| p["active"] == true).and_then(|p| p["name"].as_str())
+}
+
+/// What the closed picker says: the active profile, or what it is for.
+fn switcher_label(profiles: &[serde_json::Value]) -> (String, bool) {
+    match active_profile(profiles) {
+        Some(name) => (name.to_string(), true),
+        None if profiles.is_empty() => (t("No profiles saved").to_string(), false),
+        None => (t("Apply a profile…").to_string(), false),
+    }
+}
+
+/// The profile picker in the device's header. It shows the active profile and
+/// switches to another; with none saved it says so, at the same size.
 pub fn profile_switcher(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
     let profiles = snap.details.get(&device.serial).map(|d| d.profiles.clone()).unwrap_or_default();
     let names: Vec<String> = profiles.iter().filter_map(|p| p["name"].as_str().map(str::to_string)).collect();
+    let active = active_profile(&profiles).map(str::to_string);
+    let (label, is_active) = switcher_label(&profiles);
     let mut chosen: Option<String> = None;
     let width = ui.available_width();
     ui.add_enabled_ui(!names.is_empty(), |ui| {
-        let shown = if names.is_empty() { t("No profiles saved") } else { t("Apply a profile…") };
-        widgets::select(ui, ("profile", &device.serial), RichText::new(shown).color(TEXT_DIM), width, |ui| {
+        let shown = RichText::new(label).color(if is_active { TEXT } else { TEXT_DIM });
+        widgets::select(ui, ("profile", &device.serial), shown, width, |ui| {
             for name in &names {
-                if widgets::option(ui, false, name).clicked() {
+                let current = active.as_deref() == Some(name.as_str());
+                // The active one too: applying it again undoes any drift.
+                if widgets::option(ui, current, name).clicked() {
                     chosen = Some(name.clone());
                 }
             }
@@ -472,24 +498,50 @@ pub fn profile_switcher(app: &mut App, ui: &mut egui::Ui, device: &Device, snap:
     }
 }
 
+/// Whether the inline Duplicate field is open on this row of this device.
+fn duplicating_here(duplicating: Option<&(String, String)>, serial: &str, profile: &str) -> bool {
+    duplicating.is_some_and(|(s, p)| s == serial && p == profile)
+}
+
+/// What a form is waiting for: a profile made after `snap` already counted.
+fn awaiting(snap: &Snapshot, serial: &str, name: &str) -> Created {
+    Created { count: snap.created.as_ref().map_or(0, |c| c.count), serial: serial.to_string(), name: name.to_string() }
+}
+
+/// Whether the daemon has made the profile a form is waiting for.
+fn answered(waiting: Option<&Created>, created: Option<&Created>) -> bool {
+    match (waiting, created) {
+        (Some(w), Some(c)) => c.count > w.count && c.serial == w.serial && c.name == w.name,
+        _ => false,
+    }
+}
+
 fn profiles(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
     let serial = device.serial.clone();
     let profiles = snap.details.get(&serial).map(|d| d.profiles.clone()).unwrap_or_default();
+    if answered(app.device_ui.awaiting_new.as_ref(), snap.created.as_ref()) {
+        app.device_ui.awaiting_new = None;
+        app.device_ui.profile_name.clear();
+    }
+    if answered(app.device_ui.awaiting_copy.as_ref(), snap.created.as_ref()) {
+        app.device_ui.awaiting_copy = None;
+        app.device_ui.duplicating = None;
+    }
 
     widgets::columns(ui, 0.4, TWO_COLUMNS, |ui, column| {
         if column == 0 {
-            widgets::panel(ui, t("Save what is showing now"), |ui| {
-                widgets::help(ui, t("Every zone's effect, colours and brightness, and per-key Studio lighting. Up to ten per device."));
+            widgets::panel(ui, t("New profile"), |ui| {
+                widgets::help(ui, t("Starts from the default settings, with Snap Tap off, and becomes the active profile. Changes to the active profile are kept as you make them. Up to ten per device."));
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     let name = app.device_ui.profile_name.trim().to_string();
                     let save_width = 136.0;
                     let field = widgets::text_field(ui, &mut app.device_ui.profile_name, t("Profile name, e.g. Night"), ui.available_width() - save_width - theme::SPACING);
                     let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    let save = ui.add(Button::primary(t("Save")).icon(icon::SAVE).width(save_width).enabled(!name.is_empty()));
+                    let save = ui.add(Button::primary(t("Create")).icon(icon::ADD).width(save_width).enabled(!name.is_empty()));
                     if (save.clicked() || enter) && !name.is_empty() {
-                        app.send(Command::Profile { action: "save", serial: serial.clone(), name, quiet: false });
-                        app.device_ui.profile_name.clear();
+                        app.device_ui.awaiting_new = Some(awaiting(snap, &serial, &name));
+                        app.send(Command::ProfileCreate { serial: serial.clone(), name, source: None });
                     }
                 });
             });
@@ -505,26 +557,27 @@ fn profiles(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) 
         let count = profiles.len().to_string();
         widgets::panel_with(
             ui,
-            t("Saved profiles"),
+            t("Profiles"),
             |ui| {
                 widgets::chip(ui, &count);
             },
             |ui| {
                 if profiles.is_empty() {
-                    widgets::empty_state(ui, t("None yet."), t("Save what the device shows now, and come back to it in one click."), |_| {});
+                    widgets::empty_state(ui, t("None yet."), t("Create one, then switch between them in one click."), |_| {});
                 }
                 for profile in &profiles {
-                    profile_row(app, ui, &serial, profile);
+                    profile_row(app, ui, &serial, profile, snap);
                 }
             },
         );
     });
 }
 
-fn profile_row(app: &mut App, ui: &mut egui::Ui, serial: &str, profile: &serde_json::Value) {
+fn profile_row(app: &mut App, ui: &mut egui::Ui, serial: &str, profile: &serde_json::Value, snap: &Snapshot) {
     let name = profile["name"].as_str().unwrap_or_default().to_string();
     let saved = profile["saved"].as_str().unwrap_or_default();
     let is_default = app.settings.default_profiles.get(serial) == Some(&name);
+    let is_active = profile["active"] == true;
     Frame::new().fill(SURFACE_HI).stroke(Stroke::new(1.0_f32, BORDER)).corner_radius(CornerRadius::same(theme::RADIUS_SM)).inner_margin(Margin::symmetric(14, 10)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.spacing_mut().item_spacing.y = 6.0;
@@ -533,6 +586,9 @@ fn profile_row(app: &mut App, ui: &mut egui::Ui, serial: &str, profile: &serde_j
                 ui.spacing_mut().item_spacing.y = 2.0;
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(&name).font(theme::bold(14.5)).color(TEXT));
+                    if is_active {
+                        widgets::badge(ui, t("Active"), theme::INFO);
+                    }
                     if is_default {
                         widgets::badge(ui, t("Default"), ACCENT);
                     }
@@ -560,11 +616,19 @@ fn profile_row(app: &mut App, ui: &mut egui::Ui, serial: &str, profile: &serde_j
                     }
                     app.save_settings();
                 }
+                if ui.add(IconButton::new(icon::COPY, t("Duplicate")).size(32.0)).clicked() {
+                    app.device_ui.duplicating = Some((serial.to_string(), name.clone()));
+                    app.device_ui.duplicate_name.clear();
+                    app.device_ui.awaiting_copy = None;
+                }
                 if ui.add(Button::secondary(t("Apply")).icon(icon::CHECK).min_width(110.0)).clicked() {
                     app.send(Command::Profile { action: "load", serial: serial.to_string(), name: name.clone(), quiet: false });
                 }
             });
         });
+        if duplicating_here(app.device_ui.duplicating.as_ref(), serial, &name) {
+            duplicate_row(app, ui, serial, &name, snap);
+        }
         // The apps that switch to it.
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
@@ -589,6 +653,25 @@ fn profile_row(app: &mut App, ui: &mut egui::Ui, serial: &str, profile: &serde_j
                 app.device_ui.app_name.clear();
             }
         });
+    });
+}
+
+/// Naming the copy of `source`, inline under its row.
+fn duplicate_row(app: &mut App, ui: &mut egui::Ui, serial: &str, source: &str, snap: &Snapshot) {
+    ui.horizontal(|ui| {
+        let copy = app.device_ui.duplicate_name.trim().to_string();
+        let buttons = 96.0 + 110.0 + theme::SPACING;
+        let field = widgets::text_field(ui, &mut app.device_ui.duplicate_name, t("Name of the copy"), ui.available_width() - buttons - theme::SPACING);
+        let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        let create = ui.add(Button::primary(t("Duplicate")).icon(icon::COPY).width(110.0).enabled(!copy.is_empty()));
+        if (create.clicked() || enter) && !copy.is_empty() {
+            app.device_ui.awaiting_copy = Some(awaiting(snap, serial, &copy));
+            app.send(Command::ProfileCreate { serial: serial.to_string(), name: copy, source: Some(source.to_string()) });
+        }
+        if ui.add(Button::secondary(t("Cancel")).width(96.0)).clicked() {
+            app.device_ui.duplicating = None;
+            app.device_ui.awaiting_copy = None;
+        }
     });
 }
 
@@ -736,4 +819,48 @@ fn about(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
             }
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_picker_names_the_active_profile() {
+        let profiles = vec![json!({ "name": "Desktop", "active": false }), json!({ "name": "Gaming", "active": true })];
+        assert_eq!(active_profile(&profiles), Some("Gaming"));
+        assert_eq!(switcher_label(&profiles), ("Gaming".to_string(), true));
+    }
+
+    #[test]
+    fn the_duplicate_field_belongs_to_one_device() {
+        let open = ("SERIAL1".to_string(), "Gaming".to_string());
+        assert!(duplicating_here(Some(&open), "SERIAL1", "Gaming"));
+        assert!(!duplicating_here(Some(&open), "SERIAL2", "Gaming"));
+        assert!(!duplicating_here(Some(&open), "SERIAL1", "Desktop"));
+        assert!(!duplicating_here(None, "SERIAL1", "Gaming"));
+    }
+
+    #[test]
+    fn a_form_closes_only_for_the_profile_it_asked_for() {
+        let made = |count, serial: &str, name: &str| Created { count, serial: serial.to_string(), name: name.to_string() };
+        let waiting = made(3, "SERIAL1", "Copy");
+        assert!(answered(Some(&waiting), Some(&made(4, "SERIAL1", "Copy"))));
+        // Made before it was sent: an earlier profile of the same name.
+        assert!(!answered(Some(&waiting), Some(&made(3, "SERIAL1", "Copy"))));
+        // Something else made meanwhile, or the request refused.
+        assert!(!answered(Some(&waiting), Some(&made(4, "SERIAL2", "Copy"))));
+        assert!(!answered(Some(&waiting), Some(&made(4, "SERIAL1", "Other"))));
+        assert!(!answered(None, Some(&made(4, "SERIAL1", "Copy"))));
+        assert!(!answered(Some(&waiting), None));
+    }
+
+    #[test]
+    fn with_none_active_the_picker_says_what_it_is_for() {
+        // A daemon from before active profiles sends no flag at all.
+        let profiles = vec![json!({ "name": "Desktop" })];
+        assert_eq!(active_profile(&profiles), None);
+        assert_eq!(switcher_label(&profiles), (t("Apply a profile…").to_string(), false));
+        assert_eq!(switcher_label(&[]), (t("No profiles saved").to_string(), false));
+    }
 }

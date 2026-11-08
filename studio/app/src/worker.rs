@@ -114,6 +114,17 @@ pub struct Snapshot {
     /// Why the daemon refused the last change to the programs Snap Tap stays
     /// out of. The panel shows it under the box, where the name was typed.
     pub snaptap_deny_error: Option<String>,
+    /// The last profile `profile.create` made, so the form that asked for it
+    /// can close -- and stay open, name and all, when it was refused.
+    pub created: Option<Created>,
+}
+
+/// A profile the daemon created: the `count`-th since Studio started.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Created {
+    pub count: u64,
+    pub serial: String,
+    pub name: String,
 }
 
 pub enum Command {
@@ -126,6 +137,8 @@ pub enum Command {
     /// `quiet` for the automatic switch, which should not pop a toast every
     /// time a game comes to the front.
     Profile { action: &'static str, serial: String, name: String, quiet: bool },
+    /// A new profile, from the defaults or as a copy of `source`, switched to.
+    ProfileCreate { serial: String, name: String, source: Option<String> },
     MacroSet { serial: String, key: String, action: Value },
     MacroDelete { serial: String, key: String },
     MacroRecordStart { serial: String, key: String },
@@ -433,6 +446,23 @@ impl Worker {
         }
     }
 
+    /// Read back what switching profiles changed on the device.
+    fn after_switch(&mut self, serial: &str) {
+        if let Some(caps) = self.caps(serial) {
+            // A profile switches more than the lighting: the keyswitch mode,
+            // DPI and polling rate, and Snap Tap.
+            self.read_lighting(serial, &caps);
+            self.read_performance(serial, &caps);
+            self.read_keyboard(serial, &caps);
+        }
+        if let Ok(status) = self.with(|c| c.call("snaptap.status", json!({}))) {
+            self.shared.lock().unwrap().snaptap = status;
+        }
+        // Last: the new generation is what has the page take up the values
+        // just read, so they have to be there first.
+        self.load_persistence();
+    }
+
     fn read_profiles(&mut self, serial: &str) {
         if let Ok(list) = self.with(|c| c.call("profile.list", json!({ "serial": serial }))) {
             let rows = list.as_array().cloned().unwrap_or_default();
@@ -533,7 +563,7 @@ impl Worker {
                 let method = format!("profile.{action}");
                 let result = self.with(|c| c.call(&method, json!({ "serial": serial, "name": name })));
                 let text = match action {
-                    "save" => tf("Profile “{}” saved", &[&name]),
+                    "save" => tf("Profile “{}” created", &[&name]),
                     "load" => tf("Profile “{}” applied", &[&name]),
                     _ => tf("Profile “{}” deleted", &[&name]),
                 };
@@ -546,10 +576,24 @@ impl Worker {
                 }
                 self.read_profiles(&serial);
                 if action == "load" {
-                    self.load_persistence();
-                    if let Some(caps) = self.caps(&serial) {
-                        self.read_lighting(&serial, &caps);
-                    }
+                    self.after_switch(&serial);
+                }
+            }
+            Command::ProfileCreate { serial, name, source } => {
+                let mut params = json!({ "serial": serial, "name": name });
+                if let Some(source) = &source {
+                    params["source"] = json!(source);
+                }
+                let result = self.with(|c| c.call("profile.create", params));
+                self.report(&result, Some(tf("Profile “{}” created", &[&name])));
+                if result.is_ok() {
+                    let mut shared = self.shared.lock().unwrap();
+                    let count = shared.created.as_ref().map_or(0, |c| c.count) + 1;
+                    shared.created = Some(Created { count, serial: serial.clone(), name: name.clone() });
+                }
+                self.read_profiles(&serial);
+                if result.is_ok() {
+                    self.after_switch(&serial);
                 }
             }
             Command::MacroSet { serial, key, action } => {

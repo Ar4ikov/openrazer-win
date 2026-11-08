@@ -129,6 +129,9 @@ EFFECT_ATTRIBUTE = {
 #: which of the two a keyboard is in, and they are the names Synapse shows.
 KEYSWITCH_MODES = {'typing': 0x00, 'gaming': 0x01}
 
+#: The mode a keyboard comes in: as the emulator says, it starts in Typing.
+KEYSWITCH_DEFAULT = 'typing'
+
 #: What ``read:keyswitch_optimization`` finds in argument 1 in Typing mode.
 KEYSWITCH_TYPING_MARKER = 0x14
 

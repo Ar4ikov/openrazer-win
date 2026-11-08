@@ -79,14 +79,18 @@ Examples:
   openrazer-win snaptap allow add game.exe      work only in the programs listed
   openrazer-win snaptap allow remove game.exe"""
 
-PROFILE_HELP = """A profile is a named snapshot of what a device is showing: per-zone effect,
-colours and brightness. Devices do not store colours themselves -- the daemon
-holds them -- so a profile is kept here and re-applied on demand.
+PROFILE_HELP = """A profile is a named snapshot of a device's settings: per-zone effect,
+colours and brightness, the keyswitch mode, DPI and polling rate, and on a
+keyboard Snap Tap. Devices do not store colours themselves -- the daemon holds
+them -- so a profile is kept here and re-applied on demand.
+
+The profile last saved or loaded is the device's active one, marked * in the
+list. While the daemon runs, every later change is saved into it.
 
 Examples:
   openrazer-win profile                list saved profiles
-  openrazer-win profile save night     record what is showing now
-  openrazer-win profile load night     put it back
+  openrazer-win profile save night     record what is set now; it becomes active
+  openrazer-win profile load night     put it back and make it active
   openrazer-win profile delete night"""
 
 HEADSET_HELP = """\
@@ -600,8 +604,8 @@ def _print_profiles(device, args) -> None:
     print('{0}:'.format(device.name))
     width = max(len(entry['name']) for entry in profiles)
     for entry in profiles:
-        print('  {0:<{1}}  {2}  ({3})'.format(
-            entry['name'], width, entry.get('saved') or '',
+        print('  {0} {1:<{2}}  {3}  ({4})'.format(
+            '*' if entry.get('active') else ' ', entry['name'], width, entry.get('saved') or '',
             ', '.join(entry.get('zones') or []) or 'no zones'))
 
 
