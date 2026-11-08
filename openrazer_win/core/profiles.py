@@ -28,7 +28,8 @@ import threading
 from datetime import datetime
 from typing import Optional
 
-from .device import KEYSWITCH_DEFAULT
+from ..devices.recipes import NotSupported
+from .device import DeviceError, KEYSWITCH_DEFAULT
 from .persistence import DEFAULT_ZONE_STATE, default_config_dir
 
 logger = logging.getLogger(__name__)
@@ -266,14 +267,15 @@ def default_state(device) -> dict:
 
     The lighting is persistence's default zone state, which is what a profile
     of an untouched device would have recorded anyway.  The keyswitch mode is
-    the one a keyboard comes in.  DPI and polling rate have no default here --
-    they differ from mouse to mouse -- so they are left out, and a new profile
-    does not change them.
+    the one a keyboard comes in.  DPI has no default here and is left alone.
+    Polling rate starts at the device's current rate: remember it even if it
+    has never been changed in Studio, so a later profile switch can restore it.
     """
     capabilities = device.capabilities()
     stored = {}
     if capabilities.get('keyswitch_optimization'):
         stored['keyswitch_optimization'] = KEYSWITCH_DEFAULT
+    _capture_poll_rate(device, stored)
     zones = {zone: json.loads(json.dumps(DEFAULT_ZONE_STATE))
              for zone in capabilities.get('zones', {})}
     return {'device': stored, 'zones': zones}
@@ -284,7 +286,9 @@ def snapshot(device, persistence) -> dict:
 
     Read from persistence rather than from the hardware: that is what the
     daemon replays, most devices cannot be asked what they are showing, and it
-    keeps a profile identical in shape to the state that restores it.
+    keeps a profile identical in shape to the state that restores it.  If the
+    polling rate has not been set here yet, capture the device's current rate
+    rather than leaving the profile to inherit another profile's rate.
     """
     serial = device.serial
     zones = {}
@@ -292,7 +296,18 @@ def snapshot(device, persistence) -> dict:
         zones[zone] = dict(persistence.zone(serial, zone))
     stored = dict(persistence.device(serial))
     stored.pop('zones', None)
+    _capture_poll_rate(device, stored)
     return {'device': stored, 'zones': zones}
+
+
+def _capture_poll_rate(device, stored: dict) -> None:
+    if stored.get('poll_rate') is not None or not device.capabilities().get('poll_rate'):
+        return
+    try:
+        stored['poll_rate'] = device.get_poll_rate()
+    except (DeviceError, NotSupported) as error:
+        # A disconnected device must not prevent saving the rest of a profile.
+        logger.warning('could not capture the polling rate of %s: %s', device.name, error)
 
 
 def apply_profile(device, persistence, profile: dict) -> None:

@@ -24,7 +24,7 @@ MOUSE = 0x0078
 HUNTSMAN_V2_TKL = 0x026B
 
 
-def make_service(tmp_path, effects=False):
+def make_service(tmp_path, effects=False, product_ids=None):
     def factory(on_event):
         hook = SyncHook(on_event)
         hook.start()
@@ -34,7 +34,8 @@ def make_service(tmp_path, effects=False):
                        injector=RecordingInjector(), hook_factory=factory,
                        watch_factory=FakeWatch, foreground=lambda: 'notepad.exe',
                        is_down=lambda vk: False)
-    return DaemonService(backend=build_demo_backend(), enable_effects=effects,
+    backend = build_demo_backend() if product_ids is None else build_demo_backend(product_ids)
+    return DaemonService(backend=backend, enable_effects=effects,
                          persistence=Persistence(str(tmp_path / 'p.json')),
                          profiles=ProfileStore(str(tmp_path / 'profiles.json')),
                          snaptap=host)
@@ -206,6 +207,42 @@ def test_loading_a_profile_switches_dpi_and_polling_rate(service):
     assert mouse.get_poll_rate() == 500
 
 
+@pytest.mark.parametrize('pid', [0x026B, 0x026C], ids=['tenkeyless', 'full-size'])
+@pytest.mark.parametrize('action', ['save', 'create'])
+def test_switching_back_restores_a_keyboards_initial_polling_rate(tmp_path, pid, action):
+    service = make_service(tmp_path, product_ids=(pid,))
+    # The keyboard already runs at 1000 Hz, before Studio changes anything.
+    service.manager.backend.devices[0].state.poll_rate = 1000
+    service.start()
+    try:
+        keyboard = by_pid(service, pid)
+        serial = keyboard.serial
+        assert service.persistence.get_device_value(serial, 'poll_rate') is None
+        create = getattr(service, 'rpc_profile_' + action)
+        create(serial, 'Desktop')
+        service.rpc_profile_create(serial, 'Gaming')
+        service.rpc_call(serial, 'set_poll_rate', [8000])
+
+        # Every edit belongs to the active profile, without saving or applying.
+        stored = ProfileStore(service.profiles.path)
+        assert stored.get(serial, 'Desktop')['device']['poll_rate'] == 1000
+        assert stored.get(serial, 'Gaming')['device']['poll_rate'] == 8000
+        for name, expected in [('Desktop', 1000), ('Gaming', 8000), ('Desktop', 1000)]:
+            service.rpc_profile_load(serial, name)
+            assert service.rpc_call(serial, 'get_poll_rate') == expected
+            assert service.persistence.get_device_value(serial, 'poll_rate') == expected
+
+        # Editing Desktop is saved automatically and does not change Gaming.
+        service.rpc_call(serial, 'set_poll_rate', [500])
+        service.rpc_profile_load(serial, 'Gaming')
+        assert keyboard.get_poll_rate() == 8000
+        service.rpc_profile_load(serial, 'Desktop')
+        assert keyboard.get_poll_rate() == 500
+        assert ProfileStore(service.profiles.path).get(serial, 'Desktop')['device']['poll_rate'] == 500
+    finally:
+        service.stop()
+
+
 def test_a_mouse_profile_carries_no_snap_tap(service):
     mouse = by_pid(service, MOUSE)
     service.rpc_profile_save(mouse.serial, 'Desktop')
@@ -276,12 +313,13 @@ def test_a_new_profile_starts_from_the_defaults_not_the_active_one(service):
         'keyswitch_optimization'] == 'gaming'
 
 
-def test_a_new_profile_leaves_out_what_has_no_default(service):
+def test_a_new_profile_keeps_the_current_polling_rate_without_resetting_dpi(service):
     mouse = by_pid(service, MOUSE)
     service.rpc_call(mouse.serial, 'set_dpi', [1600, 1600])
     service.rpc_profile_create(mouse.serial, 'Fresh')
     created = service.profiles.get(mouse.serial, 'Fresh')
-    assert not {'dpi', 'dpi_stages', 'poll_rate'} & set(created['device'])
+    assert not {'dpi', 'dpi_stages'} & set(created['device'])
+    assert created['device']['poll_rate'] == mouse.get_poll_rate()
     assert tuple(mouse.get_dpi()) == (1600, 1600)
 
 
