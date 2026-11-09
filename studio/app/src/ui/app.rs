@@ -126,7 +126,6 @@ impl App {
         let shared: Shared = Default::default();
         let ctx = cc.egui_ctx.clone();
         let tx = worker::spawn(shared.clone(), move || ctx.request_repaint());
-        // The worker starts the daemon itself, before its first poll.
         crate::daemon::refresh_autostart();
         openrazer_studio_core::process::listen_for_quit(quit);
 

@@ -13,12 +13,6 @@ from ..daemon.protocol import Endpoint, RpcError
 
 DEFAULT_TIMEOUT = 15.0
 
-#: How long to wait for a loopback connect before asking whether the daemon is
-#: even alive.  A live daemon accepts at once, from the kernel's backlog; but
-#: Windows takes about 2 s to refuse a connection to a closed loopback port,
-#: and a stale endpoint file at logon is exactly that.
-LOOPBACK_CONNECT_TIMEOUT = 0.25
-
 _LOOPBACK = ('::1', 'localhost')
 
 
@@ -42,7 +36,7 @@ def process_alive(pid: int) -> bool:
         except ProcessLookupError:
             return False
         except OSError:
-            return True       # PermissionError: it exists, it is not ours
+            pass              # PermissionError: it exists, it is not ours
         return True
     import ctypes
     from ctypes import wintypes
@@ -57,11 +51,10 @@ def process_alive(pid: int) -> bool:
         # ERROR_INVALID_PARAMETER (87): no such process.  Anything else, such
         # as access denied, means there is one.
         return ctypes.get_last_error() != 87
+    code = wintypes.DWORD()
     try:
-        code = wintypes.DWORD()
-        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
-            return True
-        return code.value == 259                           # STILL_ACTIVE
+        # 259 is STILL_ACTIVE; an exit code that cannot be read is doubt, so alive.
+        return not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value == 259
     finally:
         kernel32.CloseHandle(handle)
 
@@ -102,7 +95,14 @@ class RpcClient:
         if self._socket is not None:
             return
         try:
-            connection = self._open_connection()
+            # Windows takes about 2 s to refuse a closed loopback port, which
+            # is what a stale endpoint file at logon points at; a process that
+            # is gone says the same at once.
+            if _is_loopback(self.endpoint.host) and not process_alive(self.endpoint.pid):
+                raise ConnectionRefusedError(
+                    'process {0} named in the endpoint file is gone'.format(self.endpoint.pid))
+            connection = socket.create_connection(
+                (self.endpoint.host, self.endpoint.port), timeout=self.timeout)
         except OSError as error:
             # An endpoint file with nothing listening behind it means the
             # daemon died without cleaning up, which is worth saying plainly
@@ -113,28 +113,6 @@ class RpcClient:
                     self.endpoint.host, self.endpoint.port, error)) from error
         self._socket = connection
         self._stream = connection.makefile('rwb')
-
-    def _open_connection(self) -> socket.socket:
-        address = (self.endpoint.host, self.endpoint.port)
-        if not _is_loopback(self.endpoint.host):
-            return socket.create_connection(address, timeout=self.timeout)
-        pid = self.endpoint.pid
-        if not process_alive(pid):
-            raise ConnectionRefusedError(
-                'process {0} named in the endpoint file is gone'.format(pid))
-        if self.timeout is None or self.timeout <= LOOPBACK_CONNECT_TIMEOUT:
-            return socket.create_connection(address, timeout=self.timeout)
-        try:
-            connection = socket.create_connection(address, timeout=LOOPBACK_CONNECT_TIMEOUT)
-        except socket.timeout:
-            # Slow to accept: busy, or nothing there.  A daemon that may be
-            # alive -- or whose id is not recorded -- gets the full time.
-            if not process_alive(pid):
-                raise
-            return socket.create_connection(address, timeout=self.timeout)
-        # The short timeout was for connecting only.
-        connection.settimeout(self.timeout)
-        return connection
 
     def close(self) -> None:
         with self._lock:

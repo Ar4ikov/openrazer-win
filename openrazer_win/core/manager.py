@@ -79,10 +79,8 @@ class DeviceManager:
 
         `force_bluetooth` sweeps the radio regardless of when it was last
         swept -- what someone pressing "rescan" means.  `sweep_bluetooth=False`
-        leaves the radio alone this time: the daemon's first scan uses it, so
-        that USB devices are set up before a sweep that can take seconds.  Not
-        sweeping is not evidence that a Bluetooth device has gone, so those
-        already listed are kept, exactly as when a sweep is not yet due.
+        skips the radio this time (the daemon's first scan); Bluetooth devices
+        already listed are kept, as when a sweep is not due.
         """
         advertisers = (self._sweep_bluetooth(force_bluetooth)
                        if self.bluetooth and sweep_bluetooth else None)
@@ -104,8 +102,7 @@ class DeviceManager:
                 key = self._key(meta, infos)
                 seen.add(key)
                 if key in self._devices:
-                    # What this scan found, for whoever needs the collections
-                    # of a device already built without asking Windows again.
+                    # The key service reads these instead of asking Windows again.
                     self._devices[key].hid_collections = infos
                     continue
                 device = self._build(meta, infos)

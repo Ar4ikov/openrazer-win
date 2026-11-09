@@ -151,10 +151,7 @@ async def _scan(seconds: float, company_id: Optional[int]) -> dict:
     )
 
     seen: dict = {}
-    # A PC without a Bluetooth radio has no default adapter.  Without this
-    # check the watcher starts, reports Aborted at once, and the sweep then
-    # sleeps the whole window listening to nothing -- 6 s on every start-up
-    # and on every poll that happens to be due.
+    # A PC without a Bluetooth radio has no default adapter: nothing to hear.
     if await BluetoothAdapter.get_default_async() is None:
         return seen
 
@@ -194,15 +191,11 @@ async def _scan(seconds: float, company_id: Optional[int]) -> dict:
     watcher.start()
     try:
         deadline = time.monotonic() + seconds
-        while True:
-            # The watcher also aborts when the radio is switched off or
-            # disappears mid-sweep; nothing more will arrive then either.
-            if watcher.status == BluetoothLEAdvertisementWatcherStatus.ABORTED:
-                break
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            await asyncio.sleep(min(remaining, WATCHER_POLL))
+        # The watcher aborts when the radio is switched off or disappears
+        # mid-sweep; nothing more will arrive then.
+        while (watcher.status != BluetoothLEAdvertisementWatcherStatus.ABORTED
+               and time.monotonic() < deadline):
+            await asyncio.sleep(min(deadline - time.monotonic(), WATCHER_POLL))
     finally:
         watcher.stop()
     if company_id is not None:

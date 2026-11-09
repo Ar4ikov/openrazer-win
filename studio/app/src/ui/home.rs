@@ -33,7 +33,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
     });
     scroll(ui, "home", |ui| {
         notices(app, ui, snap);
-        if looking_for_devices(snap) {
+        if snap.devices.is_empty() && still_starting(snap) {
             // The daemon answers before it has looked: "none found, close
             // Synapse" would be an accusation made before the search began.
             widgets::plain_panel(ui, |ui| {
@@ -83,11 +83,6 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
 pub(crate) fn still_starting(snap: &Snapshot) -> bool {
     matches!(&snap.daemon, DaemonState::Running(info)
         if info["state"] == "starting" || info["first_sweep_pending"] == true)
-}
-
-/// Whether to say "Looking for devices…" rather than "none found".
-pub(crate) fn looking_for_devices(snap: &Snapshot) -> bool {
-    snap.devices.is_empty() && still_starting(snap)
 }
 
 fn notices(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
@@ -417,46 +412,22 @@ fn quick_settings(app: &mut App, ui: &mut egui::Ui, device: &Device, detail: &cr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::worker::DaemonState;
-    use serde_json::json;
-
-    fn snapshot(daemon: DaemonState) -> Snapshot {
-        Snapshot { daemon, ..Default::default() }
-    }
 
     #[test]
-    fn a_daemon_that_is_starting_has_not_looked_yet() {
-        assert!(still_starting(&snapshot(DaemonState::Running(json!({ "state": "starting" })))));
-    }
-
-    #[test]
-    fn a_ready_daemon_with_nothing_found_is_not_starting() {
-        assert!(!still_starting(&snapshot(DaemonState::Running(json!({ "state": "ready" })))));
-        // An older daemon says nothing about its state at all.
-        assert!(!still_starting(&snapshot(DaemonState::Running(json!({ "version": "1.6.1" })))));
-    }
-
-    #[test]
-    fn the_first_bluetooth_sweep_still_counts_as_looking() {
-        let sweeping = |v| snapshot(DaemonState::Running(v));
-        assert!(still_starting(&sweeping(json!({ "state": "ready", "first_sweep_pending": true }))));
-        assert!(!still_starting(&sweeping(json!({ "state": "ready", "first_sweep_pending": false }))));
-    }
-
-    #[test]
-    fn looking_is_shown_only_while_nothing_is_found() {
-        let mut snap = snapshot(DaemonState::Running(json!({ "state": "starting" })));
-        assert!(looking_for_devices(&snap));
-        snap.daemon = DaemonState::Running(json!({ "state": "ready" }));
-        assert!(!looking_for_devices(&snap));
-        snap.daemon = DaemonState::Running(json!({ "state": "starting" }));
-        snap.devices.push(Default::default());
-        assert!(!looking_for_devices(&snap));
-    }
-
-    #[test]
-    fn no_daemon_is_not_a_daemon_that_is_starting() {
-        assert!(!still_starting(&snapshot(DaemonState::Connecting)));
-        assert!(!still_starting(&snapshot(DaemonState::NotRunning("gone".into()))));
+    fn the_daemon_is_still_starting_until_its_first_look_is_done() {
+        let running = |info| Snapshot { daemon: DaemonState::Running(info), ..Default::default() };
+        for (info, starting) in [
+            (json!({ "state": "starting" }), true),
+            (json!({ "state": "ready", "first_sweep_pending": true }), true),
+            (json!({ "state": "ready", "first_sweep_pending": false }), false),
+            (json!({ "state": "ready" }), false),
+            // An older daemon says nothing about either.
+            (json!({ "version": "1.6.1" }), false),
+        ] {
+            assert_eq!(still_starting(&running(info.clone())), starting, "{info}");
+        }
+        for daemon in [DaemonState::Connecting, DaemonState::NotRunning("gone".into())] {
+            assert!(!still_starting(&Snapshot { daemon, ..Default::default() }));
+        }
     }
 }

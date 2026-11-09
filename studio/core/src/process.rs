@@ -102,19 +102,14 @@ mod win {
         unsafe {
             let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
             if handle.is_null() {
-                return alive_after_open_failed(GetLastError());
+                // Only ERROR_INVALID_PARAMETER means there is no such process.
+                return GetLastError() != ERROR_INVALID_PARAMETER;
             }
             let mut code = 0u32;
             let known = GetExitCodeProcess(handle, &mut code) != 0;
             CloseHandle(handle);
             !known || code == STILL_ACTIVE
         }
-    }
-
-    /// Only "no such process" means gone; access denied (a process of another
-    /// user, or an elevated one) and anything else is doubt, so alive.
-    pub fn alive_after_open_failed(last_error: u32) -> bool {
-        last_error != ERROR_INVALID_PARAMETER
     }
 
     /// Wait for `pid` to exit; true if it did within `ms`.
@@ -233,7 +228,7 @@ mod win {
     }
 }
 
-pub use win::{announce_environment_change, image_path, list, listen_for_quit, signal_quit, terminate, wait_exit};
+pub use win::{announce_environment_change, image_path, is_alive, list, listen_for_quit, signal_quit, terminate, wait_exit};
 
 /// Every process whose executable is inside `dir`.
 pub fn running_from(dir: &Path) -> Vec<Process> {
@@ -267,11 +262,6 @@ pub fn stop_everything_in(dir: &Path) -> Vec<String> {
     stuck
 }
 
-/// Whether the process `pid` is still running; when that cannot be told, yes.
-pub fn is_alive(pid: u32) -> bool {
-    win::is_alive(pid)
-}
-
 /// The executable file name of the app in front, lower-cased: `game.exe`.
 pub fn foreground_exe() -> Option<String> {
     let pid = win::foreground_pid()?;
@@ -298,15 +288,6 @@ mod tests {
     #[test]
     fn this_process_is_alive() {
         assert!(is_alive(std::process::id()));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn access_denied_is_not_gone() {
-        // ERROR_ACCESS_DENIED: the process exists, this user may not look in.
-        assert!(win::alive_after_open_failed(5));
-        // ERROR_INVALID_PARAMETER: no such process.
-        assert!(!win::alive_after_open_failed(87));
     }
 
     #[cfg(windows)]

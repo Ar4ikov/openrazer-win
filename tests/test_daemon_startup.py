@@ -17,9 +17,7 @@ import pytest
 from openrazer_win.core.manager import DeviceManager
 from openrazer_win.daemon import server as server_module
 from openrazer_win.daemon.server import DaemonService
-from openrazer_win.hid.fake import FakeHidBackend
-
-from openrazer_win.hid.fake import FakeRazerDevice
+from openrazer_win.hid.fake import FakeHidBackend, FakeRazerDevice
 
 from .conftest import ADVERT, MOUSE_PID
 
@@ -58,8 +56,7 @@ def service(persistence, monkeypatch):
 
 def adopt(service, device, monkeypatch):
     """Make the manager report `device` as found."""
-    monkeypatch.setattr(service.manager, 'scan',
-                        lambda force_bluetooth=False, sweep_bluetooth=True: [device])
+    monkeypatch.setattr(service.manager, 'scan', lambda *a, **k: [device])
     monkeypatch.setattr(type(service.manager), 'devices',
                         property(lambda self: [device]))
 
@@ -147,55 +144,29 @@ def mouse_backend():
     return FakeHidBackend([FakeRazerDevice(MOUSE_PID, 'Razer Viper', interface=0)])
 
 
-def test_a_usb_device_is_ready_before_any_sweep_has_run(persistence, fake_radio, monkeypatch):
-    import openrazer_win.ble as ble
+class Stop:
+    """Stands in for the device loop's stop event: records each wait, stops at the second."""
 
-    sweeps = []
-    monkeypatch.setattr(ble, 'scan', lambda *a, **k: sweeps.append(1) or [ADVERT])
+    def __init__(self, service):
+        self.service = service
+        self.seen = []
+
+    def wait(self, timeout):
+        self.seen.append((timeout, self.service.state, self.service.first_sweep_pending,
+                          len(self.service.manager.devices)))
+        return len(self.seen) > 1
+
+
+def test_usb_devices_are_ready_before_the_radio_is_swept_at_once(persistence, fake_radio):
     service = DaemonService(backend=mouse_backend(), persistence=persistence,
                             enable_effects=False)
+    stop = Stop(service)
     try:
-        service.start()
-        assert service.state == 'ready'
-        assert sweeps == []
-        assert [device.pid for device in service.manager.devices] == [MOUSE_PID]
-    finally:
-        service.stop()
-
-
-def test_a_bluetooth_device_is_found_on_a_later_poll_and_the_usb_one_is_kept(
-        persistence, fake_radio, monkeypatch):
-    service = DaemonService(backend=mouse_backend(), persistence=persistence,
-                            enable_effects=False)
-    try:
-        service.start()
-        assert len(service.manager.devices) == 1
-        service.poll_hotplug()
-        keys = [device.pid for device in service.manager.devices]
-        assert len(keys) == 2 and MOUSE_PID in keys
-        assert service.state == 'ready'
-    finally:
-        service.stop()
-
-
-def test_the_first_sweep_runs_at_once_and_clears_the_pending_flag(
-        persistence, fake_radio, monkeypatch):
-    import openrazer_win.ble as ble
-
-    sweeps = []
-    monkeypatch.setattr(ble, 'scan', lambda *a, **k: sweeps.append(1) or [ADVERT])
-    service = DaemonService(backend=mouse_backend(), persistence=persistence,
-                            enable_effects=False)
-    try:
-        service.start()
-        # Ready, but the radio has not been heard yet: Studio must not say
-        # "no devices" for a Bluetooth-only PC.
-        assert service.state == 'ready'
-        assert service.rpc_version()['first_sweep_pending'] is True
-        service.first_sweep()
-        assert sweeps == [1]
-        assert len(service.manager.devices) == 2
-        assert service.rpc_version()['first_sweep_pending'] is False
+        server_module.device_loop(service, stop)
+        # Ready with the mouse alone, then the first poll -- at once -- finds the headset.
+        assert stop.seen == [(0, 'ready', True, 1),
+                             (server_module.HOTPLUG_INTERVAL, 'ready', False, 2)]
+        assert MOUSE_PID in [device.pid for device in service.manager.devices]
     finally:
         service.stop()
 
@@ -208,26 +179,21 @@ def test_the_pending_flag_is_cleared_even_when_the_first_sweep_fails(persistence
         raise OSError('radio went away')
 
     service.poll_hotplug = broken
-    with pytest.raises(OSError):
-        service.first_sweep()
-    assert service.first_sweep_pending is False
+    try:
+        server_module.device_loop(service, Stop(service))
+        assert service.rpc_version()['first_sweep_pending'] is False
+    finally:
+        service.stop()
 
 
-def test_a_usb_only_scan_does_not_drop_a_bluetooth_device(persistence, fake_radio):
-    manager = DeviceManager(backend=FakeHidBackend(), persistence=persistence,
-                            bluetooth_interval=3600)
-    assert len(manager.scan()) == 1
-    # Not swept, so not heard: that is not the headset going away.
-    assert len(manager.scan(sweep_bluetooth=False)) == 1
-    manager.close()
-
-
-def test_a_usb_only_first_scan_leaves_the_sweep_due(persistence, fake_radio):
+def test_a_usb_only_scan_keeps_bluetooth_devices_and_leaves_the_sweep_due(
+        persistence, fake_radio):
     manager = DeviceManager(backend=mouse_backend(), persistence=persistence,
                             bluetooth_interval=3600)
     assert len(manager.scan(sweep_bluetooth=False)) == 1
-    assert manager._bluetooth_swept_at is None
     assert len(manager.scan()) == 2
+    # Not swept, so not heard: that is not the headset going away.
+    assert len(manager.scan(sweep_bluetooth=False)) == 2
     manager.close()
 
 
@@ -246,25 +212,6 @@ def test_only_one_daemon_per_session():
     finally:
         first.release()
         second.release()
-
-
-def test_the_device_loop_sweeps_before_it_first_waits(persistence, fake_radio):
-    service = DaemonService(backend=mouse_backend(), persistence=persistence,
-                            enable_effects=False)
-    seen = []
-
-    class Stop:
-        def wait(self, timeout):
-            seen.append(('wait', timeout, service.first_sweep_pending,
-                         len(service.manager.devices)))
-            return True
-
-    try:
-        server_module.device_loop(service, Stop())
-        # Exactly one wait, and by then the radio had been swept.
-        assert seen == [('wait', server_module.HOTPLUG_INTERVAL, False, 2)]
-    finally:
-        service.stop()
 
 
 def test_a_known_device_gets_the_collections_of_the_latest_scan(persistence):
