@@ -73,11 +73,9 @@ Examples:
   openrazer-win snaptap on --accept      the same, having read it, for scripts
   openrazer-win snaptap off
   openrazer-win snaptap pair add a d     keys by position, whatever the layout
-  openrazer-win snaptap pair remove a d
+  openrazer-win snaptap pair remove a d  "remove" works the same for deny and allow
   openrazer-win snaptap deny add game.exe       stay out of this program
-  openrazer-win snaptap deny remove cs2.exe
-  openrazer-win snaptap allow add game.exe      work only in the programs listed
-  openrazer-win snaptap allow remove game.exe"""
+  openrazer-win snaptap allow add game.exe      work only in the programs listed"""
 
 PROFILE_HELP = """A profile is a named snapshot of a device's settings: per-zone effect,
 colours and brightness, the keyswitch mode, DPI and polling rate, and on a
@@ -209,9 +207,7 @@ def cmd_info(args) -> int:
                                 ('charging', 'is_charging'),
                                 ('dpi', 'dpi'), ('poll_rate', 'poll_rate'),
                                 ('keyswitch_optimization', 'keyswitch_optimization')):
-                flag = {'battery': 'battery', 'charging': 'battery',
-                        'dpi': 'dpi', 'poll_rate': 'poll_rate',
-                        'keyswitch_optimization': 'keyswitch_optimization'}[key]
+                flag = {'charging': 'battery'}.get(key, key)
                 if capabilities.get(flag):
                     try:
                         entry[key] = getattr(device, getter)
@@ -760,21 +756,10 @@ def _snaptap_changes(args, status: dict) -> dict:
     return {args.action: programs}
 
 
-def _snaptap_accepted(args, status: dict) -> bool:
-    """Whether the warning has been read, showing it and asking if it has to be."""
-    print(status['warning'], file=sys.stderr)
-    if args.accept:
-        return True
-    if not sys.stdin.isatty():
-        raise CliError('nothing to answer with here; having read that, add --accept')
-    return input('Turn Snap Tap on? [y/N] ').strip().lower() in ('y', 'yes')
-
-
 def cmd_snaptap(args) -> int:
-    if args.action in ('on', 'off') and (args.verb or args.items):
-        raise CliError('snaptap {0} takes nothing more'.format(args.action))
-    if args.action is None and (args.verb or args.items):
-        raise CliError('openrazer-win snaptap [on|off|pair|deny|allow]')
+    lists = args.action in ('pair', 'deny', 'allow')
+    if lists != (args.verb is not None) or (args.items and not lists):
+        raise CliError('openrazer-win snaptap [on|off | pair|deny|allow add|remove ...]')
     try:
         client = RpcClient(timeout=10.0)
     except DaemonUnavailable as error:
@@ -785,14 +770,19 @@ def cmd_snaptap(args) -> int:
         if args.action == 'on':
             changes = {'enabled': True}
             if not status['acknowledged']:
-                if not _snaptap_accepted(args, status):
-                    print('Left off.')
-                    return 0
+                from ..keys.snaptap import WARNING
+                print(WARNING, file=sys.stderr)
+                if not args.accept:
+                    if not sys.stdin.isatty():
+                        raise CliError('nothing to answer with here; having read that, add --accept')
+                    if input('Turn Snap Tap on? [y/N] ').strip().lower() not in ('y', 'yes'):
+                        print('Left off.')
+                        return 0
                 changes['acknowledged'] = True
             status = client.call('snaptap.set', **changes)
         elif args.action == 'off':
             status = client.call('snaptap.set', enabled=False)
-        elif args.action is not None and args.verb is not None:
+        elif lists:
             status = client.call('snaptap.set', **_snaptap_changes(args, status))
     except RpcError as error:
         raise CliError(str(error)) from error
@@ -801,14 +791,14 @@ def cmd_snaptap(args) -> int:
     if args.json:
         print(json.dumps(status, indent=2))
         return 0
-    print('snap tap    {0}   {1}'.format(_shown(status['enabled']), status['scope']))
+    print('snap tap    {0}   applies to every keyboard'.format(_shown(status['enabled'])))
     if status['enabled']:
-        print('            {0}'.format(status['warning_short']))
+        print('            Some games forbid this. Turn it off in those games.')
         if status['running']:
             state = 'paused: {0}'.format(status['paused']) if status['paused'] else 'working'
             print('state       {0}  (in front: {1})'.format(state, status['foreground'] or 'unknown'))
         else:
-            print('state       not working: the key filter is not available')
+            print('state       not working: see the daemon log')
     print('pairs       {0}'.format(', '.join(
         ' + '.join(key[4:] for key in pair) for pair in status['pairs']) or 'none'))
     print('deny        {0}'.format(', '.join(status['deny']) or 'none'))

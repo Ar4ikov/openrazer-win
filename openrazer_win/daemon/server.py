@@ -347,11 +347,10 @@ class DaemonService:
 
     def rpc_snaptap_set(self, enabled: Optional[bool] = None, pairs=None, deny=None, allow=None,
                         acknowledged: Optional[bool] = None) -> dict:
-        from ..keys.snaptap import SnapTapError
         try:
             self.snaptap.configure(enabled=enabled, pairs=pairs, deny=deny, allow=allow,
                                    acknowledged=acknowledged)
-        except SnapTapError as error:
+        except ValueError as error:     # SnapTapError
             raise RpcError(INVALID_PARAMS, str(error)) from error
         # Snap Tap belongs to no one device, so every keyboard following a
         # profile takes the change into it.

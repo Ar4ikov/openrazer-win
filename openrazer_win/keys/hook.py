@@ -62,11 +62,8 @@ def is_available() -> bool:
 
 
 class Timings:
-    """How long the last few thousand callbacks took.
-
-    Written from the callback, so a store into a list that never grows; the
-    sorting is left to whoever asks.
-    """
+    """How long the last few thousand callbacks took: stored by the callback,
+    into a list that never grows, and sorted by whoever asks."""
 
     SIZE = 4096
 
@@ -158,12 +155,11 @@ class FilterHook:
     def rearm(self) -> bool:
         """Install a new hook, then remove the old.  Only on the hook's thread.
 
-        Windows removes a hook that answers too slowly without saying so.  The
-        order leaves no moment without a hook if the old one is still alive,
-        and no key can be seen twice: both belong to this thread, which is
-        busy here, so a key waits until the old hook has gone.
+        Windows removes a hook that answers too slowly without saying so.  This
+        order leaves no moment without a hook, and no key is seen twice: this
+        thread is busy here, so a key waits until the old hook has gone.
         """
-        return self._install() if self._install is not None else False
+        return self._install is not None and self._install()
 
     def _run_jobs(self) -> None:
         while self._jobs:

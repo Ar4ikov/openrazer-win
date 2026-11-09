@@ -128,6 +128,19 @@ def test_dpi_round_trip(demo_daemon, capsys):
     assert '2000' in capsys.readouterr().out
 
 
+def test_keyswitch_round_trip_and_info(demo_daemon, capsys):
+    assert main(['keyswitch', '--device', 'huntsman']) == 0
+    assert 'typing' in capsys.readouterr().out
+    assert main(['keyswitch', 'gaming', '--device', 'huntsman']) == 0
+    assert 'keyswitch optimization gaming' in capsys.readouterr().out
+    assert main(['info', 'huntsman']) == 0
+    assert 'keyswitch   gaming' in capsys.readouterr().out
+    assert main(['info', 'viper']) == 0
+    assert 'keyswitch' not in capsys.readouterr().out
+    assert main(['keyswitch', 'gaming', '--device', 'viper']) == 2
+    assert 'keyswitch optimization' in capsys.readouterr().err
+
+
 def test_headset_shows_what_it_is_set_to(demo_daemon, capsys):
     assert main(['headset']) == 0
     output = capsys.readouterr().out

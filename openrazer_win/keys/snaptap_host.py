@@ -18,12 +18,9 @@ from functools import lru_cache
 from typing import Callable, Optional
 
 from .codes import KEYS
-from .hook import FilterHook, is_available
+from .hook import FilterHook, Timings, is_available
 from .inject import Injector
-from .snaptap import (
-    PAIRABLE, PASS, SCOPE, WARNING, WARNING_SHORT, SnapTapEngine, SnapTapSettings, key_ids,
-    pause_reason,
-)
+from .snaptap import PAIRABLE, PASS, SnapTapEngine, SnapTapSettings, key_ids, pause_reason
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +66,16 @@ def _win32():
     kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
     kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
     kernel32.CloseHandle.restype = wintypes.BOOL
-    return user32, kernel32
+    procedure_type = ctypes.WINFUNCTYPE(
+        None, wintypes.HANDLE, wintypes.DWORD, wintypes.HWND, wintypes.LONG, wintypes.LONG,
+        wintypes.DWORD, wintypes.DWORD)
+    user32.SetWinEventHook.argtypes = (
+        wintypes.UINT, wintypes.UINT, wintypes.HMODULE, procedure_type, wintypes.DWORD,
+        wintypes.DWORD, wintypes.UINT)
+    user32.SetWinEventHook.restype = wintypes.HANDLE
+    user32.UnhookWinEvent.argtypes = (wintypes.HANDLE,)
+    user32.UnhookWinEvent.restype = wintypes.BOOL
+    return user32, kernel32, procedure_type
 
 
 def foreground_exe() -> Optional[str]:
@@ -79,7 +85,7 @@ def foreground_exe() -> Optional[str]:
         return None
     from ctypes import wintypes
 
-    user32, kernel32 = win32
+    user32, kernel32, _ = win32
     window = user32.GetForegroundWindow()
     if not window:
         return None
@@ -114,25 +120,13 @@ class WinEventWatch:
         self._on_change = on_change
         self._procedure = None
         self._hooks: list = []
-        self._user32 = None
 
     def start(self) -> bool:
+        """Whether both events are watched."""
         win32 = _win32()
         if win32 is None:
             return False
-        from ctypes import wintypes
-
-        procedure_type = ctypes.WINFUNCTYPE(
-            None, wintypes.HANDLE, wintypes.DWORD, wintypes.HWND, wintypes.LONG, wintypes.LONG,
-            wintypes.DWORD, wintypes.DWORD)
-        user32 = ctypes.WinDLL('user32', use_last_error=True)
-        user32.SetWinEventHook.argtypes = (
-            wintypes.UINT, wintypes.UINT, wintypes.HMODULE, procedure_type, wintypes.DWORD,
-            wintypes.DWORD, wintypes.UINT)
-        user32.SetWinEventHook.restype = wintypes.HANDLE
-        user32.UnhookWinEvent.argtypes = (wintypes.HANDLE,)
-        user32.UnhookWinEvent.restype = wintypes.BOOL
-        self._user32 = user32
+        user32, _, procedure_type = win32
 
         def callback(_hook, _event, _window, _object, _child, _thread, _time):
             try:
@@ -156,7 +150,7 @@ class WinEventWatch:
 
     def stop(self) -> None:
         for hook in self._hooks:
-            self._user32.UnhookWinEvent(hook)
+            _win32()[0].UnhookWinEvent(hook)
         self._hooks = []
         self._procedure = None
 
@@ -169,11 +163,11 @@ class SnapTapHost:
     is on.
     """
 
-    def __init__(self, settings: Optional[SnapTapSettings] = None, keys=None, injector=None,
+    def __init__(self, settings: SnapTapSettings, keys=None, injector=None,
                  hook_factory: Optional[Callable] = None, watch_factory: Optional[Callable] = None,
                  foreground: Optional[Callable[[], Optional[str]]] = None,
                  is_down: Optional[Callable[[int], bool]] = None):
-        self.settings = settings if settings is not None else SnapTapSettings()
+        self.settings = settings
         self.keys = keys
         self.injector = injector if injector is not None else (
             keys.injector if keys is not None else Injector())
@@ -183,14 +177,16 @@ class SnapTapHost:
         self._foreground = foreground or foreground_exe
         self._is_down = is_down or key_is_down
         #: Only on callers' threads, never in the callback.
-        self._lock = threading.RLock()
+        self._lock = threading.Lock()
         self._hook = keys.hook if keys is not None else None
+        #: Arming has been asked of the hook's thread; `_watching` says it got done.
         self._armed = False
         self._saved_interval: Optional[float] = None
-        self._watch = None
         self._guard_stop: Optional[threading.Event] = None
         self._guard: Optional[threading.Thread] = None
         # Hook thread only, from here on; read by status() one value at a time.
+        self._watch = None
+        self._watching = False
         self._deny: frozenset = frozenset()
         self._allow: frozenset = frozenset()
         self.foreground: Optional[str] = None
@@ -241,10 +237,13 @@ class SnapTapHost:
     def _arm(self, pairs: list, deny: list, allow: list) -> None:
         self._deny = frozenset(deny)
         self._allow = frozenset(allow)
-        self.engine.configure(key_ids(pairs))
         if self._watch is None:
             self._watch = self._watch_factory(self.on_system_change)
-            self._watch.start()
+            self._watching = self._watch.start()
+        # Unwatched, nothing would reset a key whose release went to another
+        # desktop, or pause it for a denied program brought to the front.
+        self.engine.configure(key_ids(pairs) if self._watching else ())
+        self.engine.reset(self._is_down)
         self._look_at_foreground()
 
     def _disarm(self) -> None:
@@ -255,15 +254,20 @@ class SnapTapHost:
         if self._watch is not None:
             self._watch.stop()
             self._watch = None
+        self._watching = False
 
     def _rearm(self) -> None:
         if self._armed and self._hook.rearm():
             self.rearms += 1
-            self.engine.rearm(self._is_down)
+            self.engine.reset(self._is_down, keep_active=True)
 
     # -- everywhere else ---------------------------------------------------
     def _on_hook_thread(self, job: Callable[[], None]) -> None:
-        """Run `job` where the engine lives, and wait for it."""
+        """Run `job` where the engine lives, and wait for it.
+
+        A job still waiting after the timeout runs later, in order, so one
+        queued after it, such as turning off, still comes after it.
+        """
         done = threading.Event()
 
         def run() -> None:
@@ -273,33 +277,34 @@ class SnapTapHost:
                 done.set()
 
         hook = self._hook
-        if hook is not None and getattr(hook, 'running', False) and hook.defer(run):
+        if hook is not None and hook.defer(run):
             done.wait(timeout=2.0)
         else:
             job()       # no thread is running, so nothing else is touching it
 
     def start(self) -> None:
-        self.apply()
+        with self._lock:
+            self._apply()
 
     def configure(self, **changes) -> None:
         with self._lock:
             self.settings.update(**changes)
-            self.apply()
+            self._apply()
 
-    def apply(self) -> None:
-        with self._lock:
-            if self.settings.enabled:
-                self._turn_on()
-            else:
-                self._turn_off()
+    def _apply(self) -> None:
+        if self.settings.enabled:
+            self._turn_on()
+        else:
+            self._turn_off()
 
     def _turn_on(self) -> None:
-        if self.keys is None and self._hook is None:
+        own = self.keys is None
+        if own and self._hook is None:
             self._hook = self._hook_factory(self.handle)
             self._hook.start()
-        if self._hook is None or not getattr(self._hook, 'running', False):
-            # In a daemon still starting, start() comes back here once it is up.
-            if self.keys is None and self._hook is not None:
+        if not self._hook.running:
+            # Nothing tries again by itself: it stays off until the next change.
+            if own:
                 self._hook.stop()
                 self._hook = None
             return
@@ -351,25 +356,19 @@ class SnapTapHost:
     def status(self) -> dict:
         settings = self.settings.as_dict()
         hook = self._hook
-        timings = getattr(hook, 'timings', None)
-        latency_us = timings.summary() if timings is not None else {
-            'samples': 0, 'p50': None, 'p99': None, 'max': None}
         return {
             'enabled': settings['enabled'],
-            'running': self._armed and bool(getattr(hook, 'running', False)),
+            'running': self._armed and self._watching and hook is not None and hook.running,
             'acknowledged': settings['acknowledged'],
             'pairs': settings['pairs'],
             'deny': settings['deny'],
             'allow': settings['allow'],
             'foreground': self.foreground,
             'paused': self.paused,
-            'scope': SCOPE,
-            'warning': WARNING,
-            'warning_short': WARNING_SHORT,
             'keys': OFFERED_KEYS,
-            'latency_us': latency_us,
+            'latency_us': (hook.timings if hook is not None else Timings()).summary(),
             'resets': self.resets,
             'rearms': self.rearms,
             'failed_sends': self.failed_sends,
-            'hook_errors': getattr(hook, 'errors', 0),
+            'hook_errors': hook.errors if hook is not None else 0,
         }
