@@ -266,7 +266,7 @@ def default_state(device, persistence) -> dict:
     if capabilities.get('keyswitch_optimization'):
         held['keyswitch_optimization'] = 'typing'
     return {'device': held,
-            'zones': {zone: DEFAULT_ZONE_STATE for zone in capabilities.get('zones', {})}}
+            'zones': dict.fromkeys(capabilities.get('zones', {}), DEFAULT_ZONE_STATE)}
 
 
 def snapshot(device, persistence) -> dict:
