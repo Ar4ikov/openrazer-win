@@ -518,12 +518,11 @@ impl Worker {
             Command::SnapTap(params) => {
                 let deny = params.get("deny").is_some();
                 let result = self.with(|c| c.call("snaptap.set", params));
-                if !deny {
-                    self.report(&result, None);
-                }
+                // A refused program name is shown under its box, anything else as a toast.
+                let error = if deny { result.as_ref().err().map(ToString::to_string) } else { self.report(&result, None); None };
                 let mut shared = self.shared.lock().unwrap();
                 if deny {
-                    shared.snaptap_deny_error = result.as_ref().err().map(ToString::to_string);
+                    shared.snaptap_deny_error = error;
                 }
                 if let Ok(status) = result {
                     shared.snaptap = status;

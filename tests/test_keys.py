@@ -343,3 +343,20 @@ def test_a_written_sequence_is_parsed_by_the_daemon(rig):
     assert [e['down'] for e in saved['events']] == [True, True, False, False]
     with pytest.raises(RpcError):
         service.rpc_macro_set(device.serial, 'M1', {'type': 'keys', 'sequence': 'ctrl+bogus'})
+
+
+def test_a_batch_is_sent_by_scan_code_with_the_marker():
+    from openrazer_win.keys import inject
+
+    sent = []
+
+    def fake_send(count, array, size):
+        sent.extend(array[index].union.ki for index in range(count))
+        return count
+
+    injector = inject.Injector()
+    injector._send = fake_send
+    assert injector.batch([(0x1E, False, False), (0x48, True, True)]) == 2
+    assert [(k.wVk, k.wScan, k.dwFlags, k.dwExtraInfo) for k in sent] == [
+        (0, 0x1E, inject.KEYEVENTF_SCANCODE | inject.KEYEVENTF_KEYUP, inject.MARKER),
+        (0, 0x48, inject.KEYEVENTF_SCANCODE | inject.KEYEVENTF_EXTENDEDKEY, inject.MARKER)]

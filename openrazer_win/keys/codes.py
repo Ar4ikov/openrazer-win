@@ -177,8 +177,7 @@ def canonical_name(name: str) -> str:
 
 def key_named(name: str):
     """A :class:`Key` or virtual key code for a name such as ``ctrl`` or ``F5``."""
-    lowered = name.strip().lower()
-    full = _ALIASES.get(lowered, 'KEY_' + lowered.upper())
+    full = canonical_name(name)
     if full in KEYS:
         return KEYS[full]
     if full in VIRTUAL_KEYS:

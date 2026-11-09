@@ -318,14 +318,11 @@ class KeyService:
     # -- the keyboard hook -------------------------------------------------
     def handle_key(self, event: KeyEvent) -> bool:
         """Decide one key event.  True holds it back from everything else."""
-        swallow = self._fn_layer(event)
-        snap_tap = self.snap_tap
-        if snap_tap is None:
-            return swallow
-        if swallow:
-            snap_tap.swallowed(event)
+        if self._fn_layer(event):
+            if self.snap_tap is not None:
+                self.snap_tap.swallowed(event)
             return True
-        return snap_tap.handle(event)
+        return self.snap_tap is not None and self.snap_tap.handle(event)
 
     def _fn_layer(self, event: KeyEvent) -> bool:
         if event.injected:

@@ -25,31 +25,21 @@ pub fn shown_on(device: &Device) -> bool {
     device.kind == "keyboard" || device.kind == "keypad"
 }
 
-/// `KEY_LEFTBRACE` as a person would say it, near enough.
-fn key_label(name: &str) -> String {
-    name.strip_prefix("KEY_").unwrap_or(name).to_string()
+/// A list of strings in the daemon's status, such as its keys or the programs denied.
+fn strings(list: &Value) -> Vec<String> {
+    list.as_array().map(|rows| rows.iter().filter_map(|name| name.as_str().map(str::to_string)).collect()).unwrap_or_default()
 }
 
-fn pairs_of(status: &Value) -> Vec<[String; 2]> {
+/// The daemon's pairs, and a pair just added that it has not shown yet: that one
+/// is listened to already, so a key pressed before it arrives must land on it.
+fn pairs_of(status: &Value, keys: &[String], listen: Listen) -> Vec<[String; 2]> {
     let key = |pair: &Value, index: usize| pair[index].as_str().unwrap_or_default().to_string();
-    status["pairs"].as_array().map(|rows| rows.iter().map(|pair| [key(pair, 0), key(pair, 1)]).collect()).unwrap_or_default()
-}
-
-fn denied_of(status: &Value) -> Vec<String> {
-    status["deny"].as_array().map(|rows| rows.iter().filter_map(|name| name.as_str().map(str::to_string)).collect()).unwrap_or_default()
-}
-
-/// A typed name the way the daemon will keep it.
-fn program_name(typed: &str) -> String {
-    typed.trim().to_lowercase()
-}
-
-fn with_added(denied: &[String], name: &str) -> Vec<String> {
-    denied.iter().cloned().chain([name.to_string()]).collect()
-}
-
-fn without(denied: &[String], index: usize) -> Vec<String> {
-    denied.iter().enumerate().filter(|(at, _)| *at != index).map(|(_, name)| name.clone()).collect()
+    let mut pairs: Vec<[String; 2]> = status["pairs"].as_array().map(|rows| rows.iter().map(|pair| [key(pair, 0), key(pair, 1)]).collect()).unwrap_or_default();
+    if matches!(listen, Listen::On { slot, .. } if slot.0 == pairs.len()) {
+        // The same two keys "Add a pair" sent, as nothing has changed since.
+        pairs.extend(free_keys(keys, &pairs));
+    }
+    pairs
 }
 
 /// Two keys not yet in a pair, for a new row to start from.
@@ -126,7 +116,7 @@ type Slot = (usize, usize);
 enum Listen {
     #[default]
     Off,
-    /// `fresh` is a pair just added with stand-in keys: it is not kept unless both its keys get chosen.
+    /// `fresh` is a pair just added: once its first key is chosen, the second box listens.
     On { slot: Slot, fresh: bool },
 }
 
@@ -150,8 +140,6 @@ enum Effect {
     Unknown,
     /// A key already in a pair (the daemon's rule): said so, and still listening.
     Taken,
-    /// Take back a pair that was only a stand-in.
-    Drop(usize),
 }
 
 /// The daemon's name for a physical key, by the key's position and not what it types:
@@ -161,60 +149,51 @@ enum Effect {
 fn key_name(key: egui::Key) -> Option<String> {
     use egui::Key as K;
     let fixed = match key {
-        K::Minus => "MINUS",
-        K::Equals => "EQUAL",
-        K::OpenBracket => "LEFTBRACE",
-        K::CloseBracket => "RIGHTBRACE",
-        K::Semicolon => "SEMICOLON",
-        K::Quote => "APOSTROPHE",
-        K::Backtick => "GRAVE",
-        K::Backslash => "BACKSLASH",
-        K::Comma => "COMMA",
-        K::Period => "DOT",
-        K::Slash => "SLASH",
-        K::Space => "SPACE",
-        K::Tab => "TAB",
-        K::Backspace => "BACKSPACE",
-        K::Enter => "ENTER",
-        K::Insert => "INSERT",
-        K::Delete => "DELETE",
-        K::Home => "HOME",
-        K::End => "END",
-        K::PageUp => "PAGEUP",
-        K::PageDown => "PAGEDOWN",
-        K::ArrowUp => "UP",
-        K::ArrowDown => "DOWN",
-        K::ArrowLeft => "LEFT",
-        K::ArrowRight => "RIGHT",
-        _ => "",
+        K::Minus => Some("MINUS"),
+        K::Equals => Some("EQUAL"),
+        K::OpenBracket => Some("LEFTBRACE"),
+        K::CloseBracket => Some("RIGHTBRACE"),
+        K::Semicolon => Some("SEMICOLON"),
+        K::Quote => Some("APOSTROPHE"),
+        K::Backtick => Some("GRAVE"),
+        K::Backslash => Some("BACKSLASH"),
+        K::Comma => Some("COMMA"),
+        K::Period => Some("DOT"),
+        K::Slash => Some("SLASH"),
+        K::Space => Some("SPACE"),
+        K::Tab => Some("TAB"),
+        K::Backspace => Some("BACKSPACE"),
+        K::Enter => Some("ENTER"),
+        K::Insert => Some("INSERT"),
+        K::Delete => Some("DELETE"),
+        K::Home => Some("HOME"),
+        K::End => Some("END"),
+        K::PageUp => Some("PAGEUP"),
+        K::PageDown => Some("PAGEDOWN"),
+        K::ArrowUp => Some("UP"),
+        K::ArrowDown => Some("DOWN"),
+        K::ArrowLeft => Some("LEFT"),
+        K::ArrowRight => Some("RIGHT"),
+        _ => None,
     };
-    if !fixed.is_empty() {
+    if let Some(fixed) = fixed {
         return Some(format!("KEY_{fixed}"));
     }
-    // `A`, `7`, `F5`: the letters and numbers are the key's own name.
+    // `A`, `7`, `F5`: the letters, numbers and F1 to F24 are the key's own name.
     let name = key.name();
-    let digit = Some(name).filter(|name| name.len() == 1 && name.as_bytes()[0].is_ascii_digit());
-    let function = name.strip_prefix('F').and_then(|n| n.parse::<u8>().ok()).filter(|n| (1..=24).contains(n));
-    match (digit, function) {
-        (Some(digit), _) => Some(format!("KEY_{digit}")),
-        (_, Some(n)) => Some(format!("KEY_F{n}")),
-        _ if name.len() == 1 && name.as_bytes()[0].is_ascii_uppercase() => Some(format!("KEY_{name}")),
-        _ => None,
-    }
+    let single = name.len() == 1 && name.as_bytes()[0].is_ascii_alphanumeric();
+    let function = name.strip_prefix('F').and_then(|n| n.parse::<u8>().ok()).is_some_and(|n| (1..=24).contains(&n));
+    (single || function).then(|| format!("KEY_{name}"))
 }
 
-/// The key pressed, by position when the platform says where it is.
-fn pressed_key(key: egui::Key, physical: Option<egui::Key>) -> egui::Key {
-    physical.unwrap_or(key)
-}
-
-/// Takes the key presses out of `events` (so nothing else reacts to them) and says which keys went down.
+/// Takes the key presses out of `events` (so nothing else reacts to them) and says which keys
+/// went down: by position, when the platform says where the key is.
 fn take_presses(events: &mut Vec<egui::Event>) -> Vec<egui::Key> {
     let mut down = Vec::new();
     events.retain(|event| match event {
         egui::Event::Key { key, physical_key, pressed, repeat, .. } => {
             if *pressed && !*repeat {
-                down.push(pressed_key(*key, *physical_key));
+                down.push(physical_key.unwrap_or(*key));
             }
             false
         }
@@ -225,20 +204,12 @@ fn take_presses(events: &mut Vec<egui::Event>) -> Vec<egui::Key> {
 
 /// The listening state machine: what `heard` does to `listen`, given the daemon's `keys` and the current `pairs`.
 fn step(listen: Listen, heard: Heard, keys: &[String], pairs: &[[String; 2]]) -> (Listen, Effect) {
-    let drop_fresh = |slot: Slot, fresh: bool| if fresh && slot.0 < pairs.len() { Effect::Drop(slot.0) } else { Effect::Nothing };
     match (listen, heard) {
-        (Listen::Off, Heard::Click(slot)) => (Listen::On { slot, fresh: false }, Effect::Nothing),
-        (Listen::Off, _) => (Listen::Off, Effect::Nothing),
         (Listen::On { slot, .. }, Heard::Click(again)) if slot == again => (listen, Effect::Nothing),
-        (Listen::On { slot, fresh }, Heard::Click(other)) => {
-            // Rows after a dropped one move up.
-            let other = if fresh && slot.0 < other.0 && slot.0 < pairs.len() { (other.0 - 1, other.1) } else { other };
-            (Listen::On { slot: other, fresh: false }, drop_fresh(slot, fresh))
-        }
-        (Listen::On { slot, fresh }, Heard::Esc | Heard::Away) => (Listen::Off, drop_fresh(slot, fresh)),
+        (_, Heard::Click(slot)) => (Listen::On { slot, fresh: false }, Effect::Nothing),
+        (Listen::Off, _) | (Listen::On { .. }, Heard::Esc | Heard::Away) => (Listen::Off, Effect::Nothing),
         (Listen::On { slot, fresh }, Heard::Key(key)) => {
-            // A pair added a moment ago is not there to change until the daemon has answered.
-            let Some(pair) = pairs.get(slot.0) else { return (listen, Effect::Nothing) };
+            let Some(pair) = pairs.get(slot.0) else { return (Listen::Off, Effect::Nothing) };
             let Some(name) = key_name(key).filter(|name| keys.contains(name)) else { return (listen, Effect::Unknown) };
             let next = if fresh && slot.1 == 0 { Listen::On { slot: (slot.0, 1), fresh } } else { Listen::Off };
             if pair[slot.1] == name {
@@ -262,21 +233,21 @@ struct Hint {
 const HINT_SECONDS: f64 = 2.5;
 
 fn pair_rows(app: &mut App, ui: &mut egui::Ui, status: &Value) {
-    let keys: Vec<String> = status["keys"].as_array().map(|rows| rows.iter().filter_map(|key| key.as_str().map(str::to_string)).collect()).unwrap_or_default();
-    let mut pairs = pairs_of(status);
-    let spare = free_keys(&keys, &pairs);
+    let keys = strings(&status["keys"]);
     let ctx = ui.ctx().clone();
     let listen_id = egui::Id::new("snaptap-listen");
     let hint_id = egui::Id::new("snaptap-hint");
     let now = ctx.input(|i| i.time);
     let mut listen: Listen = ctx.data(|data| data.get_temp(listen_id)).unwrap_or_default();
     let mut hint: Option<Hint> = ctx.data(|data| data.get_temp::<Option<Hint>>(hint_id)).flatten().filter(|hint| hint.until > now);
-    let mut changed = false;
+    let shown = pairs_of(status, &keys, listen);
+    let mut pairs = shown.clone();
+    let spare = free_keys(&keys, &pairs);
     let mut remove = None;
     let mut clicked_slot = None;
     let mut add = false;
 
-    let apply = |listen: &mut Listen, pairs: &mut Vec<[String; 2]>, heard: Heard, changed: &mut bool, hint: &mut Option<Hint>| {
+    let apply = |listen: &mut Listen, pairs: &mut Vec<[String; 2]>, heard: Heard, hint: &mut Option<Hint>| {
         let (next, effect) = step(*listen, heard, &keys, pairs);
         *listen = next;
         let say = |text: &str| Some(Hint { text: text.to_string(), until: now + HINT_SECONDS });
@@ -284,15 +255,10 @@ fn pair_rows(app: &mut App, ui: &mut egui::Ui, status: &Value) {
             Effect::Nothing => {}
             Effect::Set((row, side), name) => {
                 pairs[row][side] = name;
-                *changed = true;
                 *hint = None;
             }
             Effect::Unknown => *hint = say(t("That key can't be used")),
             Effect::Taken => *hint = say(t("That key is already in a pair")),
-            Effect::Drop(row) => {
-                pairs.remove(row);
-                *changed = true;
-            }
         }
     };
     // Keys go to the listening box first, before anything else can use them.
@@ -300,10 +266,10 @@ fn pair_rows(app: &mut App, ui: &mut egui::Ui, status: &Value) {
         let presses = ctx.input_mut(|i| take_presses(&mut i.events));
         for key in presses {
             let heard = if key == egui::Key::Escape { Heard::Esc } else { Heard::Key(key) };
-            apply(&mut listen, &mut pairs, heard, &mut changed, &mut hint);
+            apply(&mut listen, &mut pairs, heard, &mut hint);
         }
         if !ctx.input(|i| i.focused) {
-            apply(&mut listen, &mut pairs, Heard::Away, &mut changed, &mut hint);
+            apply(&mut listen, &mut pairs, Heard::Away, &mut hint);
         }
     }
 
@@ -343,26 +309,21 @@ fn pair_rows(app: &mut App, ui: &mut egui::Ui, status: &Value) {
 
     // A click on a key box listens there; a click anywhere else stops listening.
     if let Some(slot) = clicked_slot {
-        apply(&mut listen, &mut pairs, Heard::Click(slot), &mut changed, &mut hint);
+        apply(&mut listen, &mut pairs, Heard::Click(slot), &mut hint);
         hint = None;
     } else if listen != Listen::Off && ctx.input(|i| i.pointer.any_click()) {
-        apply(&mut listen, &mut pairs, Heard::Away, &mut changed, &mut hint);
+        apply(&mut listen, &mut pairs, Heard::Away, &mut hint);
     }
-    // Rows can have gone (a stand-in taken back) since the buttons were drawn.
-    if let Some(index) = remove.filter(|index| *index < pairs.len()) {
+    if let Some(index) = remove {
         pairs.remove(index);
-        changed = true;
         listen = Listen::Off;
     }
-    if add {
-        // A new pair starts from two spare keys, so that it is valid at once, and the first box listens;
-        // after that key the second one does. Esc or a click away takes the new pair back.
-        if let Some(spare) = spare.filter(|_| remove.is_none()) {
-            pairs.push(spare);
-            listen = Listen::On { slot: (pairs.len() - 1, 0), fresh: true };
-            hint = None;
-            changed = true;
-        }
+    // A new pair starts from two spare keys, so that it is valid at once and is kept as it is
+    // if left alone; its first box listens, and after that key the second one does.
+    if let Some(spare) = spare.filter(|_| add) {
+        pairs.push(spare);
+        listen = Listen::On { slot: (pairs.len() - 1, 0), fresh: true };
+        hint = None;
     }
     if let Some(shown) = &hint {
         ctx.request_repaint_after(std::time::Duration::from_secs_f64((shown.until - now).max(0.0) + 0.05));
@@ -371,7 +332,7 @@ fn pair_rows(app: &mut App, ui: &mut egui::Ui, status: &Value) {
         data.insert_temp(listen_id, listen);
         data.insert_temp(hint_id, hint);
     });
-    if changed {
+    if pairs != shown {
         // The daemon says no to a key used twice, and the toast says why.
         app.send(Command::SnapTap(json!({ "pairs": pairs })));
     }
@@ -384,7 +345,7 @@ fn key_slot(ui: &mut egui::Ui, chosen: &str, listening: bool) -> egui::Response 
     let (edge, text, colour) = if listening {
         (Stroke::new(1.5_f32, theme::ACCENT), t("Press a key…").to_string(), theme::ACCENT)
     } else {
-        (Stroke::new(1.0_f32, if response.hovered() { theme::BORDER_HOVER } else { theme::BORDER_HI }), key_label(chosen), TEXT)
+        (Stroke::new(1.0_f32, if response.hovered() { theme::BORDER_HOVER } else { theme::BORDER_HI }), chosen.strip_prefix("KEY_").unwrap_or(chosen).to_string(), TEXT)
     };
     ui.painter().rect(rect, CornerRadius::same(theme::RADIUS_SM), theme::WELL, edge, egui::StrokeKind::Inside);
     let galley = widgets::galley_fit(ui, &text, theme::body(14.0), colour, KEY_W - TEXT_INSET * 2.0);
@@ -403,10 +364,11 @@ struct Draft {
 }
 
 fn deny_rows(app: &mut App, ui: &mut egui::Ui, status: &Value, error: Option<&str>) {
-    let denied = denied_of(status);
+    let denied = strings(&status["deny"]);
     let id = egui::Id::new("snaptap-draft");
     let mut draft: Draft = ui.ctx().data(|data| data.get_temp(id)).unwrap_or_default();
-    if draft.adding && denied.contains(&program_name(&draft.text)) {
+    // Gone once the list has it, as the daemon keeps it.
+    if draft.adding && denied.contains(&draft.text.trim().to_lowercase()) {
         draft = Draft::default();
     }
     let mut list = None;
@@ -419,7 +381,9 @@ fn deny_rows(app: &mut App, ui: &mut egui::Ui, status: &Value, error: Option<&st
                     let text = widgets::galley_fit(ui, name, theme::body(14.0), TEXT, LIST_W - TEXT_INSET);
                     ui.painter().galley(rect.left_center() + vec2(TEXT_INSET, -text.size().y / 2.0), text, TEXT);
                     if ui.add(IconButton::new(icon::CLOSE, t("Remove")).danger()).clicked() {
-                        list = Some(without(&denied, index));
+                        let mut rest = denied.clone();
+                        rest.remove(index);
+                        list = Some(rest);
                         draft.edited = false;
                     }
                 });
@@ -442,7 +406,7 @@ fn deny_rows(app: &mut App, ui: &mut egui::Ui, status: &Value, error: Option<&st
                 let name = draft.text.trim().to_string();
                 let add = ui.add(IconButton::new(icon::ADD, t("Add a program")).enabled(!name.is_empty())).clicked();
                 if (add || enter) && !name.is_empty() {
-                    list = Some(with_added(&denied, &name));
+                    list = Some([denied.clone(), vec![name]].concat());
                     draft.adding = true;
                     draft.edited = false;
                     field.request_focus();
@@ -495,12 +459,6 @@ mod tests {
     }
 
     #[test]
-    fn a_key_reads_without_its_prefix() {
-        assert_eq!(key_label("KEY_A"), "A");
-        assert_eq!(key_label("KEY_LEFTSHIFT"), "LEFTSHIFT");
-    }
-
-    #[test]
     fn a_new_pair_starts_from_keys_no_pair_uses() {
         let keys = names(&["KEY_A", "KEY_B", "KEY_C", "KEY_D"]);
         let pairs = [["KEY_A".to_string(), "KEY_D".to_string()]];
@@ -517,48 +475,29 @@ mod tests {
     #[test]
     fn pairs_are_read_from_the_status_of_the_daemon() {
         let status = json!({ "pairs": [["KEY_A", "KEY_D"], ["KEY_W", "KEY_S"]] });
-        assert_eq!(pairs_of(&status)[1], ["KEY_W".to_string(), "KEY_S".to_string()]);
-        assert!(pairs_of(&Value::Null).is_empty());
+        assert_eq!(pairs_of(&status, &[], Listen::Off)[1], ["KEY_W".to_string(), "KEY_S".to_string()]);
+        assert!(pairs_of(&Value::Null, &[], Listen::Off).is_empty());
+        assert_eq!(strings(&json!(["cs2.exe", 3, "game.exe"])), names(&["cs2.exe", "game.exe"]));
     }
 
     #[test]
-    fn a_typed_program_is_kept_the_way_the_daemon_keeps_it() {
-        assert_eq!(program_name("  Game.EXE "), "game.exe");
+    fn a_pair_just_added_is_there_before_the_daemon_shows_it() {
+        let status = json!({ "pairs": [["KEY_A", "KEY_D"]] });
+        let pairs = pairs_of(&status, &key_list(), on(1, 0, true));
+        assert_eq!(pairs[1], ["KEY_B".to_string(), "KEY_C".to_string()]);
+        // So a key pressed meanwhile is not lost.
+        assert_eq!(step(on(1, 0, true), Heard::Key(egui::Key::E), &key_list(), &pairs).1, Effect::Set((1, 0), "KEY_E".to_string()));
+        assert_eq!(pairs_of(&status, &key_list(), on(0, 0, false)).len(), 1);
     }
 
     #[test]
-    fn the_list_sent_keeps_what_is_there_and_changes_one_name() {
-        let denied = names(&["cs2.exe", "valorant.exe"]);
-        assert_eq!(with_added(&denied, "game.exe"), names(&["cs2.exe", "valorant.exe", "game.exe"]));
-        assert_eq!(without(&denied, 0), names(&["valorant.exe"]));
-    }
-
-    #[test]
-    fn removing_the_last_program_sends_an_empty_list() {
-        assert_eq!(without(&names(&["cs2.exe"]), 0), Vec::<String>::new());
-    }
-
-    #[test]
-    fn a_working_snap_tap_says_nothing() {
-        assert_eq!(attention(&json!({ "enabled": true, "running": true, "paused": null })), None);
-        assert_eq!(attention(&json!({ "enabled": false, "running": false })), None);
-    }
-
-    #[test]
-    fn a_pause_names_the_program_in_front() {
-        let status = json!({ "enabled": true, "running": true, "paused": "denied", "foreground": "cs2.exe" });
-        assert_eq!(attention(&status).map(|(_, text)| text), Some("Paused while cs2.exe is in front".to_string()));
-    }
-
-    #[test]
-    fn a_pause_for_a_program_with_no_name_says_so() {
-        let status = json!({ "enabled": true, "running": true, "paused": "unknown program", "foreground": null });
-        assert_eq!(attention(&status).map(|(_, text)| text), Some("Paused: can't tell which program is in front".to_string()));
-    }
-
-    #[test]
-    fn not_running_while_on_is_shown() {
-        assert!(attention(&json!({ "enabled": true, "running": false })).is_some());
+    fn attention_is_drawn_to_a_pause_or_a_failure_only() {
+        let text = |status: Value| attention(&status).map(|(_, text)| text);
+        assert_eq!(text(json!({ "enabled": true, "running": true, "paused": null })), None);
+        assert_eq!(text(json!({ "enabled": false, "running": false })), None);
+        assert_eq!(text(json!({ "enabled": true, "running": true, "paused": "denied", "foreground": "cs2.exe" })).as_deref(), Some("Paused while cs2.exe is in front"));
+        assert_eq!(text(json!({ "enabled": true, "running": true, "paused": "unknown program", "foreground": null })).as_deref(), Some("Paused: can't tell which program is in front"));
+        assert!(text(json!({ "enabled": true, "running": false })).is_some());
     }
 
     #[test]
@@ -604,15 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn the_physical_key_wins_over_the_typed_one() {
-        use egui::Key as K;
-        // The key that types Ñ on a Spanish board sits where ; is on a US one.
-        assert_eq!(pressed_key(K::Colon, Some(K::Semicolon)), K::Semicolon);
-        assert_eq!(pressed_key(K::Q, None), K::Q);
-    }
-
-    #[test]
-    fn presses_are_taken_out_of_the_events_and_repeats_and_releases_are_not_presses() {
+    fn presses_are_taken_out_of_the_events_by_position_and_repeats_and_releases_are_not_presses() {
         use egui::{Event, Key, Modifiers};
         let key = |key, physical_key, pressed, repeat| Event::Key { key, physical_key, pressed, repeat, modifiers: Modifiers::NONE };
         let mut events = vec![
@@ -620,9 +551,11 @@ mod tests {
             key(Key::A, Some(Key::A), true, false),
             key(Key::A, Some(Key::A), true, true),
             key(Key::A, Some(Key::A), false, false),
+            // The key that types Ñ on a Spanish board sits where ; is on a US one.
             key(Key::Colon, Some(Key::Semicolon), true, false),
+            key(Key::Q, None, true, false),
         ];
-        assert_eq!(take_presses(&mut events), vec![Key::A, Key::Semicolon]);
+        assert_eq!(take_presses(&mut events), vec![Key::A, Key::Semicolon, Key::Q]);
         assert_eq!(events.len(), 1);
     }
 
@@ -687,18 +620,10 @@ mod tests {
     }
 
     #[test]
-    fn cancelling_a_new_pair_takes_it_back() {
+    fn cancelling_a_new_pair_keeps_it_and_a_click_elsewhere_ends_the_run_of_boxes() {
         let (keys, pairs) = (key_list(), two_pairs());
-        assert_eq!(step(on(1, 1, true), Heard::Esc, &keys, &pairs), (Listen::Off, Effect::Drop(1)));
-        assert_eq!(step(on(1, 0, true), Heard::Away, &keys, &pairs), (Listen::Off, Effect::Drop(1)));
-        // Clicking a box of a later row does too, and that row moves up.
-        assert_eq!(step(on(0, 0, true), Heard::Click((1, 1)), &keys, &pairs), (on(0, 1, false), Effect::Drop(0)));
-    }
-
-    #[test]
-    fn a_new_pair_the_daemon_has_not_shown_yet_waits() {
-        let (keys, pairs) = (key_list(), one_pair());
-        assert_eq!(step(on(1, 0, true), Heard::Key(egui::Key::E), &keys, &pairs), (on(1, 0, true), Effect::Nothing));
-        assert_eq!(step(on(1, 0, true), Heard::Esc, &keys, &pairs), (Listen::Off, Effect::Nothing));
+        assert_eq!(step(on(1, 1, true), Heard::Esc, &keys, &pairs), (Listen::Off, Effect::Nothing));
+        assert_eq!(step(on(1, 0, true), Heard::Away, &keys, &pairs), (Listen::Off, Effect::Nothing));
+        assert_eq!(step(on(1, 0, true), Heard::Click((0, 1)), &keys, &pairs), (on(0, 1, false), Effect::Nothing));
     }
 }

@@ -201,6 +201,9 @@ fn performance(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapsho
     let edit = app.edits.entry(serial.clone()).or_default();
     let has_dpi = caps["dpi"] == true;
     let has_side = caps["dpi_stages"] == true && edit.stages.is_some() || caps["poll_rate"] == true || caps["keyswitch_optimization"] == true;
+    if !has_dpi && !has_side {
+        return; // a keyboard here only for Snap Tap, below
+    }
 
     let two = has_dpi && has_side;
     widgets::columns(ui, if two { 0.56 } else { 1.0 }, if two { TWO_COLUMNS } else { f32::INFINITY }, |ui, column| {

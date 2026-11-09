@@ -8,23 +8,14 @@ uses [semantic versioning](https://semver.org/).
 
 ### Added
 
-- **Keyswitch optimization** on the Razer Huntsman V2 and Huntsman V2
-  Tenkeyless: *Typing* keeps a debounce delay, *Gaming* has none, the same
-  choice as in Synapse. Use `openrazer-win keyswitch typing` or `gaming`, with
-  no mode to see which is set, or *Performance* in Studio and the control
-  panel. Python scripts have `device.keyswitch_optimization`. It follows
-  upstream's driver and has only run against an emulator here.
+- **Keyswitch optimization** on the Razer Huntsman V2 and V2 Tenkeyless, as in
+  Synapse: *Typing* keeps a debounce delay, *Gaming* has none. `openrazer-win
+  keyswitch`, or *Performance* in Studio and the control panel.
 - **Snap Tap**, without Synapse: of two opposing keys, the one pressed last
-  wins. The Huntsman V2 Tenkeyless does not do this itself, so the daemon does
-  it on the PC, with no driver, and it applies to every keyboard. It is off
-  until you turn it on with `openrazer-win snaptap on` or under *Performance*
-  in Studio, and it asks you to read a warning first: it changes your key
-  presses in software and some games forbid that. Counter-Strike 2 may kick you
-  from official matches, and tournaments or other platforms may go further, so
-  turn it off in those games. It does nothing in games running as
-  administrator, and it may not work in every game. Choose the pairs with
-  `snaptap pair`, and the programs it stays out of with `snaptap deny`, which
-  starts with `cs2.exe`. So far it has only run against simulated key events.
+  wins. The daemon does it on the PC, for every keyboard. It is off until you
+  turn it on with `openrazer-win snaptap on` or under *Performance* in Studio,
+  after reading a warning: some games forbid it. So far it has only run
+  against simulated key events.
 
 ## [1.6.1] - 2026-11-06
 

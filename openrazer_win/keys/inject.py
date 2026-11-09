@@ -65,9 +65,10 @@ class Injector:
             user32.SendInput.restype = ctypes.c_uint
             self._send = user32.SendInput
 
-    def _emit(self, events: list) -> None:
+    def _emit(self, events: list) -> int:
+        """Send ``(vk, scan, flags)`` events in one call; how many went."""
         if self._send is None or not events:
-            return
+            return 0
         array = (_INPUT * len(events))()
         for slot, (vk, scan, flags) in zip(array, events):
             slot.type = INPUT_KEYBOARD
@@ -76,6 +77,7 @@ class Injector:
         if sent != len(events):
             logger.debug('SendInput sent %d of %d events: WinError %d', sent, len(events),
                          ctypes.get_last_error())
+        return sent
 
     def key(self, target: Union[Key, int], down: bool) -> None:
         """Press or release a key: a :class:`Key` by scan code, an int by virtual key."""
@@ -115,22 +117,12 @@ class Injector:
         """Send ``(scan, extended, down)`` events in one call; how many went.
 
         By scan code, as the key's own press came, so the same key arrives
-        whatever the layout.  One call also means nothing can get in between
-        them.  Failure is the caller's to count: this runs inside the hook's
-        callback, where a log line would be I/O.
+        whatever the layout, and in one call, so nothing gets in between.
         """
-        if self._send is None or not events:
-            return 0
-        array = (_INPUT * len(events))()
-        for slot, (scan, extended, down) in zip(array, events):
-            flags = KEYEVENTF_SCANCODE
-            if extended:
-                flags |= KEYEVENTF_EXTENDEDKEY
-            if not down:
-                flags |= KEYEVENTF_KEYUP
-            slot.type = INPUT_KEYBOARD
-            slot.union.ki = _KEYBDINPUT(0, scan, flags, 0, MARKER)
-        return self._send(len(events), array, ctypes.sizeof(_INPUT))
+        return self._emit([(0, scan, KEYEVENTF_SCANCODE
+                            | (KEYEVENTF_EXTENDEDKEY if extended else 0)
+                            | (0 if down else KEYEVENTF_KEYUP))
+                           for scan, extended, down in events])
 
     def text(self, text: str) -> None:
         """Type `text` character by character, independent of keyboard layout."""

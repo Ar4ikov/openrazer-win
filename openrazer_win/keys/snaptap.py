@@ -1,21 +1,16 @@
 """Snap Tap: of two opposing keys, the one pressed last wins.
 
-The Huntsman V2 Tenkeyless has no Snap Tap in its firmware -- with Synapse
-closed the keyboard does nothing of the kind, so there is no USB command to
-send.  Synapse does it on the PC, and so does this.
+The Huntsman V2 Tenkeyless has no Snap Tap in its firmware, so there is no USB
+command to send: Synapse does it on the PC, and so does this.
 
-The engine is additive.  Physical keys go on as they are, and all it does is
-add events: holding A and pressing D sends A's release just before D, and
-letting go of D sends A's press again if A is still held.  The one thing it
-ever holds back is the auto-repeat of a key that lost to its partner, because
-a repeat is a press to anything reading it.  It never holds back a release: a
-release that goes missing is a key stuck down, while one too many does nothing.
+The engine only adds events: holding A and pressing D sends A's release just
+before D, and letting go of D sends A's press again if A is still held.  The
+one thing it holds back is the auto-repeat of the key that lost, because a
+repeat is a press to anything reading it.  It never holds back a release: a
+missing release is a key stuck down, while one too many does nothing.
 
-This module knows nothing of Windows.  Keys are ``(scan code, extended flag)``
-pairs, which name a position on the board whatever the layout says it types,
-and events are anything with the fields of :class:`~.hook.KeyEvent`.  What
-surrounds it on Windows is in ``snaptap_host``; another host could take its
-place.
+Keys are ``(scan code, extended flag)``, a position on the board whatever the
+layout types there.  Nothing here knows Windows; that is ``snaptap_host``.
 """
 from __future__ import annotations
 
@@ -27,7 +22,6 @@ import tempfile
 import threading
 from typing import Callable, Iterable, NamedTuple, Optional, Tuple
 
-from ..core.persistence import default_config_dir
 from .codes import KEYS, canonical_name
 
 logger = logging.getLogger(__name__)
@@ -39,12 +33,6 @@ WARNING = (
     'Counter-Strike 2 may kick you from official matches, and tournaments or other '
     'platforms may go further. Turn it off in those games. It does nothing in games '
     'running as administrator, and it may not work in every game.')
-
-#: What sits beside the switch.
-WARNING_SHORT = 'Some games forbid this. Turn it off in those games.'
-
-#: The hook sees every keyboard as one: it cannot tell which sent a key.
-SCOPE = 'applies to every keyboard'
 
 SETTINGS_VERSION = 1
 DEFAULT_PAIRS = (('KEY_A', 'KEY_D'),)
@@ -80,9 +68,8 @@ class Decision(NamedTuple):
     swallow: bool = False
     #: ``(scan, extended, down)`` to send before the event goes on.
     now: tuple = ()
-    #: Ask :meth:`SnapTapEngine.take_resumes` once the callback has returned.
-    #: Not sooner: the release of the key that was on top has to arrive first,
-    #: or the two are both down for a moment.
+    #: Ask :meth:`SnapTapEngine.take_resumes` once the callback has returned,
+    #: so the release of the key that was on top arrives first.
     later: bool = False
 
 
@@ -92,12 +79,10 @@ RESUME = Decision(later=True)
 
 
 class _Pair:
-    __slots__ = ('partner', 'release', 'active', 'held', 'vks', 'pending')
+    __slots__ = ('partner', 'active', 'held', 'vks', 'pending')
 
     def __init__(self, first: KeyId, second: KeyId):
         self.partner = {first: second, second: first}
-        #: Built once: the callback should not be allocating.
-        self.release = {key: Decision(now=(key + (False,),)) for key in (first, second)}
         #: The key that is winning.  One key, not a flag per key, so the two
         #: cannot both be active.
         self.active: Optional[KeyId] = None
@@ -127,10 +112,9 @@ class SnapTapEngine:
         self.configure(pairs)
 
     def configure(self, pairs: Iterable) -> None:
-        """Start over with `pairs`, each two :data:`KeyId`."""
+        """Start over with `pairs`, each two :data:`KeyId`.  Alt and Windows stay as held."""
         self._all = [_Pair(first, second) for first, second in pairs]
         self._pairs = {key: pair for pair in self._all for key in pair.partner}
-        self._bypass = set()
 
     # -- the callback ------------------------------------------------------
     def handle(self, event) -> Decision:
@@ -145,7 +129,8 @@ class SnapTapEngine:
             # known from before the shortcut can be pressed again after it.  A
             # key still held simply goes unnoticed until it next repeats.
             if not self._bypass:
-                self._forget()
+                for pair in self._all:
+                    pair.clear()
             self._bypass.add(vk)
             return PASS
         if self._bypass:
@@ -173,30 +158,30 @@ class SnapTapEngine:
         pair.active = key
         if taken_over:
             pair.pending = None
-            return pair.release[partner]
+            return Decision(now=(partner + (False,),))
         return PASS
 
     def _up(self, pair: _Pair, key: KeyId, partner: KeyId) -> Decision:
+        if not self._let_go(pair, key):
+            return PASS
+        if partner in pair.held:
+            pair.active = pair.pending = partner
+            return RESUME
+        pair.active = None
+        return PASS
+
+    @staticmethod
+    def _let_go(pair: _Pair, key: KeyId) -> bool:
+        """Note `key` as up; whether it was the one winning."""
         pair.held.discard(key)
         if pair.pending == key:
             # Let go before its press could be sent: sending it now would hold
             # down a key nobody is holding.
             pair.pending = None
-        if pair.active != key:
-            return PASS
-        if partner in pair.held:
-            pair.active = partner
-            pair.pending = partner
-            return RESUME
-        pair.active = None
-        return PASS
+        return pair.active == key
 
     def take_resumes(self) -> list:
-        """The presses that are due: ``(scan, extended, True)`` for each.
-
-        Asked for after the callback, so anything that has happened since --
-        the key let go, the partner back, a reset -- has already cancelled it.
-        """
+        """The presses due, ``(scan, extended, True)``, less any cancelled since."""
         due = []
         for pair in self._all:
             if pair.pending is not None:
@@ -215,51 +200,31 @@ class SnapTapEngine:
         self._bypass.discard(event.vk)
         key = (event.scan, event.extended)
         pair = self._pairs.get(key)
-        if pair is None:
-            return
-        pair.held.discard(key)
-        if pair.pending == key:
-            pair.pending = None
-        if pair.active == key:
+        if pair is not None and self._let_go(pair, key):
             pair.active = None
 
     # -- the world changing ------------------------------------------------
-    def _forget(self) -> None:
-        for pair in self._all:
-            pair.clear()
+    def reset(self, is_down: Callable[[int], bool], keep_active: bool = False) -> None:
+        """Forget every key, sending nothing; Alt and Windows are asked about.
 
-    def reset(self, is_down: Optional[Callable[[int], bool]] = None) -> None:
-        """Forget every key, sending nothing.
+        After a switch of window or desktop a release may have gone where the
+        hook cannot see it, and a key wrongly remembered as held would be
+        pressed again by its partner's release, with no hand to let it go.
+        Alt is asked about because it is still down in the middle of Alt+Tab.
 
-        After a switch of window or desktop a key's release may have gone
-        somewhere the hook cannot see.  Remembering such a key as held is the
-        one real way to a stuck key: its partner's release would press it
-        again, with no hand on it to ever let go.
-
-        Alt and the Windows keys are asked about rather than forgotten: Alt is
-        still down in the middle of Alt+Tab, and that is when the window
-        changes.
-        """
-        self._forget()
-        self._bypass = {vk for vk in BYPASS_VKS if is_down(vk)} if is_down else set()
-
-    def rearm(self, is_down: Callable[[int], bool]) -> None:
-        """Pick up again after a time when the hook may have heard nothing.
-
-        The active key stays only if Windows agrees that it is down.  A key
-        that lost to it does not stay, because Windows has it as released
-        either way, and only the hook could have seen the hand come off it.
+        With `keep_active`, for a hook that may have missed keys, the winning
+        key stays if Windows has it down.  The key it beat does not: Windows
+        has that one as released either way.
         """
         for pair in self._all:
             active = pair.active
-            still_down = active is not None and is_down(pair.vks.get(active, 0))
             pair.clear()
-            if still_down:
+            if keep_active and active is not None and is_down(pair.vks.get(active, 0)):
                 pair.active = active
                 pair.held.add(active)
         self._bypass = {vk for vk in BYPASS_VKS if is_down(vk)}
 
-    # -- for tests and status ----------------------------------------------
+    # -- for tests ---------------------------------------------------------
     def active_keys(self) -> list:
         return [pair.active for pair in self._all if pair.active is not None]
 
@@ -338,8 +303,8 @@ def key_ids(pairs: Iterable) -> list:
 class SnapTapSettings:
     """``snaptap.json``, beside the daemon's other state."""
 
-    def __init__(self, path: Optional[str] = None):
-        self.path = path or os.path.join(default_config_dir(), 'snaptap.json')
+    def __init__(self, path: str):
+        self.path = path
         self._lock = threading.Lock()
         self._data = self._defaults()
         self._load()

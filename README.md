@@ -412,37 +412,28 @@ effect driven by a low-level keyboard hook, and autostart at logon.
 ### Snap Tap
 
 Of two opposing keys, the one pressed last wins: hold A, press D, and A is released for as long as
-D is down, then pressed again if you are still holding it. On the Huntsman V2 Tenkeyless this is not
-in the keyboard: with Synapse closed it does nothing, so there is no command to send. Synapse does
-it on the PC, and so does the daemon, without Synapse and without a driver. It is off until you turn
-it on.
+D is down, then pressed again if you are still holding it. The Huntsman V2 Tenkeyless does not do
+this itself, so the daemon does it on the PC, without Synapse or a driver. Physical keys always go
+through: it only adds releases and presses of its own, and holds back the auto-repeat of the key
+that lost. It is off until you turn it on, here or under *Performance* in Studio.
 
 ```bash
 openrazer-win snaptap on                  # shows a warning the first time
-openrazer-win snaptap off
 openrazer-win snaptap pair add w s        # A and D are paired to begin with
-openrazer-win snaptap pair remove a d
 openrazer-win snaptap deny remove cs2.exe # the list of programs it stays out of
 openrazer-win snaptap allow add game.exe  # work only in the programs listed
 ```
-
-It is also under *Performance* on a keyboard's page in Studio.
 
 > **Snap Tap changes your key presses in software. Some games forbid this: Counter-Strike 2 may kick
 > you from official matches, and tournaments or other platforms may go further. Turn it off in those
 > games. It does nothing in games running as administrator, and it may not work in every game.**
 
-Things to know:
-
-- It applies to every keyboard, not to one: Windows does not say which keyboard a key came from.
-- It only runs while the daemon runs. Keys are matched by their position, whatever the layout.
-- It works in every program but the ones on the deny list, which starts with `cs2.exe` and is yours
-  to change. With anything on the allow list, it works only in the programs listed. If the program
-  in front cannot be named, it pauses.
+- It applies to every keyboard, as Windows does not say which one a key came from, and only while
+  the daemon runs. Keys are matched by position, whatever the layout.
+- It pauses for the programs on the deny list, which starts with `cs2.exe`, for any program not on
+  the allow list if that has anything on it, and when the program in front cannot be named.
 - It stands aside while Alt or a Windows key is held, so shortcuts stay shortcuts. Ctrl does not
   stop it, so you can crouch while strafing.
-- Physical keys always go through. It only adds releases and presses of its own, and holds back the
-  auto-repeat of a key that lost. It never holds back a release.
 
 ### Bluetooth
 
