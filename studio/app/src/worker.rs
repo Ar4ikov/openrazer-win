@@ -114,17 +114,6 @@ pub struct Snapshot {
     /// Why the daemon refused the last change to the programs Snap Tap stays
     /// out of. The panel shows it under the box, where the name was typed.
     pub snaptap_deny_error: Option<String>,
-    /// The last profile `profile.create` made, so the form that asked for it
-    /// can close -- and stay open, name and all, when it was refused.
-    pub created: Option<Created>,
-}
-
-/// A profile the daemon created: the `count`-th since Studio started.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Created {
-    pub count: u64,
-    pub serial: String,
-    pub name: String,
 }
 
 pub enum Command {
@@ -507,17 +496,14 @@ impl Worker {
             Command::Call { serial, method, args, zone, then } => {
                 let result = self.with(|c| c.device(&serial, &method, args, zone.as_deref()));
                 self.report(&result, None);
-                if result.is_ok() || then == Then::Performance {
+                if result.is_ok() {
                     let caps = self.caps(&serial);
                     match (then, caps) {
                         (Then::Lighting, Some(caps)) => {
                             self.load_persistence();
                             self.read_lighting(&serial, &caps);
                         }
-                        (Then::Performance, Some(caps)) => {
-                            self.read_performance(&serial, &caps);
-                            self.load_persistence();
-                        }
+                        (Then::Performance, Some(caps)) => self.read_performance(&serial, &caps),
                         (Then::Power, _) => self.read_power(&serial, true),
                         (Then::Keyboard, Some(caps)) => self.read_keyboard(&serial, &caps),
                         (Then::Audio, _) => self.read_audio(&serial),
@@ -565,7 +551,6 @@ impl Worker {
                 let method = format!("profile.{action}");
                 let result = self.with(|c| c.call(&method, json!({ "serial": serial, "name": name })));
                 let text = match action {
-                    "save" => tf("Profile “{}” created", &[&name]),
                     "load" => tf("Profile “{}” applied", &[&name]),
                     _ => tf("Profile “{}” deleted", &[&name]),
                 };
@@ -582,21 +567,12 @@ impl Worker {
                 }
             }
             Command::ProfileCreate { serial, name, source } => {
-                let mut params = json!({ "serial": serial, "name": name });
-                if let Some(source) = &source {
-                    params["source"] = json!(source);
-                }
-                let result = self.with(|c| c.call("profile.create", params));
+                let result = self.with(|c| c.call("profile.create", json!({ "serial": serial, "name": name, "source": source })));
                 self.report(&result, Some(tf("Profile “{}” created", &[&name])));
-                if result.is_ok() {
-                    let mut shared = self.shared.lock().unwrap();
-                    let count = shared.created.as_ref().map_or(0, |c| c.count) + 1;
-                    shared.created = Some(Created { count, serial: serial.clone(), name: name.clone() });
-                }
                 self.read_profiles(&serial);
-                if result.is_ok() {
-                    self.after_switch(&serial);
-                }
+                // Even after an error: the profile may have been made and
+                // switched to half way, and the page should show what is there.
+                self.after_switch(&serial);
             }
             Command::MacroSet { serial, key, action } => {
                 let result = self.with(|c| c.call("macro.set", json!({ "serial": serial, "key": key, "action": action })));

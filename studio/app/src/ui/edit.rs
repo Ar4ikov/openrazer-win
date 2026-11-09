@@ -189,9 +189,7 @@ impl DeviceEdit {
             self.dpi = detail.dpi.or(self.dpi);
         }
         self.stages = detail.dpi_stages.clone().or(self.stages.take());
-        // The control edits the saved profile. Keep hardware readback separate:
-        // a different reported rate must not replace the user's saved choice.
-        self.poll_rate = saved["poll_rate"].as_i64().or(detail.poll_rate).or(self.poll_rate);
+        self.poll_rate = detail.poll_rate.or(self.poll_rate);
         self.keyswitch = detail.keyswitch.clone().or(self.keyswitch.take());
         self.idle_minutes = detail.idle_time.map(|s| s as f32 / 60.0).or(self.idle_minutes);
         self.low_battery = detail.low_battery.map(|v| v as f32).or(self.low_battery);
@@ -298,22 +296,6 @@ mod tests {
         edit.refresh(&device, &detail, &snap);
         assert_eq!(edit.zones["right"].effect, "wave_soft");
         assert_eq!(edit.zones["right"].colours[0], Color32::from_rgb(1, 2, 3));
-    }
-
-    #[test]
-    fn switching_profiles_shows_the_saved_polling_rate_even_when_readback_disagrees() {
-        let device = Device { serial: "K1".into(), kind: "keyboard".into(), ..Default::default() };
-        let detail = Detail { caps: Some(json!({ "zones": {}, "poll_rate": true })), poll_rate: Some(8000), ..Default::default() };
-        let mut snap = Snapshot { generation: 1, persistence: json!({ "K1": { "poll_rate": 1000 } }), ..Default::default() };
-        let mut edit = DeviceEdit::default();
-        edit.refresh(&device, &detail, &snap);
-        assert_eq!(edit.poll_rate, Some(1000));
-        snap.persistence["K1"]["poll_rate"] = json!(500);
-        snap.generation += 1;
-        edit.refresh(&device, &detail, &snap);
-        assert_eq!(edit.poll_rate, Some(500));
-        // The reported hardware value stays separate from the profile setting.
-        assert_eq!(detail.poll_rate, Some(8000));
     }
 
     #[test]

@@ -13,10 +13,9 @@ that is currently applied; loading one writes it back and replays it through
 a reconnected device takes.  So profiles work for every device the port
 supports, not just the ones that forget things.
 
-A profile also carries what the daemon keeps beyond lighting -- keyswitch
-mode, DPI, polling rate -- and loading it puts those back too.  The profile
-last saved or loaded is the device's *active* one: the daemon writes every
-later change into it, so switching is all there is to do.
+A profile also carries the keyswitch mode, DPI and polling rate.  The one last
+saved or loaded is the device's *active* profile, and the daemon writes every
+later change into it.
 """
 from __future__ import annotations
 
@@ -25,12 +24,9 @@ import logging
 import os
 import tempfile
 import threading
-import time
 from datetime import datetime
 from typing import Optional
 
-from ..devices.recipes import NotSupported
-from .device import DeviceError, KEYSWITCH_DEFAULT
 from .persistence import DEFAULT_ZONE_STATE, default_config_dir
 
 logger = logging.getLogger(__name__)
@@ -41,6 +37,21 @@ MAX_PROFILES = 10
 
 #: Profile names are used in the CLI and as JSON keys, so they are kept plain.
 MAX_NAME_LENGTH = 32
+
+#: What a profile carries beyond lighting: the persistence key, which is also
+#: the capability's name, how to read it from the device and how to write it.
+#: The stages come before the DPI: setting them can move the DPI, and the
+#: profile's own DPI is the one it was saved with.
+PERFORMANCE = (
+    ('keyswitch_optimization', lambda device: device.get_keyswitch_optimization(),
+     lambda device, mode: device.set_keyswitch_optimization(mode)),
+    ('dpi_stages', lambda device: dict(zip(('active', 'stages'), device.get_dpi_stages())),
+     lambda device, stages: device.set_dpi_stages(stages.get('active', 1), stages['stages'])),
+    ('dpi', lambda device: list(device.get_dpi()),
+     lambda device, dpi: device.set_dpi(*dpi[:2])),
+    ('poll_rate', lambda device: device.get_poll_rate(),
+     lambda device, rate: device.set_poll_rate(rate)),
+)
 
 
 class ProfileError(Exception):
@@ -85,9 +96,8 @@ class ProfileStore:
     def save(self) -> None:
         """Write the store out, replacing the file atomically.
 
-        The lock is held to the end: the daemon saves from a thread per
-        request, and two writes finishing out of order would leave the older
-        state in the file.
+        Under the lock to the end: two of the daemon's threads finishing out of
+        order would leave the older state in the file.
         """
         with self._lock:
             # ensure_ascii=False: the file is meant to be readable, and a
@@ -121,16 +131,14 @@ class ProfileStore:
         with self._lock:
             return [{'name': entry['name'], 'saved': entry.get('saved'),
                      'zones': sorted(entry.get('zones', {})),
-                     'active': entry.get('active') is True}
+                     'active': bool(entry.get('active'))}
                     for entry in self._data.get(serial, [])]
 
     def active(self, serial: str) -> Optional[str]:
         """The name of the profile `serial` is following, if it follows one."""
         with self._lock:
-            for entry in self._data.get(serial, []):
-                if entry.get('active') is True:
-                    return entry['name']
-        return None
+            return next((entry['name'] for entry in self._data.get(serial, [])
+                         if entry.get('active')), None)
 
     def get(self, serial: str, name: str) -> dict:
         wanted = clean_name(name).lower()
@@ -141,16 +149,18 @@ class ProfileStore:
         raise ProfileError('no profile called {0!r}'.format(name))
 
     # -- writing -----------------------------------------------------------
-    def put(self, serial: str, name: str, state: dict, activate: bool = False) -> dict:
-        """Save `state` under `name`, replacing any profile of that name."""
+    def put(self, serial: str, name: str, state: dict, activate: bool = False,
+            replace: bool = True) -> dict:
+        """Save `state` under `name`, replacing any profile of that name unless
+        `replace` is false -- a new profile must not quietly overwrite one."""
         name = clean_name(name)
         entry = _entry(name, state)
         with self._lock:
             profiles = self._data.setdefault(serial, [])
             for index, existing in enumerate(profiles):
                 if existing['name'].lower() == name.lower():
-                    if existing.get('active') is True:
-                        entry['active'] = True
+                    if not replace:
+                        raise ProfileError('there is already a profile called {0!r}'.format(name))
                     profiles[index] = entry
                     break
             else:
@@ -161,64 +171,34 @@ class ProfileStore:
                 profiles.append(entry)
             if activate:
                 self._mark_active(serial, name)
-        self.save()
+            self.save()
         return entry
 
-    def create(self, serial: str, name: str, state: dict) -> dict:
-        """Add a profile holding `state`.
-
-        Unlike :meth:`put`, a name already taken is refused: this is for a new
-        profile, and quietly overwriting one with defaults would lose it.
-        """
-        name = clean_name(name)
+    def activate(self, serial: str, name: str) -> None:
+        """Make `name` the profile `serial` follows; with no such profile, none."""
         with self._lock:
-            if any(entry['name'].lower() == name.lower()
-                   for entry in self._data.get(serial, [])):
-                raise ProfileError('there is already a profile called {0!r}'.format(name))
-            return self.put(serial, name, state)
+            self._mark_active(serial, name)
+            self.save()
 
-    def activate(self, serial: str, name: str) -> str:
-        """Make `name` the profile `serial` follows; returns its stored name."""
-        wanted = clean_name(name).lower()
+    def update_active(self, serial: str, state: dict) -> None:
+        """Write `state` into the active profile, unless it holds that already:
+        rewriting the file, with a new time on it, for no change would be churn."""
         with self._lock:
-            if not any(entry['name'].lower() == wanted
-                       for entry in self._data.get(serial, [])):
-                raise ProfileError('no profile called {0!r}'.format(name))
-            found = self._mark_active(serial, wanted)
-        self.save()
-        return found
+            for existing in self._data.get(serial, []):
+                if existing.get('active'):
+                    entry = _entry(existing['name'], state)
+                    if _content(entry) != _content(existing):
+                        existing.clear()
+                        existing.update(entry, active=True)
+                        self.save()
+                    return
 
-    def update_active(self, serial: str, state: dict) -> bool:
-        """Write `state` into the active profile, if there is one and it differs.
-
-        Compared before writing: the daemon calls this after every request that
-        touches persistence, reads included, and rewriting the file -- with a
-        new time on it -- for a request that changed nothing would be churn.
-        """
-        with self._lock:
-            for index, existing in enumerate(self._data.get(serial, [])):
-                if existing.get('active') is not True:
-                    continue
-                entry = _entry(existing['name'], state)
-                if _content(entry) == _content(existing):
-                    return False
-                entry['active'] = True
-                self._data[serial][index] = entry
-                break
-            else:
-                return False
-        self.save()
-        return True
-
-    def _mark_active(self, serial: str, wanted: str) -> str:
-        found = ''
+    def _mark_active(self, serial: str, name: str) -> None:
         for entry in self._data.get(serial, []):
-            if entry['name'].lower() == wanted.lower():
+            if entry['name'].lower() == name.lower():
                 entry['active'] = True
-                found = entry['name']
             else:
                 entry.pop('active', None)
-        return found
 
     def delete(self, serial: str, name: str) -> None:
         wanted = clean_name(name).lower()
@@ -244,17 +224,13 @@ class ProfileStore:
 
 
 def _entry(name: str, state: dict) -> dict:
-    entry = {
-        'name': name,
-        'saved': datetime.now().replace(microsecond=0).isoformat(),
-        # Through JSON: a copy that shares nothing with live state, in the
-        # shape it will have once read back from the file.
-        'device': json.loads(json.dumps(state.get('device') or {})),
-        'zones': json.loads(json.dumps(state.get('zones') or {})),
-    }
+    held = {'device': state.get('device') or {}, 'zones': state.get('zones') or {}}
     if state.get('snaptap') is not None:
-        entry['snaptap'] = json.loads(json.dumps(state['snaptap']))
-    return entry
+        held['snaptap'] = state['snaptap']
+    # Through JSON: a copy that shares nothing with live state, in the shape it
+    # will have once read back from the file.
+    return {'name': name, 'saved': datetime.now().replace(microsecond=0).isoformat(),
+            **json.loads(json.dumps(held))}
 
 
 def _content(entry: dict) -> dict:
@@ -263,23 +239,34 @@ def _content(entry: dict) -> dict:
             if key not in ('saved', 'active')}
 
 
-def default_state(device) -> dict:
-    """What a new profile holds: the state the daemon gives a device it knows nothing of.
+def capture_current(device, persistence) -> None:
+    """Read from the device what :data:`PERFORMANCE` persistence has no value for.
 
-    The lighting is persistence's default zone state, which is what a profile
-    of an untouched device would have recorded anyway.  The keyswitch mode is
-    the one a keyboard comes in.  DPI has no default here and is left alone.
-    Polling rate starts at the device's current rate: remember it even if it
-    has never been changed in Studio, so a later profile switch can restore it.
+    Called before a profile is saved or created, so that it holds all of them:
+    a profile without, say, a polling rate would keep whatever the profile
+    before it left on the device.  Once read, the value is in persistence and
+    the device is not asked again.
     """
     capabilities = device.capabilities()
-    stored = {}
+    for key, read, _ in PERFORMANCE:
+        if capabilities.get(key) and persistence.get_device_value(device.serial, key) is None:
+            try:
+                persistence.set_device_value(device.serial, key, read(device))
+            except Exception as error:  # noqa: BLE001 - the profile is saved without it
+                logger.warning('could not read the %s of %s: %s', key, device.name, error)
+
+
+def default_state(device, persistence) -> dict:
+    """What a new profile holds: the default lighting, the keyswitch mode a
+    keyboard comes in, and the DPI and polling rate the device has now."""
+    capabilities = device.capabilities()
+    stored = persistence.device(device.serial)
+    held = {key: stored[key] for key, _, _ in PERFORMANCE
+            if capabilities.get(key) and stored.get(key) is not None}
     if capabilities.get('keyswitch_optimization'):
-        stored['keyswitch_optimization'] = KEYSWITCH_DEFAULT
-    _capture_poll_rate(device, stored)
-    zones = {zone: json.loads(json.dumps(DEFAULT_ZONE_STATE))
-             for zone in capabilities.get('zones', {})}
-    return {'device': stored, 'zones': zones}
+        held['keyswitch_optimization'] = 'typing'
+    return {'device': held,
+            'zones': {zone: DEFAULT_ZONE_STATE for zone in capabilities.get('zones', {})}}
 
 
 def snapshot(device, persistence) -> dict:
@@ -287,9 +274,7 @@ def snapshot(device, persistence) -> dict:
 
     Read from persistence rather than from the hardware: that is what the
     daemon replays, most devices cannot be asked what they are showing, and it
-    keeps a profile identical in shape to the state that restores it.  If the
-    polling rate has not been set here yet, capture the device's current rate
-    rather than leaving the profile to inherit another profile's rate.
+    keeps a profile identical in shape to the state that restores it.
     """
     serial = device.serial
     zones = {}
@@ -297,43 +282,7 @@ def snapshot(device, persistence) -> dict:
         zones[zone] = dict(persistence.zone(serial, zone))
     stored = dict(persistence.device(serial))
     stored.pop('zones', None)
-    _capture_poll_rate(device, stored)
     return {'device': stored, 'zones': zones}
-
-
-def _capture_poll_rate(device, stored: dict) -> None:
-    if stored.get('poll_rate') is not None or not device.capabilities().get('poll_rate'):
-        return
-    try:
-        stored['poll_rate'] = device.get_poll_rate()
-    except (DeviceError, NotSupported) as error:
-        # A disconnected device must not prevent saving the rest of a profile.
-        logger.warning('could not capture the polling rate of %s: %s', device.name, error)
-
-
-def verify_poll_rate(device, stored: dict) -> None:
-    """Confirm the saved rate after the whole profile has been replayed.
-
-    A successful write acknowledgement alone does not tell us what the device
-    ended up using. Retry a mismatched rate after the other profile commands,
-    then report an error rather than saying the profile was fully applied.
-    """
-    expected = stored.get('poll_rate')
-    if expected is None or not device.capabilities().get('poll_rate'):
-        return
-    for attempt in range(3):
-        reported = device.get_poll_rate()
-        if reported == expected:
-            return
-        if attempt < 2:
-            logger.info('reapplying polling rate on %s: device reports %s Hz, expected %s Hz',
-                        device.name, reported, expected)
-            device.set_poll_rate(expected)
-            time.sleep(0.05)
-    message = '{0} reports {1} Hz after applying the saved {2} Hz'.format(
-        device.name, reported, expected)
-    logger.warning(message)
-    raise DeviceError(message)
 
 
 def apply_profile(device, persistence, profile: dict) -> None:
@@ -362,37 +311,16 @@ def apply_profile(device, persistence, profile: dict) -> None:
             logger.debug('could not set %s brightness on %s: %s',
                          zone, device.name, error)
 
-    _apply_performance(device, profile.get('device') or {})
     device.restore()
-
-
-def _apply_performance(device, stored: dict) -> None:
-    """Put back what a profile holds beyond lighting, where the device has it.
-
-    restore() replays lighting only: a reconnecting device keeps these itself.
-    A profile being loaded is a switch, though -- Typing for the desktop,
-    Gaming and another DPI for a game -- so they are written here.  A key the
-    profile does not have is left as it is, which keeps profiles saved before
-    they carried these doing what they always did.
-    """
-    capabilities = device.capabilities()
-    steps = []
-    if capabilities.get('keyswitch_optimization') and 'keyswitch_optimization' in stored:
-        steps.append(('keyswitch', lambda: device.set_keyswitch_optimization(
-            stored['keyswitch_optimization'])))
-    stages = stored.get('dpi_stages')
-    if capabilities.get('dpi_stages') and isinstance(stages, dict) and stages.get('stages'):
-        steps.append(('dpi stages', lambda: device.set_dpi_stages(
-            stages.get('active', 1), [tuple(stage) for stage in stages['stages']])))
-    # After the stages: setting them can move the DPI, and the profile's own
-    # DPI is the one it was saved with.
-    dpi = stored.get('dpi')
-    if capabilities.get('dpi') and isinstance(dpi, (list, tuple)) and dpi:
-        steps.append(('dpi', lambda: device.set_dpi(*dpi[:2])))
-    if capabilities.get('poll_rate') and stored.get('poll_rate') is not None:
-        steps.append(('polling rate', lambda: device.set_poll_rate(stored['poll_rate'])))
-    for what, step in steps:
-        try:
-            step()
-        except Exception as error:  # noqa: BLE001 - the rest of the profile still loads
-            logger.debug('could not set the %s of %s: %s', what, device.name, error)
+    # restore() replays lighting only, as a reconnecting device keeps the rest
+    # itself, but a profile being loaded is a switch: Typing and one DPI for the
+    # desktop, Gaming and another for a game.  Written after the lighting, which
+    # could otherwise undo them, and only what the profile has, so profiles
+    # saved before they carried these do what they always did.
+    stored = profile.get('device') or {}
+    for key, _, write in PERFORMANCE:
+        if device.capabilities().get(key) and stored.get(key) is not None:
+            try:
+                write(device, stored[key])
+            except Exception as error:  # noqa: BLE001 - the rest of the profile still loads
+                logger.debug('could not set the %s of %s: %s', key, device.name, error)
