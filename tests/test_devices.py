@@ -5,12 +5,12 @@ import pytest
 
 from openrazer_win.core.device import DeviceError
 from openrazer_win.core.transport import (
-    is_argb_interface, is_control_interface, select_control_interface,
+    MAX_ATTEMPTS, is_argb_interface, is_control_interface, select_control_interface,
 )
 from openrazer_win.devices.recipes import NotSupported
 from openrazer_win.hid.base import HidDeviceInfo
 from openrazer_win.hid.fake import FakeHidBackend, FakeRazerDevice
-from openrazer_win.protocol.report import Status
+from openrazer_win.protocol.report import RazerReport, Status
 
 from .conftest import KEYBOARD_PID, MOUSE_PID, last_report, make_device
 
@@ -201,10 +201,46 @@ def test_unsupported_status_is_not_retried(keyboard):
     assert len(fake.sent_reports) - before == 1
 
 
-def test_busy_counts_as_success(keyboard):
+def test_busy_waits_for_the_completed_read_without_resending(persistence, monkeypatch):
+    device, fake = make_device(0x026B, persistence)
+    fake.state.poll_rate = 1000
+    before = len(fake.sent_reports)
+    read = fake.handle_get_feature
+    reads = []
+
+    def pending_then_ready(length, report_id=0):
+        reads.append(True)
+        if len(reads) == 1:
+            # The real Huntsman returns the request's arguments while busy,
+            # not the polling rate that will arrive with the completed reply.
+            response = RazerReport.unpack(fake.sent_reports[-1].pack())
+            response.status = Status.BUSY
+            return b'\x00' + response.pack()
+        return read(length, report_id)
+
+    monkeypatch.setattr(fake, 'handle_get_feature', pending_then_ready)
+    assert device.get_poll_rate() == 1000
+    assert len(reads) == 2
+    assert len(fake.sent_reports) - before == 1
+    device.close()
+
+
+def test_busy_timeout_is_bounded_and_does_not_resend_the_command(keyboard, monkeypatch):
     device, fake = keyboard
     fake.force_status = Status.BUSY
-    device.set_static(1, 2, 3)      # must not raise
+    before = len(fake.sent_reports)
+    read = fake.handle_get_feature
+    reads = []
+
+    def still_busy(length, report_id=0):
+        reads.append(True)
+        return read(length, report_id)
+
+    monkeypatch.setattr(fake, 'handle_get_feature', still_busy)
+    with pytest.raises(DeviceError, match='busy'):
+        device.set_static(1, 2, 3)
+    assert len(reads) == MAX_ATTEMPTS
+    assert len(fake.sent_reports) - before == 1
 
 
 def test_control_interface_is_chosen_by_feature_report_length():
