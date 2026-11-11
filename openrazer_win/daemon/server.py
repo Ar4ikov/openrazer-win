@@ -596,12 +596,21 @@ class DaemonService:
         return {'name': profile['name']}
 
     def rpc_profile_create(self, serial: str, name: str, source: Optional[str] = None) -> dict:
-        """A new profile, from the defaults or as a copy of `source`, switched to at once."""
+        """A new profile, switched to at once: a copy of `source`, or one that
+        starts from the defaults -- unless the device follows no profile yet.
+
+        What such a device has is kept nowhere else, and starting it over
+        would lose it, so its first profile is of what it has now.  From then
+        on its settings are in the profile being left, and a new one is new.
+        """
         device = self._device(serial)
         capture_current(device, self.persistence)
         try:
-            state = self._snapshot(device, new=True) if source is None else (
-                self.profiles.get(device.serial, source))
+            if source is not None:
+                state = self.profiles.get(device.serial, source)
+            else:
+                state = self._snapshot(
+                    device, new=self.profiles.active(device.serial) is not None)
             entry = self.profiles.put(device.serial, name, state, replace=False)
         except ProfileError as error:
             raise RpcError(INVALID_PARAMS, str(error)) from error

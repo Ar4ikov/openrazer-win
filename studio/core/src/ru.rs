@@ -680,7 +680,7 @@ pub const RU: &[(&str, &str)] = &[
     ("Snap Tap changes your key presses in software. Some games forbid this: Counter-Strike 2 may kick you from official matches, and tournaments or other platforms may go further. Turn it off in those games. It does nothing in games running as administrator, and it may not work in every game.", "Snap Tap программно меняет нажатия клавиш. Некоторые игры это запрещают: Counter-Strike 2 может выкинуть вас из официальных матчей, а турниры и другие площадки могут пойти дальше. В таких играх выключайте эту функцию. Она не действует в играх, запущенных от имени администратора, и может работать не во всех играх."),
     ("I understand, turn it on", "Понятно, включить"),
     ("New profile", "Новый профиль"),
-    ("Starts from the default settings, with Snap Tap off, and becomes the active profile. Changes to the active profile are kept as you make them. Up to ten per device.", "Начинается с настроек по умолчанию, с выключенным Snap Tap, и становится активным. Изменения сохраняются в активный профиль сразу. До десяти на устройство."),
+    ("A device's first profile keeps what it has now; later ones start from the default settings, with Snap Tap off. Changes to the active profile are kept as you make them. Up to ten per device.", "Первый профиль устройства сохраняет то, что на нём сейчас; следующие начинаются с настроек по умолчанию, с выключенным Snap Tap. Изменения сохраняются в активный профиль сразу. До десяти на устройство."),
     ("Create", "Создать"),
     ("Create one, then switch between them in one click.", "Создайте профиль и переключайтесь между профилями одним щелчком."),
     ("Active", "Активный"),

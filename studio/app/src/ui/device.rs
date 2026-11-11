@@ -513,7 +513,7 @@ fn profiles(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) 
     widgets::columns(ui, 0.4, TWO_COLUMNS, |ui, column| {
         if column == 0 {
             widgets::panel(ui, t("New profile"), |ui| {
-                widgets::help(ui, t("Starts from the default settings, with Snap Tap off, and becomes the active profile. Changes to the active profile are kept as you make them. Up to ten per device."));
+                widgets::help(ui, t("A device's first profile keeps what it has now; later ones start from the default settings, with Snap Tap off. Changes to the active profile are kept as you make them. Up to ten per device."));
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     let name = app.device_ui.profile_name.trim().to_string();

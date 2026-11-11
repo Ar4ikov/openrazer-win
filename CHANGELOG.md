@@ -19,10 +19,11 @@ uses [semantic versioning](https://semver.org/).
 - **Profiles that keep themselves.** The profile last created or applied is
   the device's active one, and every later change is saved into it. Switching
   profiles also sets the keyswitch mode, DPI, polling rate and, on keyboards,
-  Snap Tap, which a profile never turns on before its warning is accepted. A new
-  profile starts from the defaults, keeping the DPI and polling rate; Studio's
-  *Duplicate* copies one. `profile save` now makes the profile active, and
-  `profile` marks it with `*`; for clients, `profile.create` and `active`.
+  Snap Tap, which a profile never turns on before its warning is accepted. A
+  device's first profile is of what it has now; later ones start from the
+  defaults, keeping the DPI and polling rate, and Studio's *Duplicate* copies
+  one. `profile save` now makes the profile active, and `profile` marks it
+  with `*`; for clients, `profile.create` and `active`.
 
 ### Fixed
 

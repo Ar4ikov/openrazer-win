@@ -318,6 +318,31 @@ def test_a_new_profile_starts_from_the_defaults_not_the_active_one(service):
     assert stored(service, keyboard.serial, 'Gaming')['device']['keyswitch_optimization'] == 'gaming'
 
 
+def test_the_first_profile_of_a_device_is_of_what_it_has_now(service):
+    """Nothing else holds those settings, so starting over would lose them."""
+    keyboard = by_pid(service, HUNTSMAN)
+    service.rpc_call(keyboard.serial, 'set_static', [0, 0, 255])
+    service.rpc_call(keyboard.serial, 'set_keyswitch_optimization', ['gaming'])
+    service.rpc_snaptap_set(enabled=True, acknowledged=True,
+                            pairs=[['KEY_A', 'KEY_D'], ['KEY_W', 'KEY_S']])
+
+    service.rpc_profile_create(keyboard.serial, 'Mine')
+
+    created = stored(service, keyboard.serial, 'Mine')
+    assert created['zones']['backlight']['effect'] == 'static'
+    assert created['zones']['backlight']['colors'][:3] == [0, 0, 255]
+    assert created['device']['keyswitch_optimization'] == 'gaming'
+    assert created['snaptap'] == {'enabled': True,
+                                  'pairs': [['KEY_A', 'KEY_D'], ['KEY_W', 'KEY_S']]}
+    assert keyboard.get_keyswitch_optimization() == 'gaming'
+    assert service.rpc_snaptap_status()['enabled'] is True
+    assert active_rows(service, keyboard.serial) == ['Mine']
+    # The one after it is new: this one holds what there was.
+    service.rpc_profile_create(keyboard.serial, 'Other')
+    assert stored(service, keyboard.serial, 'Other')['zones']['backlight']['effect'] == 'spectrum'
+    assert stored(service, keyboard.serial, 'Mine')['zones']['backlight']['effect'] == 'static'
+
+
 def test_a_new_profile_keeps_the_current_dpi_and_polling_rate(service):
     mouse = by_pid(service, MOUSE)
     service.rpc_call(mouse.serial, 'set_dpi', [1600, 1600])
