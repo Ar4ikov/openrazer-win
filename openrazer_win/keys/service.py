@@ -143,6 +143,9 @@ class KeyService:
         self._work: queue.Queue = queue.Queue()
         self._worker: Optional[threading.Thread] = None
         self._no_translation = set(self.data.get('no_translation_pids', ()))
+        #: Sees what the Fn layer lets through, on this same hook: a second
+        #: hook could not know what this one had swallowed.
+        self.snap_tap = None
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> bool:
@@ -315,6 +318,13 @@ class KeyService:
     # -- the keyboard hook -------------------------------------------------
     def handle_key(self, event: KeyEvent) -> bool:
         """Decide one key event.  True holds it back from everything else."""
+        if self._fn_layer(event):
+            if self.snap_tap is not None:
+                self.snap_tap.swallowed(event)
+            return True
+        return self.snap_tap is not None and self.snap_tap.handle(event)
+
+    def _fn_layer(self, event: KeyEvent) -> bool:
         if event.injected:
             # Typed by software -- a macro, another remapper, this daemon --
             # not by a hand on a Razer keyboard's Fn layer.

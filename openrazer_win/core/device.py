@@ -124,6 +124,14 @@ EFFECT_ATTRIBUTE = {
     'custom': 'matrix_effect_custom',
 }
 
+#: Keyswitch optimization -> the mode byte upstream's driver takes.  Named rather
+#: than the bool upstream's client uses: "optimization on" says nothing about
+#: which of the two a keyboard is in, and they are the names Synapse shows.
+KEYSWITCH_MODES = {'typing': 0x00, 'gaming': 0x01}
+
+#: What ``read:keyswitch_optimization`` finds in argument 1 in Typing mode.
+KEYSWITCH_TYPING_MARKER = 0x14
+
 
 class DeviceError(Exception):
     """A device operation failed."""
@@ -637,6 +645,27 @@ class RazerDevice:
         env = self.run('read:kbd_layout', require_response=True)
         return 'layout_{0:02x}'.format(env.response.arguments[2])
 
+    def get_keyswitch_optimization(self) -> str:
+        """``'typing'`` or ``'gaming'``, as the keyboard reports it."""
+        env = self.run('read:keyswitch_optimization', require_response=True)
+        # Not env.vars['state']: the driver sets it inside an if, and the
+        # transpiled recipe keeps the assignment without the test, so it is
+        # always 0.  Anything but the marker is Gaming, as in the driver.
+        marker = env.response.arguments[1]
+        return 'typing' if marker == KEYSWITCH_TYPING_MARKER else 'gaming'
+
+    def set_keyswitch_optimization(self, mode: str) -> None:
+        """Choose ``'typing'`` (debounce delay) or ``'gaming'`` (no debounce)."""
+        name = str(mode).lower()
+        if name not in KEYSWITCH_MODES:
+            # The builders send an empty report for a byte they do not know,
+            # which would pass for Gaming on the keyboard.
+            raise ValueError('keyswitch optimization is one of {0}, not {1!r}'.format(
+                ', '.join(KEYSWITCH_MODES), mode))
+        value = KEYSWITCH_MODES[name]
+        self.run('write:keyswitch_optimization', str(value).encode('ascii'), mode=value)
+        self.persistence.set_device_value(self.serial, 'keyswitch_optimization', name)
+
     # -- mouse extras ------------------------------------------------------
     def get_scroll_mode(self) -> int:
         env = self.run('read:scroll_mode', require_response=True)
@@ -719,6 +748,8 @@ class RazerDevice:
             'game_mode': self._feature('read:game_led_state', 'get_game_mode'),
             'macro_mode': self._feature('read:macro_led_state', 'get_macro_mode'),
             'keyboard_layout': self._feature('read:kbd_layout', 'get_keyboard_layout'),
+            'keyswitch_optimization': self._feature('read:keyswitch_optimization',
+                                                    'get_keyswitch_optimization'),
             'scroll_mode': self._feature('read:scroll_mode', 'get_scroll_mode'),
             'custom_frame': self._feature('write:matrix_custom_frame', 'set_key_row'),
             'software_effects': self._software_effects_possible(),

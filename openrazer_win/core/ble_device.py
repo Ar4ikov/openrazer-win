@@ -113,7 +113,8 @@ class BleDevice:
                 'poll_rate': False, 'supported_poll_rates': [],
                 'battery': True, 'idle_time': False,
                 'game_mode': False, 'macro_mode': False,
-                'keyboard_layout': False, 'scroll_mode': False,
+                'keyboard_layout': False, 'keyswitch_optimization': False,
+                'scroll_mode': False,
                 'custom_frame': True,
                 'software_effects': True,
                 # The vendor service answers requests on its notify

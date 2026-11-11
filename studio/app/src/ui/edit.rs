@@ -72,6 +72,7 @@ pub struct DeviceEdit {
     pub dpi_linked: bool,
     pub stages: Option<(i64, Vec<(i64, i64)>)>,
     pub poll_rate: Option<i64>,
+    pub keyswitch: Option<String>,
     pub idle_minutes: Option<f32>,
     pub low_battery: Option<f32>,
     pub audio: AudioEdit,
@@ -105,6 +106,7 @@ impl DeviceEdit {
                 self.stages = detail.dpi_stages.clone();
             }
             self.poll_rate = self.poll_rate.or(detail.poll_rate);
+            self.keyswitch = self.keyswitch.take().or_else(|| detail.keyswitch.clone());
             self.idle_minutes = self.idle_minutes.or(detail.idle_time.map(|s| s as f32 / 60.0));
             self.low_battery = self.low_battery.or(detail.low_battery.map(|v| v as f32));
             for (zone, edit) in self.zones.iter_mut() {
@@ -188,6 +190,7 @@ impl DeviceEdit {
         }
         self.stages = detail.dpi_stages.clone().or(self.stages.take());
         self.poll_rate = detail.poll_rate.or(self.poll_rate);
+        self.keyswitch = detail.keyswitch.clone().or(self.keyswitch.take());
         self.idle_minutes = detail.idle_time.map(|s| s as f32 / 60.0).or(self.idle_minutes);
         self.low_battery = detail.low_battery.map(|v| v as f32).or(self.low_battery);
     }
@@ -308,6 +311,19 @@ mod tests {
         detail.poll_rate = Some(500);
         edit.refresh(&device, &detail, &snap);
         assert_eq!((edit.dpi, edit.poll_rate), (Some((1800, 1800)), Some(500)));
+    }
+
+    #[test]
+    fn a_keyswitch_mode_read_after_the_first_look_is_taken_when_it_arrives() {
+        let device = Device { serial: "K1".into(), kind: "keyboard".into(), ..Default::default() };
+        let mut detail = Detail { caps: Some(json!({ "zones": {}, "keyswitch_optimization": true })), ..Default::default() };
+        let snap = Snapshot { generation: 1, ..Default::default() };
+        let mut edit = DeviceEdit::default();
+        edit.refresh(&device, &detail, &snap);
+        assert_eq!(edit.keyswitch, None);
+        detail.keyswitch = Some("gaming".into());
+        edit.refresh(&device, &detail, &snap);
+        assert_eq!(edit.keyswitch.as_deref(), Some("gaming"));
     }
 
     #[test]

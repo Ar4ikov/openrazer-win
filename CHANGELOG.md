@@ -6,6 +6,17 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Keyswitch optimization** on the Razer Huntsman V2 and V2 Tenkeyless, as in
+  Synapse: *Typing* keeps a debounce delay, *Gaming* has none. `openrazer-win
+  keyswitch`, or *Performance* in Studio and the control panel.
+- **Snap Tap**, without Synapse: of two opposing keys, the one pressed last
+  wins. The daemon does it on the PC, for every keyboard. It is off until you
+  turn it on with `openrazer-win snaptap on` or under *Performance* in Studio,
+  after reading a warning: some games forbid it. So far it has only run
+  against simulated key events.
+
 ## [1.6.1] - 2026-11-06
 
 ### Added

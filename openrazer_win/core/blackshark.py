@@ -114,6 +114,7 @@ class BlackSharkDevice:
                 'battery': True, 'idle_time': True,
                 'idle_time_max': protocol.IDLE_MINUTES_MAX * 60,
                 'game_mode': False, 'macro_mode': False, 'keyboard_layout': False,
+                'keyswitch_optimization': False,
                 'scroll_mode': False, 'custom_frame': False, 'software_effects': False,
                 'readback': True,
                 'audio': {

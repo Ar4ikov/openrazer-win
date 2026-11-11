@@ -8,8 +8,9 @@ import pytest
 from openrazer_win.client import DeviceManager
 from openrazer_win.client.rpc import DaemonUnavailable, RpcClient
 from openrazer_win.daemon.demo import DEMO_DEVICES, build_demo_backend
+from openrazer_win.core.persistence import Persistence
 from openrazer_win.daemon.protocol import (
-    METHOD_NOT_FOUND, NOT_SUPPORTED, UNAUTHORIZED, Endpoint, RpcError,
+    INVALID_PARAMS, METHOD_NOT_FOUND, NOT_SUPPORTED, UNAUTHORIZED, Endpoint, RpcError,
 )
 from openrazer_win.daemon.server import DaemonServer, DaemonService
 
@@ -152,6 +153,28 @@ def test_client_poll_rate_property(manager):
     mouse.poll_rate = 500
     assert mouse.poll_rate == 500
     assert 1000 in mouse.supported_poll_rates
+
+
+def test_client_keyswitch_optimization_property(manager, daemon):
+    huntsman, blackwidow = (manager.by_name(name)[0] for name in ('Huntsman', 'BlackWidow'))
+    assert not blackwidow.has('keyswitch_optimization')
+    assert huntsman.keyswitch_optimization == 'typing'
+    huntsman.keyswitch_optimization = 'gaming'
+    assert huntsman.keyswitch_optimization == 'gaming'
+    # The daemon saved it, rather than holding it in memory until it stops.
+    stored = Persistence(daemon.service.persistence.path)
+    assert stored.get_device_value(huntsman.serial, 'keyswitch_optimization') == 'gaming'
+
+
+@pytest.mark.parametrize('name, mode, code', [
+    ('Huntsman', 'warp', INVALID_PARAMS), ('BlackWidow', 'gaming', NOT_SUPPORTED),
+])
+def test_a_keyswitch_mode_that_cannot_be_set_is_the_caller_s_error(manager, client, name, mode,
+                                                                    code):
+    with pytest.raises(RpcError) as raised:
+        client.call('device.call', serial=manager.by_name(name)[0].serial,
+                    method='set_keyswitch_optimization', args=[mode])
+    assert raised.value.code == code
 
 
 def test_client_zone_selection_follows_capabilities(manager):

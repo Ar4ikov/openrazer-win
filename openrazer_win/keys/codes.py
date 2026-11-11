@@ -167,10 +167,17 @@ KEYS.setdefault('KEY_LEFTMETA', Key(0x5B, True, 0x5B))
 KEYS.setdefault('KEY_RIGHTMETA', Key(0x5C, True, 0x5C))
 
 
+def canonical_name(name: str) -> str:
+    """The evdev name for ``a``, ``ctrl`` or ``KEY_A``, whether or not such a key exists."""
+    lowered = name.strip().lower()
+    if lowered.startswith('key_'):
+        return lowered.upper()
+    return _ALIASES.get(lowered, 'KEY_' + lowered.upper())
+
+
 def key_named(name: str):
     """A :class:`Key` or virtual key code for a name such as ``ctrl`` or ``F5``."""
-    lowered = name.strip().lower()
-    full = _ALIASES.get(lowered, 'KEY_' + lowered.upper())
+    full = canonical_name(name)
     if full in KEYS:
         return KEYS[full]
     if full in VIRTUAL_KEYS:

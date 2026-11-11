@@ -47,6 +47,7 @@ pub struct DeviceEdit {
     pub dpi_linked: bool,
     pub stages: Option<(i64, Vec<(i64, i64)>)>,
     pub poll_rate: Option<i64>,
+    pub keyswitch: Option<String>,
     pub idle_minutes: Option<f32>,
     pub low_battery: Option<f32>,
     pub hex: String,
@@ -126,6 +127,7 @@ impl DeviceEdit {
         }
         self.stages = detail.dpi_stages.clone().or(self.stages.take());
         self.poll_rate = detail.poll_rate.or(self.poll_rate);
+        self.keyswitch = detail.keyswitch.clone().or(self.keyswitch.take());
         self.idle_minutes = detail.idle_time.map(|s| s as f32 / 60.0).or(self.idle_minutes);
         self.low_battery = detail.low_battery.map(|v| v as f32).or(self.low_battery);
     }

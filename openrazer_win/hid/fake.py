@@ -116,6 +116,11 @@ class FakeDeviceState:
         self.dpi = (1800, 1800)
         self.dpi_stages = (1, [(800, 800), (1800, 1800), (3200, 3200)])
         self.poll_rate = 500
+        #: The arguments of the two keyswitch optimization commands, kept apart
+        #: so a test can tell a keyboard that was only sent one of them.  A
+        #: keyboard starts in Typing mode.
+        self.keyswitch_set = (0x00, 0x14, 0x00, 0x28, 0x00)
+        self.keyswitch_store = (0x01, 0x00, 0x14, 0x00, 0x28, 0x00)
         self.battery = 0.55
         self.charging = False
         self.idle_time = 900
@@ -413,6 +418,12 @@ class FakeRazerDevice:
             codes = {8000: 0x01, 4000: 0x02, 2000: 0x04, 1000: 0x08,
                      500: 0x10, 250: 0x20, 125: 0x40}
             response.set_argument(1, codes.get(state.poll_rate, 0x10))
+        elif (cls, cmd) == (0x02, 0x02):  # set keyswitch optimization
+            state.keyswitch_set = tuple(args[:5])
+        elif (cls, cmd) == (0x02, 0x15):  # ... and its stored copy
+            state.keyswitch_store = tuple(args[:6])
+        elif (cls, cmd) == (0x02, 0x82):
+            response.set_arguments(0, state.keyswitch_set)
         elif (cls, cmd) == (0x07, 0x80):  # battery level
             response.set_argument(1, int(round(state.battery * 255)))
         elif (cls, cmd) == (0x07, 0x84):  # charging status
