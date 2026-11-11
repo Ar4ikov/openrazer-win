@@ -6,6 +6,8 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-11-12
+
 ### Added
 
 - **Razer BlackShark V3 X HyperSpeed**, on its receiver (`1532:057D`) and on
@@ -41,6 +43,9 @@ uses [semantic versioning](https://semver.org/).
 - **Studio no longer waits on a daemon that is gone.** A stale `daemon.json`
   is recognised at once, and Studio shows *Looking for devices…* instead of
   "No Razer devices found" until the daemon's first search has finished.
+- **A setting read from a keyboard that is still busy is waited for.** A
+  Huntsman V2 Tenkeyless answers with an echo of the question until its reply
+  is ready, so its polling rate could read back wrong after a change.
 
 ## [1.6.1] - 2026-11-06
 
