@@ -98,8 +98,11 @@ def test_surrounding_whitespace_is_tidied():
 
 def test_the_store_survives_a_reload(store):
     store.put('SERIAL1', 'night', state(brightness=33))
+    store.put('SERIAL2', 'day', state(), activate=True)
     reloaded = ProfileStore(store.path)
     assert reloaded.get('SERIAL1', 'night')['zones']['backlight']['brightness'] == 33
+    # The active profile too, and it is per device.
+    assert (reloaded.active('SERIAL1'), reloaded.active('SERIAL2')) == (None, 'day')
 
 
 def test_an_unreadable_store_does_not_break_startup(tmp_path):

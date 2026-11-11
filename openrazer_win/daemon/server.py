@@ -20,7 +20,9 @@ from ..core.manager import DeviceManager
 from ..core.persistence import Persistence
 from ..chroma import PORT as CHROMA_PORT
 from ..chroma import ChromaBridge, ChromaServer
-from ..core.profiles import ProfileError, ProfileStore, apply_profile, snapshot
+from ..core.profiles import (
+    ProfileError, ProfileStore, apply_profile, capture_current, default_state, snapshot,
+)
 from ..devices.recipes import NotSupported, RecipeError
 from ..effects.engine import EffectEngine, zone_order
 from ..integrations import AccentWatch, IntegrationSettings, read_accent
@@ -97,6 +99,12 @@ def _device_summary(device: RazerDevice) -> dict:
         'images': dict(device.info.images),
         'firmware': _safe(device, 'firmware_version'),
     }
+
+
+def _snaptap_applies(device) -> bool:
+    """Whether `device`'s profiles carry Snap Tap.  It acts on the keyboard as a
+    whole, so keyboards' only: the test Studio uses to show its Snap Tap panel."""
+    return device.capabilities().get('type') in ('keyboard', 'keypad')
 
 
 def _safe(device: RazerDevice, attribute: str) -> Any:
@@ -334,6 +342,11 @@ class DaemonService:
                                    acknowledged=acknowledged)
         except ValueError as error:     # SnapTapError
             raise RpcError(INVALID_PARAMS, str(error)) from error
+        # Snap Tap belongs to no one device, so every keyboard following a
+        # profile takes the change into it.
+        for device in self.manager.devices:
+            if _snaptap_applies(device):
+                self._keep_in_profile(device)
         return self.snaptap.status()
 
     # -- lookups -----------------------------------------------------------
@@ -397,6 +410,7 @@ class DaemonService:
             except (NotSupported, ValueError) as error:
                 raise RpcError(INVALID_PARAMS, str(error)) from error
             self.persistence.save()
+            self._keep_in_profile(device)
             return None
         if (self.effects is not None and method in HARDWARE_EFFECTS
                 and kwargs.get('zone', 'backlight') == 'backlight'):
@@ -410,6 +424,7 @@ class DaemonService:
         except (TypeError, ValueError) as error:
             raise RpcError(INVALID_PARAMS, str(error)) from error
         self.persistence.save()
+        self._keep_in_profile(device)
         return result
 
     def rpc_effect(self, serial: str, effect: str, options=None) -> dict:
@@ -423,6 +438,7 @@ class DaemonService:
         except ValueError as error:
             raise RpcError(INVALID_PARAMS, str(error)) from error
         self.persistence.save()
+        self._keep_in_profile(device)
         return result
 
     def rpc_effect_status(self) -> dict:
@@ -489,17 +505,81 @@ class DaemonService:
         return {'playing': str(key)}
 
     # -- profiles ----------------------------------------------------------
+    def _snapshot(self, device, new: bool = False) -> dict:
+        """What `device` has now, for a profile -- or, `new`, what a new one starts from."""
+        state = default_state(device, self.persistence) if new else snapshot(device, self.persistence)
+        if _snaptap_applies(device):
+            from ..keys.snaptap import DEFAULT_PAIRS
+            # A new profile never turns Snap Tap on, and has the pairs a first start has.
+            settings = {'enabled': False, 'pairs': DEFAULT_PAIRS} if new else self.snaptap.status()
+            state['snaptap'] = {'enabled': settings['enabled'], 'pairs': settings['pairs']}
+        return state
+
+    def _keep_in_profile(self, device) -> None:
+        """Write what `device` has now into the profile it follows, if any: what
+        spares the user a save button.  Under the lock _switch holds, so that a
+        change made meanwhile cannot land, half of each, in the profile left."""
+        with self._lock:
+            if self.profiles.active(device.serial) is None:
+                return
+            try:
+                self.profiles.update_active(device.serial, self._snapshot(device))
+            except Exception:  # noqa: BLE001 - the change itself has been made
+                logger.warning('could not keep the profile of %s up to date', device.name,
+                               exc_info=True)
+
+    def _apply_snaptap(self, device, profile: dict) -> None:
+        stored = profile.get('snaptap')
+        if not stored or not _snaptap_applies(device):
+            return
+        # Never on through a profile until the warning has been accepted here:
+        # a file that says so is not someone reading it.  Without that, Snap
+        # Tap is off already, so turning it off changes nothing.
+        enabled = bool(stored.get('enabled')) and self.snaptap.status()['acknowledged']
+        try:
+            self.snaptap.configure(pairs=stored.get('pairs'), enabled=enabled)
+        except ValueError as error:     # SnapTapError
+            logger.warning('the Snap Tap in profile %r was not applied: %s',
+                           profile.get('name'), error)
+
     def rpc_profile_list(self, serial: str) -> list:
         return self.profiles.summaries(self._device(serial).serial)
 
     def rpc_profile_save(self, serial: str, name: str) -> dict:
         device = self._device(serial)
+        capture_current(device, self.persistence)
         try:
             entry = self.profiles.put(
-                device.serial, name, snapshot(device, self.persistence))
+                device.serial, name, self._snapshot(device), activate=True)
         except ProfileError as error:
             raise RpcError(INVALID_PARAMS, str(error)) from error
         return {'name': entry['name'], 'saved': entry['saved']}
+
+    def _switch(self, device, profile: dict) -> None:
+        """Put `profile` on `device` and make it the one the device follows."""
+        with self._lock:
+            try:
+                apply_profile(device, self.persistence, profile)
+                if self.effects is not None:
+                    # A profile saved with a host-drawn effect brings it back; one
+                    # saved without stops whatever is running, or it would paint
+                    # over the profile's own lighting.
+                    if (profile.get('device') or {}).get('software'):
+                        self.effects.restore(device)
+                    else:
+                        self.effects.stop_for(device)
+                self._apply_snaptap(device, profile)
+            except NotSupported as error:
+                raise RpcError(NOT_SUPPORTED, str(error)) from error
+            except (DeviceError, RecipeError) as error:
+                raise RpcError(DEVICE_ERROR, str(error)) from error
+            finally:
+                # Even when a step above failed: apply_profile writes persistence
+                # before it touches the device, so what the daemon keeps is this
+                # profile's by now.  Left following the previous one, the next
+                # change would save that mixture into it.
+                self.persistence.save()
+                self.profiles.activate(device.serial, profile['name'])
 
     def rpc_profile_load(self, serial: str, name: str) -> dict:
         device = self._device(serial)
@@ -507,22 +587,21 @@ class DaemonService:
             profile = self.profiles.get(device.serial, name)
         except ProfileError as error:
             raise RpcError(INVALID_PARAMS, str(error)) from error
-        try:
-            apply_profile(device, self.persistence, profile)
-        except NotSupported as error:
-            raise RpcError(NOT_SUPPORTED, str(error)) from error
-        except (DeviceError, RecipeError) as error:
-            raise RpcError(DEVICE_ERROR, str(error)) from error
-        if self.effects is not None:
-            # A profile saved with a host-drawn effect brings it back; one saved
-            # without stops whatever is running, or it would paint over the
-            # profile's own lighting.
-            if (profile.get('device') or {}).get('software'):
-                self.effects.restore(device)
-            else:
-                self.effects.stop_for(device)
-        self.persistence.save()
+        self._switch(device, profile)
         return {'name': profile['name']}
+
+    def rpc_profile_create(self, serial: str, name: str, source: Optional[str] = None) -> dict:
+        """A new profile, from the defaults or as a copy of `source`, switched to at once."""
+        device = self._device(serial)
+        capture_current(device, self.persistence)
+        try:
+            state = self._snapshot(device, new=True) if source is None else (
+                self.profiles.get(device.serial, source))
+            entry = self.profiles.put(device.serial, name, state, replace=False)
+        except ProfileError as error:
+            raise RpcError(INVALID_PARAMS, str(error)) from error
+        self._switch(device, entry)
+        return {'name': entry['name'], 'saved': entry['saved']}
 
     def rpc_profile_delete(self, serial: str, name: str) -> dict:
         device = self._device(serial)
@@ -643,6 +722,7 @@ class DaemonServer(socketserver.ThreadingTCPServer):
             'profile.list': service.rpc_profile_list,
             'profile.save': service.rpc_profile_save,
             'profile.load': service.rpc_profile_load,
+            'profile.create': service.rpc_profile_create,
             'profile.delete': service.rpc_profile_delete,
             'keys.status': service.rpc_keys_status,
             'macro.list': service.rpc_macro_list,

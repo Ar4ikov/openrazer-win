@@ -126,6 +126,8 @@ pub enum Command {
     /// `quiet` for the automatic switch, which should not pop a toast every
     /// time a game comes to the front.
     Profile { action: &'static str, serial: String, name: String, quiet: bool },
+    /// A new profile, from the defaults or as a copy of `source`, switched to.
+    ProfileCreate { serial: String, name: String, source: Option<String> },
     MacroSet { serial: String, key: String, action: Value },
     MacroDelete { serial: String, key: String },
     MacroRecordStart { serial: String, key: String },
@@ -433,6 +435,23 @@ impl Worker {
         }
     }
 
+    /// Read back what switching profiles changed on the device.
+    fn after_switch(&mut self, serial: &str) {
+        if let Some(caps) = self.caps(serial) {
+            // A profile switches more than the lighting: the keyswitch mode,
+            // DPI and polling rate, and Snap Tap.
+            self.read_lighting(serial, &caps);
+            self.read_performance(serial, &caps);
+            self.read_keyboard(serial, &caps);
+        }
+        if let Ok(status) = self.with(|c| c.call("snaptap.status", json!({}))) {
+            self.shared.lock().unwrap().snaptap = status;
+        }
+        // Last: the new generation is what has the page take up the values
+        // just read, so they have to be there first.
+        self.load_persistence();
+    }
+
     fn read_profiles(&mut self, serial: &str) {
         if let Ok(list) = self.with(|c| c.call("profile.list", json!({ "serial": serial }))) {
             let rows = list.as_array().cloned().unwrap_or_default();
@@ -532,7 +551,6 @@ impl Worker {
                 let method = format!("profile.{action}");
                 let result = self.with(|c| c.call(&method, json!({ "serial": serial, "name": name })));
                 let text = match action {
-                    "save" => tf("Profile “{}” saved", &[&name]),
                     "load" => tf("Profile “{}” applied", &[&name]),
                     _ => tf("Profile “{}” deleted", &[&name]),
                 };
@@ -545,11 +563,16 @@ impl Worker {
                 }
                 self.read_profiles(&serial);
                 if action == "load" {
-                    self.load_persistence();
-                    if let Some(caps) = self.caps(&serial) {
-                        self.read_lighting(&serial, &caps);
-                    }
+                    self.after_switch(&serial);
                 }
+            }
+            Command::ProfileCreate { serial, name, source } => {
+                let result = self.with(|c| c.call("profile.create", json!({ "serial": serial, "name": name, "source": source })));
+                self.report(&result, Some(tf("Profile “{}” created", &[&name])));
+                self.read_profiles(&serial);
+                // Even after an error: the profile may have been made and
+                // switched to half way, and the page should show what is there.
+                self.after_switch(&serial);
             }
             Command::MacroSet { serial, key, action } => {
                 let result = self.with(|c| c.call("macro.set", json!({ "serial": serial, "key": key, "action": action })));

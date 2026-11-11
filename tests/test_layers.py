@@ -243,9 +243,10 @@ def test_profiles_carry_the_layers(service):
     serial = keyboard_serial(service)
     service.rpc_effect(serial, 'layers', {'layers': [layer('static', [(0, 1)])]})
     service.rpc_profile_save(serial, 'Layers')
+    # Saved first: it becomes the active profile, and what follows goes into it.
+    service.rpc_profile_save(serial, 'Plain')
     service.rpc_effect(serial, 'none', {})
     service.rpc_call(serial, 'set_spectrum', [], {'zone': 'backlight'})
-    service.rpc_profile_save(serial, 'Plain')
 
     service.rpc_profile_load(serial, 'Layers')
     assert service.rpc_effect_status()['active'] == {serial: 'layers'}

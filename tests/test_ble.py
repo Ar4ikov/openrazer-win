@@ -940,6 +940,9 @@ def test_profiles_round_trip_through_the_daemon(headset_daemon, capsys, tmp_path
     assert main(['profile', 'save', 'evening']) == 0
     assert "'evening' saved" in capsys.readouterr().out
 
+    # Saving makes a profile active, and changes go into the active one; a
+    # second profile takes the green so 'evening' still holds red and blue.
+    assert main(['profile', 'save', 'scratch']) == 0
     assert main(['zones', 'green', 'green']) == 0
     capsys.readouterr()
 
@@ -952,6 +955,7 @@ def test_profiles_round_trip_through_the_daemon(headset_daemon, capsys, tmp_path
     assert 'evening' in capsys.readouterr().out
 
     assert main(['profile', 'delete', 'evening']) == 0
+    assert main(['profile', 'delete', 'scratch']) == 0
     assert main(['profile']) == 0
     assert 'no saved profiles' in capsys.readouterr().out
 
