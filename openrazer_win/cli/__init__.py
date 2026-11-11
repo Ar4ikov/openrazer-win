@@ -12,11 +12,12 @@ from .._version import UPSTREAM_VERSION, __version__
 from ..client import DaemonUnavailable, DeviceManager
 from ..client.rpc import RpcClient, is_daemon_running
 from ..core.device import DeviceError
-from ..core.transport import is_blackshark_interface
+from ..core.transport import is_blackshark_interface, is_blackshark_v3x_interface
 from ..daemon.protocol import RpcError, endpoint_path
 from ..devices.database import get_database
 from ..devices.recipes import NotSupported
 from ..hid.base import HidError
+from ..protocol import blackshark_v3x
 
 COLOURS = {
     'red': (255, 0, 0), 'green': (0, 255, 0), 'blue': (0, 0, 255),
@@ -92,19 +93,25 @@ Examples:
   openrazer-win profile delete night"""
 
 HEADSET_HELP = """\
-For headsets that keep their sound settings themselves, the BlackShark V2
-HyperSpeed so far.
+For headsets that keep their sound settings themselves: the BlackShark V2
+HyperSpeed and the BlackShark V3 X HyperSpeed.  They do not have all the same
+settings, and one that a headset lacks says so.
 
 Examples:
   openrazer-win headset                  show what it is set to
   openrazer-win headset sidetone 8       hear your own voice, level 0-15
   openrazer-win headset sidetone off
-  openrazer-win headset eq game          flat, game, music, movie or custom
+  openrazer-win headset eq game          flat, game, music, movie or custom;
+                                         on the V3 X: default, game, music, movie
   openrazer-win headset eq off
   openrazer-win headset eq -3,0,0,0,0,0,0,2,3,3
-                                         your own curve: ten bands, -9 to 6 dB
+                                         your own curve: ten bands, -9 to 6 dB;
+                                         on the V3 X it is the curve of the preset
+                                         chosen, -6 to 6 dB
   openrazer-win headset dnd on           do not disturb
   openrazer-win headset led battery      off, link, battery or warning
+  openrazer-win headset nc on            the microphone's noise cancelling
+  openrazer-win headset saving on        power saving on the radio
   openrazer-win headset sleep 30         minutes before it turns off, 0 for never"""
 
 ZONES_HELP = """\
@@ -837,13 +844,21 @@ def _show_headset(device) -> None:
         return
     print('  battery     {0}%{1}'.format(
         device.battery_level, ' (charging)' if device.is_charging else ''))
-    print('  microphone  {0}'.format('muted' if audio['microphone_muted'] else 'on'))
+    # Not every headset has every setting: one it lacks is not in what it reports.
+    if 'microphone_muted' in audio:
+        print('  microphone  {0}'.format('muted' if audio['microphone_muted'] else 'on'))
     print('  sidetone    {0}'.format(
         'level {0}'.format(audio['sidetone_level']) if audio['sidetone'] else 'off'))
     print('  equalizer   {0}'.format(
         audio['equalizer_preset'] if audio['equalizer'] else 'off'))
-    print('  custom EQ   {0}'.format(' '.join(str(g) for g in audio['equalizer_bands'])))
-    print('  do not disturb  {0}'.format('on' if audio['do_not_disturb'] else 'off'))
+    per_preset = device.capabilities['audio'].get('equalizer_curve_per_preset')
+    print('  {0}   {1}'.format('its curve' if per_preset else 'custom EQ',
+                             ' '.join(str(g) for g in audio['equalizer_bands'])))
+    for key, label in (('do_not_disturb', 'do not disturb'),
+                       ('microphone_noise_cancelling', 'noise cancelling'),
+                       ('power_saving', 'power saving')):
+        if key in audio:
+            print('  {0}  {1}'.format(label, 'on' if audio[key] else 'off'))
     if 'dongle_led' in audio:
         print('  receiver    {0}'.format(audio['dongle_led']))
     print('  turns off   {0}'.format(
@@ -876,6 +891,10 @@ def _set_headset(device, setting: str, value: Optional[str]) -> None:
             device.set_do_not_disturb(_on_off(value))
         elif setting == 'led':
             device.set_dongle_led(value)
+        elif setting == 'nc':
+            device.set_microphone_noise_cancelling(_on_off(value))
+        elif setting == 'saving':
+            device.set_power_saving(_on_off(value))
         elif setting == 'sleep':
             device.idle_time = int(value) * 60
     except ValueError as error:
@@ -1161,16 +1180,20 @@ def cmd_doctor(args) -> int:
     print('\nRazer HID collections ({0}):'.format(len(collections)))
     if not collections:
         print('  none -- is the device plugged in?')
+
+    def reachable(info) -> bool:
+        if info.product_id in blackshark_v3x.PRODUCT_IDS:
+            # Two of its collections take 64-byte reports; one has the feature report.
+            return is_blackshark_v3x_interface(info)
+        return info.feature_length == FEATURE_BUFFER_SIZE or is_blackshark_interface(info)
+
     for info in collections:
-        reachable = info.feature_length == FEATURE_BUFFER_SIZE or is_blackshark_interface(info)
-        control = ' <- control interface' if reachable else ''
+        control = ' <- control interface' if reachable(info) else ''
         known = database.get(info.vendor_id, info.product_id)
         print('  {0}{1}'.format(info.describe(), control))
         print('      {0}'.format(known.name if known else 'NOT IN DATABASE'))
 
-    unusable = [i for i in collections if i.feature_length == FEATURE_BUFFER_SIZE
-                or is_blackshark_interface(i)]
-    if collections and not unusable:
+    if collections and not any(reachable(info) for info in collections):
         print('\nNo collection exposes the 90-byte feature report.')
         print('Razer Synapse may be holding the device -- close it and retry.')
 
@@ -1372,7 +1395,7 @@ def build_parser() -> argparse.ArgumentParser:
                   formatter_class=argparse.RawDescriptionHelpFormatter,
                   epilog=HEADSET_HELP)
     headset.add_argument('setting', nargs='?',
-                         choices=('sidetone', 'eq', 'dnd', 'led', 'sleep'))
+                         choices=('sidetone', 'eq', 'dnd', 'led', 'nc', 'saving', 'sleep'))
     headset.add_argument('value', nargs='?')
     headset.add_argument('--device', '-d')
 

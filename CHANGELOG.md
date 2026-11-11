@@ -8,6 +8,14 @@ uses [semantic versioning](https://semver.org/).
 
 ### Added
 
+- **Razer BlackShark V3 X HyperSpeed**, on its receiver (`1532:057D`) and on
+  its cable (`1532:057C`): battery, sleep timer, sidetone, the equalizer's
+  presets and their curves, the microphone's noise cancelling and power
+  saving, under *Sound* and *Power* in Studio and with `openrazer-win
+  headset`. It follows the driver proposed upstream in
+  [openrazer/openrazer#2899](https://github.com/openrazer/openrazer/pull/2899),
+  and has only run against an emulator here
+  ([#17](https://github.com/Ar4ikov/openrazer-win/issues/17)).
 - **Keyswitch optimization** on the Razer Huntsman V2 and V2 Tenkeyless, as in
   Synapse: *Typing* keeps a debounce delay, *Gaming* has none. `openrazer-win
   keyswitch`, or *Performance* in Studio and the control panel.

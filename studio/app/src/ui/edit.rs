@@ -48,7 +48,12 @@ pub struct AudioEdit {
     pub equalizer: bool,
     pub preset: String,
     pub bands: Vec<f64>,
+    /// The preset `bands` were read for. Where each preset has a curve of its
+    /// own, the bands are only the chosen preset's once the headset says so.
+    pub bands_of: String,
     pub do_not_disturb: bool,
+    pub noise_cancelling: bool,
+    pub power_saving: bool,
 }
 
 impl AudioEdit {
@@ -59,7 +64,10 @@ impl AudioEdit {
             equalizer: audio["equalizer"] == true,
             preset: audio["equalizer_preset"].as_str().unwrap_or_default().to_string(),
             bands: audio["equalizer_bands"].as_array().map(|b| b.iter().filter_map(Value::as_f64).collect()).unwrap_or_default(),
+            bands_of: audio["equalizer_preset"].as_str().unwrap_or_default().to_string(),
             do_not_disturb: audio["do_not_disturb"] == true,
+            noise_cancelling: audio["microphone_noise_cancelling"] == true,
+            power_saving: audio["power_saving"] == true,
         }
     }
 }
@@ -341,6 +349,19 @@ mod tests {
         edit.touch();
         edit.refresh(&device, &detail, &snap);
         assert_eq!(edit.audio.sidetone_level, 9.0);
+    }
+
+    #[test]
+    fn the_curve_on_screen_is_known_by_the_preset_it_was_read_for() {
+        let audio = json!({ "equalizer_preset": "game", "equalizer_bands": [1, -2], "microphone_noise_cancelling": true, "power_saving": false });
+        let mut edit = AudioEdit::read(&audio);
+        assert_eq!((edit.bands_of.as_str(), edit.noise_cancelling, edit.power_saving), ("game", true, false));
+        // Another preset chosen: until the headset is read again, the bands
+        // are still the last preset's and are not the new one's to change.
+        edit.preset = "movie".into();
+        assert_ne!(edit.bands_of, edit.preset);
+        let read = AudioEdit::read(&json!({ "equalizer_preset": "movie", "equalizer_bands": [0, 0] }));
+        assert_eq!(read.bands_of, read.preset);
     }
 
     #[test]

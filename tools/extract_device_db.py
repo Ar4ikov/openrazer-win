@@ -99,6 +99,8 @@ BLACKSHARK_V2_HYPERSPEED_IMAGE = (
     'razer-blackshark-v2-hyperspeed-black-500x500.webp')
 BLACKSHARK_METHODS = ['get_device_type_headset', 'get_battery', 'is_charging',
                       'get_idle_time', 'set_idle_time']
+#: The picture openrazer/openrazer#2899 gives it.
+BLACKSHARK_V3_X_IMAGE = 'https://dl.razerzone.com/src2/20181/20181-1-en-v3.png'
 
 LOCAL_DEVICES = [
     {
@@ -170,6 +172,45 @@ LOCAL_DEVICES = [
         'poll_rates': None,
         'dpi_max': None,
         'image': BLACKSHARK_V2_HYPERSPEED_IMAGE,
+        'methods': BLACKSHARK_METHODS,
+        'transport': 'hid',
+    },
+    {
+        # Another protocol again, on a feature report of its own, which is why
+        # openrazer/openrazer#2899 gives it a driver to itself and why it is
+        # here rather than in tools/upstream_patches/: there are no recipes to
+        # transpile.  It is in openrazer_win/protocol/blackshark_v3x.py.  The
+        # class names are that pull request's.
+        'class_name': 'RazerBlackSharkV3XUSB',
+        'name': 'Razer BlackShark V3 X HyperSpeed (Wired)',
+        'vid': 0x1532,
+        'pid': 0x057C,
+        'type': 'headset',
+        'has_matrix': False,
+        'matrix_dims': None,
+        'dedicated_macro_keys': False,
+        'driver_mode': False,
+        'wave_dirs': [1, 2],
+        'poll_rates': None,
+        'dpi_max': None,
+        'image': BLACKSHARK_V3_X_IMAGE,
+        'methods': BLACKSHARK_METHODS,
+        'transport': 'hid',
+    },
+    {
+        'class_name': 'RazerBlackSharkV3XWireless',
+        'name': 'Razer BlackShark V3 X HyperSpeed (Wireless)',
+        'vid': 0x1532,
+        'pid': 0x057D,
+        'type': 'headset',
+        'has_matrix': False,
+        'matrix_dims': None,
+        'dedicated_macro_keys': False,
+        'driver_mode': False,
+        'wave_dirs': [1, 2],
+        'poll_rates': None,
+        'dpi_max': None,
+        'image': BLACKSHARK_V3_X_IMAGE,
         'methods': BLACKSHARK_METHODS,
         'transport': 'hid',
     },

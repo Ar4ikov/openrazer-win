@@ -18,6 +18,7 @@ const MIC_POLL: Duration = Duration::from_secs(3);
 fn preset_label(preset: &str) -> &'static str {
     match preset {
         "flat" => t("Flat"),
+        "default" => t("Default"),
         "game" => t("Game"),
         "music" => t("Music"),
         "movie" => t("Movie"),
@@ -64,7 +65,8 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) 
         app.send(Command::ReadAudio(device.serial.clone()));
     }
     let tx = app.tx.clone();
-    if !snap.synapse.is_empty() {
+    // Reported of the BlackShark V2 HyperSpeed, and not known of any other.
+    if !snap.synapse.is_empty() && caps["protocol"] == "blackshark" {
         widgets::banner(
             ui,
             theme::WARN,
@@ -101,14 +103,18 @@ fn microphone(app: &mut App, ui: &mut egui::Ui, device: &Device, audio: &Value, 
     let mut later: Vec<(String, Command)> = Vec::new();
     let edit = app.edits.entry(serial.clone()).or_default();
     widgets::panel(ui, t("Microphone"), |ui| {
-        widgets::row(ui, t("Right now"), t("The mute button on the headset decides this."), |ui| {
-            if audio["microphone_muted"] == true {
-                widgets::badge(ui, t("Muted"), theme::WARN);
-            } else {
-                widgets::badge(ui, t("On"), ACCENT);
-            }
-        });
-        widgets::divider(ui);
+        // Headsets differ in what they have: a setting one lacks is not in
+        // what it reports, and gets no row.
+        if audio["microphone_muted"].is_boolean() {
+            widgets::row(ui, t("Right now"), t("The mute button on the headset decides this."), |ui| {
+                if audio["microphone_muted"] == true {
+                    widgets::badge(ui, t("Muted"), theme::WARN);
+                } else {
+                    widgets::badge(ui, t("On"), ACCENT);
+                }
+            });
+            widgets::divider(ui);
+        }
         if widgets::toggle_row(ui, t("Hear your own voice"), t("The microphone played back quietly in the headset, so you do not shout."), &mut edit.audio.sidetone) {
             send.push(call(&serial, "set_sidetone", json!(edit.audio.sidetone)));
         }
@@ -121,9 +127,23 @@ fn microphone(app: &mut App, ui: &mut egui::Ui, device: &Device, audio: &Value, 
                 }
             });
         });
-        widgets::divider(ui);
-        if widgets::toggle_row(ui, t("Do not disturb"), t("Silences Bluetooth calls while you are on the 2.4 GHz receiver."), &mut edit.audio.do_not_disturb) {
-            send.push(call(&serial, "set_do_not_disturb", json!(edit.audio.do_not_disturb)));
+        if audio["microphone_noise_cancelling"].is_boolean() {
+            widgets::divider(ui);
+            if widgets::toggle_row(ui, t("Noise cancelling"), t("Takes background noise out of what the microphone picks up."), &mut edit.audio.noise_cancelling) {
+                send.push(call(&serial, "set_microphone_noise_cancelling", json!(edit.audio.noise_cancelling)));
+            }
+        }
+        if audio["do_not_disturb"].is_boolean() {
+            widgets::divider(ui);
+            if widgets::toggle_row(ui, t("Do not disturb"), t("Silences Bluetooth calls while you are on the 2.4 GHz receiver."), &mut edit.audio.do_not_disturb) {
+                send.push(call(&serial, "set_do_not_disturb", json!(edit.audio.do_not_disturb)));
+            }
+        }
+        if audio["power_saving"].is_boolean() {
+            widgets::divider(ui);
+            if widgets::toggle_row(ui, t("Power saving"), t("The headset's own setting for its 2.4 GHz link."), &mut edit.audio.power_saving) {
+                send.push(call(&serial, "set_power_saving", json!(edit.audio.power_saving)));
+            }
         }
     });
     if !send.is_empty() || !later.is_empty() {
@@ -143,30 +163,48 @@ fn equalizer(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value) {
     let frequencies: Vec<i64> = caps["audio"]["equalizer_frequencies"].as_array().map(|f| f.iter().filter_map(Value::as_i64).collect()).unwrap_or_default();
     let low = caps["audio"]["equalizer_range"][0].as_f64().unwrap_or(-9.0);
     let high = caps["audio"]["equalizer_range"][1].as_f64().unwrap_or(6.0);
+    // The BlackShark V3 X's equalizer is always on, and it has no custom
+    // preset: each preset keeps a curve of its own, there to be changed.
+    let has_switch = caps["audio"]["equalizer_switch"] != false;
+    let per_preset = caps["audio"]["equalizer_curve_per_preset"] == true;
     let mut send: Vec<Command> = Vec::new();
     let mut later: Vec<(String, Command)> = Vec::new();
     let edit = app.edits.entry(serial.clone()).or_default();
     widgets::panel(ui, t("Equalizer"), |ui| {
         widgets::help(ui, t("Kept in the headset, so it also works on a phone or a console."));
         ui.add_space(4.0);
-        if widgets::toggle_row(ui, t("Use the equalizer"), "", &mut edit.audio.equalizer) {
-            send.push(call(&serial, "set_equalizer", json!(edit.audio.equalizer)));
+        if has_switch {
+            if widgets::toggle_row(ui, t("Use the equalizer"), "", &mut edit.audio.equalizer) {
+                send.push(call(&serial, "set_equalizer", json!(edit.audio.equalizer)));
+            }
+            widgets::divider(ui);
         }
-        widgets::divider(ui);
-        ui.add_enabled_ui(edit.audio.equalizer, |ui| {
+        ui.add_enabled_ui(edit.audio.equalizer || !has_switch, |ui| {
             let options: Vec<(String, String)> = presets.iter().map(|p| (p.clone(), preset_label(p).to_string())).collect();
             widgets::stacked(ui, t("Preset"), |ui| {
                 if widgets::segmented(ui, &options, &mut edit.audio.preset) {
                     send.push(call(&serial, "set_equalizer_preset", json!(edit.audio.preset)));
                 }
             });
-            if edit.audio.preset == "custom" {
+            if edit.audio.preset == "custom" || per_preset {
                 widgets::divider(ui);
+                if per_preset {
+                    widgets::help(ui, t("Each preset keeps a curve of its own. Moving a band changes the chosen preset, in the headset."));
+                }
+                // Just after another preset is chosen the curve here is still
+                // the last one's: moved now, it would be written over the new
+                // preset's own. The bands wait for the headset to say.
+                let current = !per_preset || edit.audio.bands_of == edit.audio.preset;
+                if !current {
+                    ui.ctx().request_repaint_after(Duration::from_millis(300));
+                }
                 let mut changed = false;
                 for (band, frequency) in frequencies.iter().enumerate() {
                     let Some(gain) = edit.audio.bands.get_mut(band) else { continue };
                     widgets::row(ui, &band_label(*frequency), "", |ui| {
-                        changed |= widgets::slider_field(ui, ("band", &serial, band), gain, low..=high, 1.0, 0, t("dB"), 72.0);
+                        ui.add_enabled_ui(current, |ui| {
+                            changed |= widgets::slider_field(ui, ("band", &serial, band), gain, low..=high, 1.0, 0, t("dB"), 72.0);
+                        });
                     });
                 }
                 if changed {
@@ -233,11 +271,14 @@ pub fn quick(app: &mut App, ui: &mut egui::Ui, device: &Device, detail: &Detail,
     if let Some(preset) = chosen {
         app.send(call(&serial, "set_equalizer_preset", json!(preset)));
     }
-    widgets::row(ui, t("Microphone"), "", |ui| {
-        if audio["microphone_muted"] == true {
-            widgets::badge(ui, t("Muted"), theme::WARN);
-        } else {
-            widgets::badge(ui, t("On"), ACCENT);
-        }
-    });
+    // Only for a headset that says where its mute button stands.
+    if audio["microphone_muted"].is_boolean() {
+        widgets::row(ui, t("Microphone"), "", |ui| {
+            if audio["microphone_muted"] == true {
+                widgets::badge(ui, t("Muted"), theme::WARN);
+            } else {
+                widgets::badge(ui, t("On"), ACCENT);
+            }
+        });
+    }
 }

@@ -603,6 +603,12 @@ class RazerDevice:
     def set_dongle_led(self, mode: str) -> None:
         self._call('set_dongle_led', mode)
 
+    def set_microphone_noise_cancelling(self, enabled: bool) -> None:
+        self._call('set_microphone_noise_cancelling', bool(enabled))
+
+    def set_power_saving(self, enabled: bool) -> None:
+        self._call('set_power_saving', bool(enabled))
+
     # -- keyboard ----------------------------------------------------------
     @property
     def game_mode(self) -> bool:

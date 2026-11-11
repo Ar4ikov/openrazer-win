@@ -22,13 +22,14 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from openrazer_win.core.blackshark import BlackSharkDevice  # noqa: E402
+from openrazer_win.core.blackshark_v3x import BlackSharkV3XDevice  # noqa: E402
 from openrazer_win.core.device import RazerDevice  # noqa: E402
 from openrazer_win.core.kraken import KrakenDevice  # noqa: E402
 from openrazer_win.core.persistence import Persistence  # noqa: E402
-from openrazer_win.core.transport import ReportChannel, Transport  # noqa: E402
+from openrazer_win.core.transport import FeatureChannel, ReportChannel, Transport  # noqa: E402
 from openrazer_win.devices import get_database, get_recipes  # noqa: E402
 from openrazer_win.hid.fake import FakeHidBackend, FakeRazerDevice  # noqa: E402
-from openrazer_win.protocol import blackshark  # noqa: E402
+from openrazer_win.protocol import blackshark, blackshark_v3x  # noqa: E402
 
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
@@ -76,6 +77,14 @@ def build_device(meta, persistence, recipes) -> Optional[RazerDevice]:
         fake = FakeRazerDevice(meta.pid, meta.name, headset=True)
         backend.add(fake)
         return BlackSharkDevice(meta, ReportChannel(backend, fake.headset_info), persistence)
+
+    if meta.pid in blackshark_v3x.PRODUCT_IDS:
+        # The emulator has its replies ready at once and nothing to settle.
+        blackshark_v3x.SETTLE_SECONDS = 0
+        fake = FakeRazerDevice(meta.pid, meta.name, headset=True)
+        backend.add(fake)
+        channel = FeatureChannel(backend, fake.headset_info, wait=0)
+        return BlackSharkV3XDevice(meta, channel, persistence)
 
     params = recipes.transport_params(meta.driver, meta.pid)
     fake = FakeRazerDevice(meta.pid, meta.name, interface=params.get('index') or 0,

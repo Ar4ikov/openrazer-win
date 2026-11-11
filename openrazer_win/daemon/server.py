@@ -66,6 +66,7 @@ DEVICE_METHODS = {
     'get_audio', 'get_microphone_muted', 'set_sidetone', 'set_sidetone_level',
     'set_equalizer', 'set_equalizer_preset', 'set_equalizer_bands',
     'set_do_not_disturb', 'set_dongle_led',
+    'set_microphone_noise_cancelling', 'set_power_saving',
     # keyboard
     'get_game_mode', 'set_game_mode', 'get_macro_mode', 'set_macro_mode',
     'set_macro_effect', 'set_fn_toggle', 'get_keyboard_layout',

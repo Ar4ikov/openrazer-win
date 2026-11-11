@@ -26,7 +26,7 @@ This is a full port. The protocol layer moves into user space on top of the Wind
 D-Bus is replaced by a loopback JSON-RPC daemon, and **every device quirk is transpiled directly from
 the upstream C sources** — so all 274 USB devices OpenRazer knows about behave the same way here as they
 do on Linux, plus the Pro Type Ultra from an upstream pull request still in review, a Bluetooth headset
-upstream cannot reach at all and the BlackShark V2 HyperSpeed.
+upstream cannot reach at all, the BlackShark V2 HyperSpeed and the BlackShark V3 X HyperSpeed.
 
 <p align="center"><img src="docs/images/studio-lighting.png" alt="OpenRazer Studio: a BlackWidow keyboard drawn from its own product photo, lit key by key in layers" width="860"></p>
 
@@ -245,7 +245,7 @@ Razer owners to look for it, in English or Russian.
 
 Each device is drawn from **its own product photo**: Studio traces the photo into a line drawing,
 fits the key layout onto the keycaps in it, and finds the logo and wheel where the photo shows them
-lit — so every one of the 279 devices gets a drawing of itself, not a generic shape, and the lights
+lit — so every one of the 281 devices gets a drawing of itself, not a generic shape, and the lights
 glow where they really are. Without a photo (offline, say) it draws one.
 
 <p align="center"><img src="docs/images/studio-home.png" alt="Studio's home page: each device drawn in its own light, with quick settings" width="820"></p>
@@ -385,15 +385,16 @@ to have a backlight it does not have.
 | Category | Devices |
 |---|---:|
 | Mice | 117 |
-| Keyboards & laptops | 115 |
+| Keyboards & laptops | 117 |
 | Accessories (docks, stands, ARGB controllers) | 17 |
 | Headsets (Kraken protocol) | 8 |
 | Headsets (Bluetooth LE) | 1 |
 | Headsets (BlackShark V2 HyperSpeed) | 2 |
+| Headsets (BlackShark V3 X HyperSpeed) | 2 |
 | Mousepads | 8 |
 | Keypads | 7 |
 | eGPU enclosures | 2 |
-| **Total** | **277** |
+| **Total** | **281** |
 
 169 have addressable matrices; 83 report battery level. The full searchable list is
 [on the documentation site](https://ar4ikov.github.io/openrazer-win/#devices), or run
@@ -516,6 +517,35 @@ yours misbehaves, `openrazer-win doctor` lists what Windows sees of it.
 What Synapse adds on top is not in the headset, and so not here either: THX Spatial Audio and the
 microphone's noise gate and equalizer run on the PC. The mute button is the headset's own, and
 Studio only shows where it stands.
+
+### BlackShark V3 X HyperSpeed
+
+`1532:057D` on its USB receiver, `1532:057C` on its cable. The same kind of headset as the one
+above, with its settings kept in itself, and another protocol again: 64-byte feature reports with
+a layout of their own. The same command sets it, and Studio shows it under *Sound* and *Power*:
+
+```bash
+openrazer-win headset                  # battery, sidetone, equalizer, noise cancelling ...
+openrazer-win headset sidetone 8       # level 0-15; "off" is level 0
+openrazer-win headset eq game          # default, game, music or movie
+openrazer-win headset eq -3,0,0,0,0,0,0,2,3,3   # the curve of the preset chosen, -6 to 6 dB
+openrazer-win headset nc on            # the microphone's noise cancelling
+openrazer-win headset saving on        # power saving on the radio
+openrazer-win headset sleep 30         # minutes before it turns itself off
+```
+
+It differs from the V2 HyperSpeed in what it has. Its equalizer is always on and has no custom
+preset: each of the four keeps a curve of its own, and setting the bands changes the curve of the
+one chosen, in the headset. It does not say whether its microphone is muted, and has no
+do-not-disturb mode and no light on its receiver to set.
+
+Nothing is set while the headset is switched off: its receiver would accept the setting, report
+success and lose it, so the daemon says the headset is off instead.
+
+Upstream has no driver for it yet either. This follows the one proposed in
+[openrazer/openrazer#2899](https://github.com/openrazer/openrazer/pull/2899), whose author tested it
+on both product ids. Here it has only been run against an emulator of that protocol, since nobody
+here owns the headset: if yours misbehaves, `openrazer-win doctor` lists what Windows sees of it.
 
 The Kraken headsets are covered too, through their own protocol: rather than the 90-byte control
 report, they expose the lighting controller's RAM, so colours are written to fixed addresses and a

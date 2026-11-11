@@ -14,7 +14,7 @@ import time
 from typing import Optional
 
 from ..hid.base import HidDeviceInfo, HidError
-from ..protocol import blackshark
+from ..protocol import blackshark, blackshark_v3x
 from ..protocol.report import REPORT_SIZE, RazerReport, RazerReportError, Status
 
 logger = logging.getLogger(__name__)
@@ -92,6 +92,20 @@ def select_blackshark_interface(candidates: list):
         return (pages.index(info.usage_page) if info.usage_page in pages else len(pages),
                 info.interface != blackshark.INTERFACE, info.collection or 0)
     return sorted(usable, key=preference)[0]
+
+
+def is_blackshark_v3x_interface(info: HidDeviceInfo) -> bool:
+    """The vendor collection that declares the BlackShark V3 X's feature report."""
+    return (info.usage_page >= 0xFF00
+            and info.feature_length == blackshark_v3x.REPORT_SIZE)
+
+
+def select_blackshark_v3x_interface(candidates: list):
+    """Pick the collection to talk to a BlackShark V3 X through."""
+    usable = [info for info in candidates if is_blackshark_v3x_interface(info)]
+    if not usable:
+        return None
+    return sorted(usable, key=lambda i: (i.interface or 0, i.collection or 0))[0]
 
 
 def select_control_interface(candidates: list, preferred_index: Optional[int] = None):
@@ -299,6 +313,50 @@ class ReportChannel:
                 except Exception:  # pragma: no cover - best effort
                     logger.debug('error closing %s', attribute, exc_info=True)
                 setattr(self, attribute, None)
+
+    def close(self) -> None:
+        with self._lock:
+            self._close()
+
+
+class FeatureChannel:
+    """Requests sent as feature reports and answered the same way, by report id.
+
+    The 90-byte control report works like this too, but :class:`Transport` is
+    built around that report's layout and status byte; a device with a layout
+    of its own only needs the two calls and the pause between them.
+    """
+
+    def __init__(self, backend, info: HidDeviceInfo, wait: float = 0.05):
+        self._backend = backend
+        self.info = info
+        #: How long the device takes to have its reply ready.
+        self.wait = wait
+        self._lock = threading.Lock()
+        self._handle = None
+
+    def exchange(self, report: bytes) -> bytes:
+        """Send `report` and return what the device holds for its report id after."""
+        with self._lock:
+            try:
+                if self._handle is None:
+                    self._handle = self._backend.open(self.info)
+                length = self.info.feature_length
+                self._handle.send_feature_report(report.ljust(length, b'\x00'))
+                time.sleep(self.wait)
+                return self._handle.get_feature_report(length, report[0])
+            except (HidError, OSError):
+                # The receiver was pulled out, say.  Start afresh next time.
+                self._close()
+                raise
+
+    def _close(self) -> None:
+        if self._handle is not None:
+            try:
+                self._handle.close()
+            except Exception:  # pragma: no cover - best effort
+                logger.debug('error closing the feature channel', exc_info=True)
+            self._handle = None
 
     def close(self) -> None:
         with self._lock:

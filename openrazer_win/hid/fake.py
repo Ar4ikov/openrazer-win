@@ -12,7 +12,7 @@ import itertools
 import queue
 from typing import Optional
 
-from ..protocol import blackshark
+from ..protocol import blackshark, blackshark_v3x
 from ..protocol.report import REPORT_SIZE, RazerReport, Status, calculate_crc
 from .base import HidDeviceInfo, HidError
 
@@ -102,6 +102,128 @@ class FakeHeadset:
         return blackshark.Status.OK, b'\x00'
 
 
+class FakeHeadsetV3X:
+    """What a BlackShark V3 X keeps, and its way of answering."""
+
+    def __init__(self, serial: str, wired: bool):
+        self.serial = serial
+        self.wired = wired
+        #: Off means the receiver is there with no headset to pass things on to.
+        self.switched_on = True
+        self.firmware = (1, 0, 14)
+        self.battery = 85
+        self.charging = wired
+        self.idle_seconds = 600
+        self.power_saving = False
+        self.sidetone = 0
+        self.noise_cancelling = False
+        self.preset = 0
+        #: Each preset keeps a curve of its own.
+        self.curves = {preset: [0] * len(blackshark_v3x.EQ_FREQUENCIES)
+                       for preset in blackshark_v3x.EQ_PRESETS.values()}
+        #: Every request, as (class, command, arguments), in the order they came.
+        self.requests: list = []
+        #: What a receiver took for a headset that was off, and never passed on.
+        self.lost: list = []
+        #: Set to a status to make every command answer with it.
+        self.force_status: Optional[int] = None
+        #: How many reads come too soon, and get the reply before this one.
+        self.slow = 0
+        self._reply = bytes(blackshark_v3x.REPORT_SIZE)
+        self._previous = self._reply
+
+    def set_feature(self, data: bytes) -> None:
+        if len(data) != blackshark_v3x.REPORT_SIZE or data[0] != blackshark_v3x.REPORT_ID:
+            raise HidError('bad BlackShark V3 X report')
+        if data[62] != blackshark_v3x.checksum(data):
+            return              # dropped without a word
+        command_class, command = data[7], data[8]
+        arguments = bytes(data[9:9 + data[6]])
+        self.requests.append((command_class, command, arguments))
+        status, body = self._run(command_class, command, arguments)
+        reply = bytearray(blackshark_v3x.REPORT_SIZE)
+        reply[0] = blackshark_v3x.REPORT_ID
+        reply[1] = status
+        reply[2] = data[2]
+        reply[6] = len(body)
+        reply[7] = command_class
+        reply[8] = command
+        reply[9:9 + len(body)] = body
+        reply[62] = blackshark_v3x.checksum(reply)
+        self._previous, self._reply = self._reply, bytes(reply)
+
+    def get_feature(self, length: int, report_id: int) -> bytes:
+        if report_id != blackshark_v3x.REPORT_ID:
+            raise HidError('unexpected report id 0x{0:02x}'.format(report_id))
+        if self.slow:
+            self.slow -= 1
+            return self._previous[:length]
+        return self._reply[:length]
+
+    def _run(self, command_class: int, command: int, arguments: bytes) -> tuple:
+        status = blackshark_v3x.Status
+        if self.force_status is not None:
+            return self.force_status, b''
+        reading = bool(command & blackshark_v3x.READ)
+        command &= ~blackshark_v3x.READ
+        linked = self.wired or self.switched_on
+        if command_class == blackshark_v3x.Class.INFO:
+            # The receiver answers these itself, with zeroes for a headset it
+            # has not heard from.
+            answers = {
+                blackshark_v3x.Command.SERIAL: self.serial.encode('ascii')[:22].ljust(22, b'\x00'),
+                blackshark_v3x.Command.FIRMWARE: bytes(self.firmware) + b'\x00',
+            }
+            if not reading or command not in answers:
+                return status.UNSUPPORTED, b''
+            return status.OK, answers[command] if linked else bytes(len(answers[command]))
+        if reading:
+            body = self._read(command_class, command)
+            if body is None:
+                return status.UNSUPPORTED, b''
+            # Well formed and all 0xFF is what a headset out of reach looks like.
+            return status.OK, body if linked else b'\xff' * len(body)
+        if not linked:
+            self.lost.append((command_class, command, arguments))
+            return status.OK, arguments
+        if not self._write(command_class, command, arguments):
+            return status.UNSUPPORTED, b''
+        return status.OK, arguments
+
+    def _read(self, command_class: int, command: int) -> Optional[bytes]:
+        cls, cmd = blackshark_v3x.Class, blackshark_v3x.Command
+        return {
+            (cls.POWER, cmd.BATTERY): bytes((0, self.battery)),
+            (cls.POWER, cmd.CHARGING): bytes((0, self.charging)),
+            (cls.POWER, cmd.SLEEP): bytes((self.idle_seconds >> 8, self.idle_seconds & 0xFF)),
+            (cls.POWER, cmd.POWER_SAVING): bytes((0, self.power_saving)),
+            (cls.AUDIO, cmd.EQ_PRESET): bytes((0, 1, 0, self.preset)),
+            (cls.AUDIO, cmd.EQ_BANDS): bytes((0, 1)) + blackshark_v3x.encode_bands(
+                self.curves[self.preset]),
+            (cls.AUDIO, cmd.SIDETONE): bytes((0, 3, self.sidetone)),
+            (cls.AUDIO, cmd.NOISE_CANCELLING): bytes((0, self.noise_cancelling)),
+        }.get((command_class, command))
+
+    def _write(self, command_class: int, command: int, arguments: bytes) -> bool:
+        cls, cmd = blackshark_v3x.Class, blackshark_v3x.Command
+        key = (command_class, command)
+        if key == (cls.POWER, cmd.SLEEP):
+            self.idle_seconds = (arguments[0] << 8) | arguments[1]
+        elif key == (cls.POWER, cmd.POWER_SAVING):
+            self.power_saving = bool(arguments[1])
+        elif key == (cls.AUDIO, cmd.EQ_PRESET):
+            self.preset = arguments[3]
+        elif key == (cls.AUDIO, cmd.EQ_BANDS):
+            self.curves[self.preset] = blackshark_v3x.decode_bands(arguments[2:12])
+        elif key == (cls.AUDIO, cmd.SIDETONE):
+            self.sidetone = arguments[2]
+        elif key == (cls.AUDIO, cmd.NOISE_CANCELLING):
+            self.noise_cancelling = bool(arguments[1])
+        else:
+            return False
+        return True
+
+
 class FakeDeviceState:
     """Mutable state a fake device remembers between reports."""
 
@@ -164,6 +286,9 @@ class FakeHidHandle:
         if self._closed:
             raise HidError('handle is closed')
         self._device.feature_reports.append((self.info, bytes(data)))
+        if self.info is self._device.headset_info:
+            self._device.headset.set_feature(bytes(data))
+            return
         if self.info.feature_length == FakeRazerDevice.ARGB_BUFFER_SIZE:
             self._device.argb_frames.append(bytes(data[1:]))
             return
@@ -182,6 +307,8 @@ class FakeHidHandle:
     def get_feature_report(self, length: int, report_id: int = 0x00) -> bytes:
         if self._closed:
             raise HidError('handle is closed')
+        if self.info is self._device.headset_info:
+            return self._device.headset.get_feature(length, report_id)
         return self._device.handle_get_feature(length, report_id)
 
     def close(self) -> None:
@@ -255,14 +382,17 @@ class FakeRazerDevice:
             input_length=self.KEY_REPORT_SIZE,
             product=name,
         ) if keys else None
-        #: A BlackShark's one vendor collection; it has no feature reports.
+        #: A BlackShark's one vendor collection.  The V2 HyperSpeed's has no
+        #: feature reports; the V3 X's is where its feature report is.
+        v3x = product_id in blackshark_v3x.PRODUCT_IDS
         self.headset_info = HidDeviceInfo(
             path=self.info.path + '&headset',
             vendor_id=vendor_id,
             product_id=product_id,
-            interface=blackshark.INTERFACE,
-            usage_page=blackshark.USAGE_PAGE,
+            interface=0 if v3x else blackshark.INTERFACE,
+            usage_page=0xFF82 if v3x else blackshark.USAGE_PAGE,
             usage=0x0001,
+            feature_length=blackshark_v3x.REPORT_SIZE if v3x else 0,
             input_length=blackshark.REPORT_SIZE,
             output_length=blackshark.REPORT_SIZE,
             product=name,
@@ -276,7 +406,10 @@ class FakeRazerDevice:
         self.kraken_writes: list = []
         self.state = FakeDeviceState(
             serial or 'FAKE{0:010d}'.format(next(_SERIAL_COUNTER)))
-        if headset:
+        if headset and v3x:
+            self.headset = FakeHeadsetV3X(self.state.serial,
+                                          product_id == blackshark_v3x.PID_WIRED)
+        elif headset:
             self.headset = FakeHeadset(self.state.serial,
                                        product_id == blackshark.PID_WIRED)
         self._response = self._blank_response()

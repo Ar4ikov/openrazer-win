@@ -11338,6 +11338,58 @@
    "transport": "hid"
   },
   {
+   "class_name": "RazerBlackSharkV3XUSB",
+   "name": "Razer BlackShark V3 X HyperSpeed (Wired)",
+   "vid": 5426,
+   "pid": 1404,
+   "type": "headset",
+   "has_matrix": false,
+   "matrix_dims": null,
+   "dedicated_macro_keys": false,
+   "driver_mode": false,
+   "wave_dirs": [
+    1,
+    2
+   ],
+   "poll_rates": null,
+   "dpi_max": null,
+   "image": "https://dl.razerzone.com/src2/20181/20181-1-en-v3.png",
+   "methods": [
+    "get_device_type_headset",
+    "get_battery",
+    "is_charging",
+    "get_idle_time",
+    "set_idle_time"
+   ],
+   "transport": "hid"
+  },
+  {
+   "class_name": "RazerBlackSharkV3XWireless",
+   "name": "Razer BlackShark V3 X HyperSpeed (Wireless)",
+   "vid": 5426,
+   "pid": 1405,
+   "type": "headset",
+   "has_matrix": false,
+   "matrix_dims": null,
+   "dedicated_macro_keys": false,
+   "driver_mode": false,
+   "wave_dirs": [
+    1,
+    2
+   ],
+   "poll_rates": null,
+   "dpi_max": null,
+   "image": "https://dl.razerzone.com/src2/20181/20181-1-en-v3.png",
+   "methods": [
+    "get_device_type_headset",
+    "get_battery",
+    "is_charging",
+    "get_idle_time",
+    "set_idle_time"
+   ],
+   "transport": "hid"
+  },
+  {
    "class_name": "RazerBlackWidowV3TK",
    "name": "Razer BlackWidow V3 TK",
    "vid": 5426,
