@@ -24,6 +24,15 @@ uses [semantic versioning](https://semver.org/).
   *Duplicate* copies one. `profile save` now makes the profile active, and
   `profile` marks it with `*`; for clients, `profile.create` and `active`.
 
+### Fixed
+
+- **The daemon is ready sooner after sign-in.** It sets up USB devices before
+  listening for Bluetooth ones, and stops listening at once on a PC without a
+  Bluetooth radio, which used to cost about 6 seconds.
+- **Studio no longer waits on a daemon that is gone.** A stale `daemon.json`
+  is recognised at once, and Studio shows *Looking for devices…* instead of
+  "No Razer devices found" until the daemon's first search has finished.
+
 ## [1.6.1] - 2026-11-06
 
 ### Added

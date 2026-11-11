@@ -73,8 +73,13 @@ impl Client {
             .map_err(|e| RpcError::Unavailable(e.to_string()))?
             .next()
             .ok_or_else(|| RpcError::Unavailable("bad endpoint address".into()))?;
-        let stream = TcpStream::connect_timeout(&address, CONNECT_TIMEOUT)
-            .map_err(|_| RpcError::Unavailable(crate::t("the daemon is not running (its endpoint file is stale)").into()))?;
+        let stale = || RpcError::Unavailable(crate::t("the daemon is not running (its endpoint file is stale)").into());
+        // A stale file names a process that is gone: say so at once, instead of
+        // the ~2 s Windows takes to refuse a closed loopback port.
+        if address.ip().is_loopback() && endpoint.pid.is_some_and(|pid| pid != 0 && !crate::process::is_alive(pid)) {
+            return Err(stale());
+        }
+        let stream = TcpStream::connect_timeout(&address, CONNECT_TIMEOUT).map_err(|_| stale())?;
         stream.set_read_timeout(Some(READ_TIMEOUT)).ok();
         stream.set_nodelay(true).ok();
         let writer = stream.try_clone().map_err(|e| RpcError::Unavailable(e.to_string()))?;
@@ -136,4 +141,45 @@ pub fn shutdown_daemon(wait: Duration) -> bool {
         std::thread::sleep(Duration::from_millis(200));
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+    use std::time::Instant;
+
+    fn endpoint(port: u16, pid: Option<u32>) -> Endpoint {
+        Endpoint { host: "127.0.0.1".into(), port, token: "t".into(), pid }
+    }
+
+    /// A port nothing listens on: bound, then let go of.
+    fn closed_port() -> u16 {
+        TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn a_daemon_that_is_listening_is_reached() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(Client::connect_to(endpoint(port, Some(std::process::id()))).is_ok());
+        // An endpoint file with no pid, as an older daemon wrote it, still works.
+        assert!(Client::connect_to(endpoint(port, None)).is_ok());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_stale_endpoint_naming_a_dead_process_fails_at_once() {
+        let started = Instant::now();
+        // No process has an id this large.
+        assert!(Client::connect_to(endpoint(closed_port(), Some(0xFFFF_FFF0))).is_err());
+        assert!(started.elapsed() < Duration::from_millis(200), "took {:?}", started.elapsed());
+    }
+
+    #[test]
+    fn a_closed_port_is_still_refused_when_the_process_may_be_alive() {
+        // The pid is ours, so it is alive: the full timeout applies, and the
+        // answer is the same -- not running.
+        assert!(Client::connect_to(endpoint(closed_port(), Some(std::process::id()))).is_err());
+    }
 }

@@ -453,6 +453,7 @@ def _serve(tmp_path, monkeypatch, fake_radio, effects: bool):
                             enable_effects=effects,
                             profiles=ProfileStore(str(tmp_path / 'profiles.json')))
     service.start()
+    service.poll_hotplug()      # start-up looks at USB only; the radio is swept by a poll
     server = DaemonServer(service, port=0)
     path = str(tmp_path / 'daemon.json')
     server.endpoint.write(path)
@@ -656,6 +657,7 @@ def test_a_vanished_device_loses_its_effect(tmp_path, monkeypatch, fake_radio):
                             enable_effects=True)
     service.manager.bluetooth_interval = 0
     service.start()
+    service.poll_hotplug()      # start-up looks at USB only; the radio is swept by a poll
     device = service.manager.devices[0]
     service.effects.set_effect(device, 'spectrum_soft', {})
     assert service.effects.active_serials() == [device.serial]

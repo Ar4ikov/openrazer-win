@@ -163,6 +163,9 @@ pub type Shared = Arc<Mutex<Snapshot>>;
 
 pub fn spawn(shared: Shared, repaint: impl Fn() + Send + 'static) -> Sender<Command> {
     let (tx, rx) = std::sync::mpsc::channel();
+    // Studio is how most people start the daemon. Queued before the thread
+    // exists, so it runs ahead of the first poll.
+    let _ = tx.send(Command::StartDaemon);
     std::thread::Builder::new()
         .name("daemon".into())
         .spawn(move || {

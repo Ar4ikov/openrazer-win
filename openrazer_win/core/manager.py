@@ -74,13 +74,16 @@ class DeviceManager:
         self._identities: dict = {}
 
     # -- enumeration -------------------------------------------------------
-    def scan(self, force_bluetooth: bool = False) -> list:
+    def scan(self, force_bluetooth: bool = False, sweep_bluetooth: bool = True) -> list:
         """Rescan the HID bus, and the radio when due.  Returns the device list.
 
         `force_bluetooth` sweeps the radio regardless of when it was last
-        swept -- what someone pressing "rescan" means.
+        swept -- what someone pressing "rescan" means.  `sweep_bluetooth=False`
+        skips the radio this time (the daemon's first scan); Bluetooth devices
+        already listed are kept, as when a sweep is not due.
         """
-        advertisers = self._sweep_bluetooth(force_bluetooth) if self.bluetooth else None
+        advertisers = (self._sweep_bluetooth(force_bluetooth)
+                       if self.bluetooth and sweep_bluetooth else None)
         with self._lock:
             collections = self.backend.enumerate(vendor_id=VENDOR_ID)
             by_pid: dict = {}
@@ -99,9 +102,12 @@ class DeviceManager:
                 key = self._key(meta, infos)
                 seen.add(key)
                 if key in self._devices:
+                    # The key service reads these instead of asking Windows again.
+                    self._devices[key].hid_collections = infos
                     continue
                 device = self._build(meta, infos)
                 if device is not None:
+                    device.hid_collections = infos
                     self._devices[key] = device
                     logger.info('found %s (%04x:%04x)', meta.name, meta.vid, meta.pid)
 

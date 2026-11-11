@@ -126,8 +126,6 @@ impl App {
         let shared: Shared = Default::default();
         let ctx = cc.egui_ctx.clone();
         let tx = worker::spawn(shared.clone(), move || ctx.request_repaint());
-        // Studio is how most people start the daemon; do it for them.
-        let _ = tx.send(Command::StartDaemon);
         crate::daemon::refresh_autostart();
         openrazer_studio_core::process::listen_for_quit(quit);
 
@@ -349,7 +347,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.add_space(12.0);
                     ui.label(widgets::faint(match snap.daemon {
-                        DaemonState::Running(_) => t("None found"),
+                        DaemonState::Running(_) if !super::home::still_starting(snap) => t("None found"),
                         _ => "—",
                     }));
                 });

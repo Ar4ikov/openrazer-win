@@ -218,6 +218,8 @@ pub const RU: &[(&str, &str)] = &[
     ("Zone", "Зона"),
     // -- home --------------------------------------------------------------------------
     ("No Razer devices found", "Устройства Razer не найдены"),
+    ("Looking for devices…", "Ищем устройства…"),
+    ("The daemon has only just started. This takes a few seconds.", "Демон только что запустился. Это займёт несколько секунд."),
     ("Plug one in or switch a wireless one on. If Razer Synapse is running, close it: it keeps devices to itself.", "Подключите устройство или включите беспроводное. Если запущен Razer Synapse, закройте его: он забирает устройства себе."),
     ("Look again", "Поискать ещё раз"),
     ("Look for devices", "Найти устройства"),

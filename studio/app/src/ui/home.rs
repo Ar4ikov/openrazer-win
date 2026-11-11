@@ -5,7 +5,7 @@ use super::app::{draw_picture, kind_label, scroll, App};
 use super::device::Tab;
 use super::edit::light_up;
 use super::effects::{self, PALETTE};
-use crate::worker::{Command, Device, Snapshot, Then};
+use crate::worker::{Command, DaemonState, Device, Snapshot, Then};
 use egui::{vec2, Color32, CornerRadius, Frame, Margin, RichText, Sense, Stroke};
 use openrazer_studio_core::theme::{self, icon, ACCENT, BORDER, BORDER_HI, SURFACE, TEXT, TEXT_DIM, TEXT_FAINT};
 use openrazer_studio_core::widgets::{self, Button};
@@ -33,6 +33,16 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
     });
     scroll(ui, "home", |ui| {
         notices(app, ui, snap);
+        if snap.devices.is_empty() && still_starting(snap) {
+            // The daemon answers before it has looked: "none found, close
+            // Synapse" would be an accusation made before the search began.
+            widgets::plain_panel(ui, |ui| {
+                widgets::empty_state(ui, t("Looking for devices…"), t("The daemon has only just started. This takes a few seconds."), |ui| {
+                    ui.add(egui::Spinner::new().size(18.0).color(ACCENT));
+                });
+            });
+            return;
+        }
         if snap.devices.is_empty() {
             widgets::plain_panel(ui, |ui| {
                 widgets::empty_state(
@@ -65,6 +75,14 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
             });
         }
     });
+}
+
+/// The daemon is up but has not finished its first look for devices: its
+/// start-up scan, or the first sweep of the Bluetooth radio after it. An older
+/// daemon has no `first_sweep_pending` and is taken as done.
+pub(crate) fn still_starting(snap: &Snapshot) -> bool {
+    matches!(&snap.daemon, DaemonState::Running(info)
+        if info["state"] == "starting" || info["first_sweep_pending"] == true)
 }
 
 fn notices(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
@@ -387,6 +405,29 @@ fn quick_settings(app: &mut App, ui: &mut egui::Ui, device: &Device, detail: &cr
         let mut on = detail.game_mode.unwrap_or(false);
         if widgets::toggle_row(ui, t("Game mode"), "", &mut on) {
             app.send(Command::Call { serial: serial.clone(), method: "set_game_mode".into(), args: vec![json!(on)], zone: None, then: Then::Keyboard });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_daemon_is_still_starting_until_its_first_look_is_done() {
+        let running = |info| Snapshot { daemon: DaemonState::Running(info), ..Default::default() };
+        for (info, starting) in [
+            (json!({ "state": "starting" }), true),
+            (json!({ "state": "ready", "first_sweep_pending": true }), true),
+            (json!({ "state": "ready", "first_sweep_pending": false }), false),
+            (json!({ "state": "ready" }), false),
+            // An older daemon says nothing about either.
+            (json!({ "version": "1.6.1" }), false),
+        ] {
+            assert_eq!(still_starting(&running(info.clone())), starting, "{info}");
+        }
+        for daemon in [DaemonState::Connecting, DaemonState::NotRunning("gone".into())] {
+            assert!(!still_starting(&Snapshot { daemon, ..Default::default() }));
         }
     }
 }

@@ -20,12 +20,12 @@ pub struct Process {
 mod win {
     use super::Process;
     use std::path::PathBuf;
-    use windows_sys::Win32::Foundation::{CloseHandle, BOOL, HWND, INVALID_HANDLE_VALUE, LPARAM, WAIT_OBJECT_0};
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, BOOL, ERROR_INVALID_PARAMETER, HWND, INVALID_HANDLE_VALUE, LPARAM, WAIT_OBJECT_0};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
     };
     use windows_sys::Win32::System::Threading::{
-        CreateEventW, OpenEventW, OpenProcess, QueryFullProcessImageNameW, SetEvent, TerminateProcess,
+        CreateEventW, GetExitCodeProcess, OpenEventW, OpenProcess, QueryFullProcessImageNameW, SetEvent, TerminateProcess,
         WaitForSingleObject, EVENT_MODIFY_STATE, INFINITE, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
         PROCESS_TERMINATE,
     };
@@ -91,6 +91,24 @@ mod win {
             }
             CloseHandle(handle);
             ok
+        }
+    }
+
+    /// Whether `pid` is a process that is still running. Only "there is no such
+    /// process" and "it has exited" answer no; a process this user may not
+    /// look into, or any other doubt, answers yes.
+    pub fn is_alive(pid: u32) -> bool {
+        const STILL_ACTIVE: u32 = 259;
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() {
+                // Only ERROR_INVALID_PARAMETER means there is no such process.
+                return GetLastError() != ERROR_INVALID_PARAMETER;
+            }
+            let mut code = 0u32;
+            let known = GetExitCodeProcess(handle, &mut code) != 0;
+            CloseHandle(handle);
+            !known || code == STILL_ACTIVE
         }
     }
 
@@ -191,6 +209,9 @@ mod win {
     pub fn terminate(_pid: u32) -> bool {
         false
     }
+    pub fn is_alive(_pid: u32) -> bool {
+        true
+    }
     pub fn wait_exit(_pid: u32, _ms: u32) -> bool {
         true
     }
@@ -207,7 +228,7 @@ mod win {
     }
 }
 
-pub use win::{announce_environment_change, image_path, list, listen_for_quit, signal_quit, terminate, wait_exit};
+pub use win::{announce_environment_change, image_path, is_alive, list, listen_for_quit, signal_quit, terminate, wait_exit};
 
 /// Every process whose executable is inside `dir`.
 pub fn running_from(dir: &Path) -> Vec<Process> {
@@ -258,4 +279,20 @@ pub fn windowed_apps() -> Vec<String> {
     names.sort();
     names.dedup();
     names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn this_process_is_alive() {
+        assert!(is_alive(std::process::id()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_process_that_does_not_exist_is_not() {
+        assert!(!is_alive(0xFFFF_FFF0));
+    }
 }

@@ -17,9 +17,9 @@ import pytest
 from openrazer_win.core.manager import DeviceManager
 from openrazer_win.daemon import server as server_module
 from openrazer_win.daemon.server import DaemonService
-from openrazer_win.hid.fake import FakeHidBackend
+from openrazer_win.hid.fake import FakeHidBackend, FakeRazerDevice
 
-from .conftest import ADVERT
+from .conftest import ADVERT, MOUSE_PID
 
 
 class Flaky:
@@ -56,7 +56,7 @@ def service(persistence, monkeypatch):
 
 def adopt(service, device, monkeypatch):
     """Make the manager report `device` as found."""
-    monkeypatch.setattr(service.manager, 'scan', lambda force_bluetooth=False: [device])
+    monkeypatch.setattr(service.manager, 'scan', lambda *a, **k: [device])
     monkeypatch.setattr(type(service.manager), 'devices',
                         property(lambda self: [device]))
 
@@ -102,6 +102,8 @@ def test_a_rescan_sweeps_the_radio_even_when_it_is_not_due(persistence, fake_rad
     service.manager.bluetooth_interval = 3600
     try:
         service.start()
+        # Start-up looks at USB only; the radio is first swept by a poll.
+        assert sweeps == []
         service.poll_hotplug()
         assert len(sweeps) == 1
         service.rpc_rescan()
@@ -138,6 +140,63 @@ def test_scanning_the_radio_does_not_hold_up_requests(persistence, fake_radio, m
     manager.close()
 
 
+def mouse_backend():
+    return FakeHidBackend([FakeRazerDevice(MOUSE_PID, 'Razer Viper', interface=0)])
+
+
+class Stop:
+    """Stands in for the device loop's stop event: records each wait, stops at the second."""
+
+    def __init__(self, service):
+        self.service = service
+        self.seen = []
+
+    def wait(self, timeout):
+        self.seen.append((timeout, self.service.state, self.service.first_sweep_pending,
+                          len(self.service.manager.devices)))
+        return len(self.seen) > 1
+
+
+def test_usb_devices_are_ready_before_the_radio_is_swept_at_once(persistence, fake_radio):
+    service = DaemonService(backend=mouse_backend(), persistence=persistence,
+                            enable_effects=False)
+    stop = Stop(service)
+    try:
+        server_module.device_loop(service, stop)
+        # Ready with the mouse alone, then the first poll -- at once -- finds the headset.
+        assert stop.seen == [(0, 'ready', True, 1),
+                             (server_module.HOTPLUG_INTERVAL, 'ready', False, 2)]
+        assert MOUSE_PID in [device.pid for device in service.manager.devices]
+    finally:
+        service.stop()
+
+
+def test_the_pending_flag_is_cleared_even_when_the_first_sweep_fails(persistence):
+    service = DaemonService(backend=mouse_backend(), persistence=persistence,
+                            enable_effects=False)
+
+    def broken(*args, **kwargs):
+        raise OSError('radio went away')
+
+    service.poll_hotplug = broken
+    try:
+        server_module.device_loop(service, Stop(service))
+        assert service.rpc_version()['first_sweep_pending'] is False
+    finally:
+        service.stop()
+
+
+def test_a_usb_only_scan_keeps_bluetooth_devices_and_leaves_the_sweep_due(
+        persistence, fake_radio):
+    manager = DeviceManager(backend=mouse_backend(), persistence=persistence,
+                            bluetooth_interval=3600)
+    assert len(manager.scan(sweep_bluetooth=False)) == 1
+    assert len(manager.scan()) == 2
+    # Not swept, so not heard: that is not the headset going away.
+    assert len(manager.scan(sweep_bluetooth=False)) == 2
+    manager.close()
+
+
 @pytest.mark.skipif(sys.platform != 'win32', reason='named mutexes are a Windows thing')
 def test_only_one_daemon_per_session():
     from openrazer_win.daemon.instance import SingleInstance
@@ -153,3 +212,22 @@ def test_only_one_daemon_per_session():
     finally:
         first.release()
         second.release()
+
+
+def test_a_known_device_gets_the_collections_of_the_latest_scan(persistence):
+    import dataclasses
+
+    fake = FakeRazerDevice(MOUSE_PID, 'Razer Viper', interface=0)
+    backend = FakeHidBackend([fake])
+    manager = DeviceManager(backend=backend, persistence=persistence)
+    try:
+        manager.scan(sweep_bluetooth=False)
+        device = manager.devices[0]
+        first = list(device.hid_collections)
+        fake.info = dataclasses.replace(fake.info, path=fake.info.path + '-moved')
+        manager.scan(sweep_bluetooth=False)
+        assert manager.devices[0] is device
+        assert [c.path for c in device.hid_collections] == [fake.info.path]
+        assert device.hid_collections != first
+    finally:
+        manager.close()
