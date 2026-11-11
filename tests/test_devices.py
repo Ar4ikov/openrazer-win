@@ -225,7 +225,10 @@ def test_busy_waits_for_the_completed_read_without_resending(persistence, monkey
     device.close()
 
 
-def test_busy_timeout_is_bounded_and_does_not_resend_the_command(keyboard, monkeypatch):
+def test_a_device_that_stays_busy_has_still_accepted_the_command(keyboard, monkeypatch):
+    """The wait is bounded, nothing is sent twice, and it is not an error: the
+    kernel driver takes ``busy`` for success, and so did every release before
+    the reply was polled."""
     device, fake = keyboard
     fake.force_status = Status.BUSY
     before = len(fake.sent_reports)
@@ -237,8 +240,7 @@ def test_busy_timeout_is_bounded_and_does_not_resend_the_command(keyboard, monke
         return read(length, report_id)
 
     monkeypatch.setattr(fake, 'handle_get_feature', still_busy)
-    with pytest.raises(DeviceError, match='busy'):
-        device.set_static(1, 2, 3)
+    device.set_static(1, 2, 3)
     assert len(reads) == MAX_ATTEMPTS
     assert len(fake.sent_reports) - before == 1
 

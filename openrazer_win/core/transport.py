@@ -159,6 +159,9 @@ class Transport:
         ``busy`` acknowledges receipt, not completion: a Huntsman may still
         echo the request's arguments until the final reply is ready. Poll that
         reply without resending, before the next command can overwrite it.
+
+        A device still busy after the polls has accepted the command all the
+        same, so that counts as success, as it does in ``razer_send_payload``.
         """
         with self._lock:
             self.open()
@@ -176,9 +179,8 @@ class Transport:
                         response = RazerReport.unpack(raw[1:])
                         if not request.matches(response) or response.status != Status.BUSY:
                             break
-                        if poll == MAX_ATTEMPTS - 1:
-                            raise RazerReportError('device remained busy', status=Status.BUSY)
-                        time.sleep(RETRY_DELAY)
+                        if poll < MAX_ATTEMPTS - 1:
+                            time.sleep(RETRY_DELAY)
                 except HidError as error:
                     last_error = error
                     logger.debug('transfer failed (%d attempts left): %s', attempt - 1, error)
@@ -192,6 +194,13 @@ class Transport:
                     continue
 
                 if response.status == Status.SUCCESSFUL:
+                    return response
+                if response.status == Status.BUSY:
+                    # Not an error in the kernel driver either: which devices
+                    # stay busy over a command that worked is not known, and an
+                    # error here would fail every one of them.
+                    logger.debug('still busy after %d reads: %s', MAX_ATTEMPTS,
+                                 response.describe())
                     return response
 
                 last_error = RazerReportError(
