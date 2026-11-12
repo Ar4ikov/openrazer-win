@@ -46,6 +46,8 @@ Check 'repaired app runs' ($LASTEXITCODE -eq 0)
 
 # Update it, as Studio does: what was changed since installing has to survive.
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+# A fresh account, as on a build machine, has no Run key until something starts with Windows.
+if (-not (Test-Path $runKey)) { New-Item $runKey -Force | Out-Null }
 Set-ItemProperty $runKey -Name OpenRazerWin -Value "`"$(Join-Path $Dir 'openrazer-studio.exe')`" --background"
 Remove-Item -Recurse (Join-Path ([Environment]::GetFolderPath('Programs')) 'OpenRazer Studio')
 & $Setup --update --silent --dir $Dir | Out-Host
