@@ -6,6 +6,26 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-11-13
+
+### Fixed
+
+- **Razer BlackWidow V4 Pro and BlackWidow V4: per-key lighting was one key
+  off.** These two boards keep a column of their own before Esc, for the dial
+  (or M6) and the macro keys, so every other key is one column further on
+  than on any other Razer keyboard. Studio drew them as an ordinary board:
+  painting Q lit Tab, Esc, Space, Enter and the keys at the end of each row
+  could not be lit at all, and the "logo" was a media key. Studio now draws
+  them as they are: the dial and M1–M5 (M6 on the V4), the four media keys,
+  nine underglow lights down each side and, on the V4 Pro, twenty round the
+  wrist rest, with no logo and no lights along the top. Reactive effects and
+  what games draw through Chroma land on the right keys too. The order of
+  the underglow lights follows one report and has not been seen on the
+  keyboard here ([#19](https://github.com/Ar4ikov/openrazer-win/issues/19)).
+- **Dragging over the keys in Studio selects them**, and Alt + drag takes
+  them out of the layer. The rectangle was drawn, and then nothing happened,
+  on every keyboard.
+
 ## [1.6.2] - 2026-11-12
 
 ### Added

@@ -3,7 +3,7 @@ members = ["core", "app", "setup", "chroma"]
 resolver = "2"
 
 [workspace.package]
-version = "1.6.2"
+version = "1.6.3"
 edition = "2021"
 license = "GPL-2.0-or-later"
 repository = "https://github.com/Ar4ikov/openrazer-win"
