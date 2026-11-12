@@ -268,6 +268,18 @@ def test_keymap_covers_a_full_keyboard():
     assert len(keymap) > 100
 
 
+def test_a_blackwidow_v4_pro_has_its_keys_a_column_on():
+    # Issue #19: the dial is where Esc usually is, and M5 is beside the backtick.
+    standard = keymap_for('keyboard', 'Razer BlackWidow Chroma')
+    keymap = keymap_for('keyboard', 'Razer BlackWidow V4 Pro', 0x028D)
+    assert keymap['ESC'] == (0, 2)
+    assert keymap['Q'] == (standard['Q'][0], standard['Q'][1] + 1)
+    assert (keymap['M5'], keymap['M1'], keymap['M6']) == ((1, 1), (5, 1), (0, 1))
+    assert len(set(keymap.values())) == len(set(standard.values()))
+    assert keymap_for('keyboard', 'Razer BlackWidow V4', 0x0287) == keymap
+    assert keymap_for('keyboard', 'Razer BlackWidow V4 X', 0x0293) is standard
+
+
 def test_keymap_families_are_distinct():
     keymaps = get_keymaps()
     assert set(keymaps) >= {'default', 'tartarus', 'orbweaver'}

@@ -17,6 +17,7 @@ import time
 import uuid
 from typing import Callable, Optional
 
+from ..devices.layouts import key_cell, key_column_shift
 from ..effects.frame import Frame
 from . import grid as grids
 from .grid import ChromaError
@@ -243,7 +244,16 @@ class ChromaBridge:
             return ('ears', tuple(colours))
         if caps.get('custom_frame') and cells > 1:
             rows, columns = dimensions
-            if kind in ('keyboard', 'keypad') or (kind == 'mouse' and rows > 1):
+            if kind == 'keyboard' and key_column_shift(caps.get('pid')):
+                # A board with its keys elsewhere in the matrix: each key of
+                # the SDK's grid goes to where this board has it.
+                colours = [grids.BLACK] * cells
+                for row, line in enumerate(look):
+                    for column, colour in enumerate(line):
+                        at_row, at_column = key_cell(caps.get('pid'), row, column)
+                        if at_row < rows and at_column < columns:
+                            colours[at_row * columns + at_column] = colour
+            elif kind in ('keyboard', 'keypad') or (kind == 'mouse' and rows > 1):
                 colours = [grids.at(look, row, column)
                            for row in range(rows) for column in range(columns)]
             elif kind == 'mouse':

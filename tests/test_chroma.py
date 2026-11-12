@@ -109,6 +109,19 @@ def test_a_game_draws_the_keyboard_key_by_key(keyboard, persistence):
     assert bridge.drawing(keyboard)
 
 
+def test_a_board_with_its_keys_a_column_on_is_drawn_where_they_are(persistence):
+    # The BlackWidow V4 Pro (issue #19): the dial and M5-M1 in column 1, Esc in 2.
+    board, _fake = make_device(0x028D, persistence)
+    looks = keyboard_grid(0)
+    looks[0][1] = GREEN         # Esc
+    looks[3][2] = GREEN         # A
+    looks[1][0] = GREEN         # M1
+    kind, rows, columns, colours = ChromaBridge.output(board, 'keyboard', looks)
+    assert (kind, rows, columns) == ('frame', 8, 23)
+    lit = {divmod(index, columns) for index, colour in enumerate(colours) if colour == GREEN}
+    assert lit == {(0, 2), (3, 3), (5, 1)}
+
+
 def test_an_unchanged_frame_is_not_sent_again(keyboard, persistence):
     frames = []
     keyboard.set_key_row = lambda payload: frames.append(payload)

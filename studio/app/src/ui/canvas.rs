@@ -211,17 +211,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, serial: &str, art: &Art, colours: 
         }
     }
 
-    // Dragging sweeps out a rectangle; a click picks one shape.
+    // Dragging sweeps out a rectangle; a click picks one shape.  egui forgets
+    // where the button went down the moment it comes up, so the sweep is kept
+    // here from frame to frame, with the modifiers it was made with: Alt may
+    // be let go a moment before the mouse.
+    let sweep_id = response.id.with("sweep");
     if response.dragged() {
-        if let (Some(origin), Some(now)) = (ui.input(|i| i.pointer.press_origin()), pointer) {
+        let now = ui.input(|i| i.pointer.latest_pos().or(i.pointer.interact_pos()));
+        if let (Some(origin), Some(now)) = (ui.input(|i| i.pointer.press_origin()), now) {
             let sweep = Rect::from_two_pos(origin, now);
             painter.rect_filled(sweep, CornerRadius::same(2), ACCENT.gamma_multiply(0.08));
             painter.rect_stroke(sweep, CornerRadius::same(2), Stroke::new(1.0_f32, ACCENT), StrokeKind::Inside);
+            let modifiers = picked.modifiers;
+            ui.data_mut(|d| d.insert_temp(sweep_id, (sweep, modifiers)));
         }
     }
     if response.drag_stopped() {
-        if let (Some(origin), Some(end)) = (ui.input(|i| i.pointer.press_origin()), ui.input(|i| i.pointer.interact_pos())) {
-            let sweep = Rect::from_two_pos(origin, end);
+        if let Some((sweep, modifiers)) = ui.data_mut(|d| d.get_temp::<(Rect, egui::Modifiers)>(sweep_id).inspect(|_| d.remove::<(Rect, egui::Modifiers)>(sweep_id))) {
+            picked.modifiers = modifiers;
             if sweep.width() > 4.0 || sweep.height() > 4.0 {
                 let hits: Vec<usize> = art
                     .shapes
@@ -260,6 +267,10 @@ pub fn shape_label(label: &str) -> String {
         "Both ears" => t("Both ears").into(),
         "Backlight" => t("Backlight").into(),
         "Dial" => t("Dial").into(),
+        "Prev" => t("Previous track").into(),
+        "Play" => t("Play/Pause").into(),
+        "Next" => t("Next track").into(),
+        "Mute" => t("Mute").into(),
         "left" => t("Left side").into(),
         "right" => t("Right side").into(),
         "" => t("Space").into(),

@@ -184,6 +184,7 @@ pub const RU: &[(&str, &str)] = &[
     ("Sleep timer", "Таймер сна"),
     ("Game mode", "Игровой режим"),
     ("Macro keys", "Макроклавиши"),
+    ("Media keys", "Медиаклавиши"),
     ("Per-key lighting", "Поклавишная подсветка"),
     ("Live effects", "Живые эффекты"),
     ("Scroll modes", "Режимы прокрутки"),

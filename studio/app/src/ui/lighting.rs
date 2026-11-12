@@ -444,15 +444,16 @@ fn groups(art: &Art) -> Vec<(&'static str, Vec<(u8, u8)>)> {
         (t("Arrows"), named(&["←", "↑", "→", "↓"])),
         (t("Letters"), named(&letters)),
         (t("Numbers"), art.shapes.iter().filter_map(|s| match s.region {
-            Region::Cell(1, c) if (2..=11).contains(&c) && s.label.len() == 1 => Some((1, c)),
+            Region::Cell(1, c) if (2..=11).contains(&c.wrapping_sub(art.key_shift)) && s.label.len() == 1 => Some((1, c)),
             _ => None,
         }).collect()),
         (t("F-keys"), named(&fkeys)),
         (t("Numpad"), art.shapes.iter().filter_map(|s| match s.region {
-            Region::Cell(r, c) if c >= 18 && (1..=5).contains(&r) => Some((r, c)),
+            Region::Cell(r, c) if c >= 18 + art.key_shift && (1..=5).contains(&r) => Some((r, c)),
             _ => None,
         }).collect()),
-        (t("Macro keys"), named(&["M1", "M2", "M3", "M4", "M5"])),
+        (t("Macro keys"), named(&["M1", "M2", "M3", "M4", "M5", "M6"])),
+        (t("Media keys"), named(&["Prev", "Play", "Next", "Mute"])),
         (t("Modifiers"), named(&["Shift", "Ctrl", "Alt", "Win", "Fn", "Menu", "Caps", "Tab"])),
     ];
     groups.retain(|(_, cells)| !cells.is_empty());

@@ -109,6 +109,8 @@ pub struct Art {
     pub unit: f32,
     /// Shapes that are the light itself (a logo), drawn at full strength.
     vivid: Vec<bool>,
+    /// How many matrix columns later than usual a keyboard's keys start.
+    pub key_shift: u8,
 }
 
 /// What the daemon says about the device's LEDs.
@@ -117,6 +119,8 @@ struct Leds {
     columns: usize,
     zones: Vec<&'static str>,
     macro_keys: bool,
+    /// What is particular to this keyboard's matrix, if anything is.
+    board: Option<&'static layout::Board>,
 }
 
 impl Leds {
@@ -127,7 +131,8 @@ impl Leds {
         let (rows, columns) = if custom { (dim(0), dim(1)) } else { (0, 0) };
         let mut zones: Vec<&'static str> = caps["zones"].as_object().map(|z| z.keys().filter_map(|k| zone_name(k)).collect()).unwrap_or_default();
         zones.sort_by_key(|z| ZONES.iter().position(|o| o == z));
-        Leds { rows, columns, zones, macro_keys: caps["dedicated_macro_keys"] == true }
+        let board = caps["pid"].as_u64().and_then(layout::board);
+        Leds { rows, columns, zones, macro_keys: caps["dedicated_macro_keys"] == true, board }
     }
     fn cells(&self) -> usize {
         self.rows * self.columns
@@ -208,7 +213,7 @@ impl Art {
         }
         let bbox = [(l - x0) as f32, (t - y0) as f32, (r + 1 - x0) as f32, (b + 1 - y0) as f32];
         let vivid = shapes.iter().map(|s| matches!(s.geom, Geom::Pixels(..))).collect();
-        let mut art = Art { w, h, owner: vec![0; w * h], glow: vec![0; w * h], lines, body, bbox, shapes, photo, variant, unit, vivid };
+        let mut art = Art { w, h, owner: vec![0; w * h], glow: vec![0; w * h], lines, body, bbox, shapes, photo, variant, unit, vivid, key_shift: 0 };
         art.light_up();
         art
     }
@@ -499,7 +504,7 @@ fn keyboard(traced: Option<Trace>, leds: &Leds, keypad: bool, forced: Option<Var
         let rows = leds.rows.min(6);
         for variant in [Variant::Ansi, Variant::Iso] {
             if forced.is_none_or(|f| f == variant) {
-                candidates.push((layout::keyboard(rows, leds.columns, variant, false), Some(variant)));
+                candidates.push((layout::keyboard_on(rows, leds.columns, variant, false, leds.board), Some(variant)));
             }
         }
     } else {
@@ -527,16 +532,29 @@ fn keyboard(traced: Option<Trace>, leds: &Leds, keypad: bool, forced: Option<Var
             let (mut layout, variant) = candidates.swap_remove(i);
             // M1-M5: where the photo shows a column of keys left of the board.
             if matrix_board {
-                if let Some(keys) = find_macro_keys(&trace, &fit, layout.height, leds.rows.min(6), leds.macro_keys) {
-                    layout = layout::with_keys(&layout, &keys);
+                let rows = leds.rows.min(6);
+                let found = find_macro_keys(&trace, &fit, rows, leds.macro_keys || leds.board.is_some());
+                match leds.board {
+                    // A board that says where its macro keys are has them,
+                    // found or not, and keys of its own besides.
+                    Some(board) => {
+                        let (gap, width) = found.unwrap_or((0.25, 1.0));
+                        layout = layout::with_keys(&layout, &board.macro_keys(gap, width, rows));
+                        layout = layout::with_keys(&layout, &board.own_keys(leds.rows, leds.columns));
+                    }
+                    None => {
+                        if let Some((gap, width)) = found {
+                            layout = layout::with_keys(&layout, &layout::macro_keys(gap, width, rows));
+                        }
+                    }
                 }
             }
             (trace, layout, variant, fit, true)
         }
         _ => {
             let (mut layout, variant) = candidates.swap_remove(0);
-            if matrix_board && leds.macro_keys {
-                layout = layout::keyboard(leds.rows.min(6), leds.columns, variant.unwrap_or(Variant::Ansi), true);
+            if matrix_board && (leds.macro_keys || leds.board.is_some()) {
+                layout = layout::keyboard_on(leds.rows.min(6), leds.columns, variant.unwrap_or(Variant::Ansi), true, leds.board);
             }
             let (trace, fit) = synthetic_keyboard(&layout);
             (trace, layout, variant, fit, false)
@@ -590,15 +608,54 @@ fn keyboard(traced: Option<Trace>, leds: &Leds, keypad: bool, forced: Option<Var
             _ => {}
         }
     }
-    // Rows past the keys are light bars and underglow, spaced along the outline.
-    if leds.rows > 6 {
+    // Rows past the keys are light bars and underglow: where the board says
+    // they are, or else spaced along the outline.
+    let runs = leds.board.map(|b| b.runs).unwrap_or_default();
+    for run in runs.iter().filter(|r| (r.row as usize) < leds.rows) {
+        let path = glow_path(&trace, run.place, fit.y, keys_bottom, fit.unit);
+        for (i, at) in run_points(&path, run.count as usize).into_iter().enumerate() {
+            let col = run.first + i as u8;
+            if (col as usize) < leds.columns {
+                shapes.push(Shape { region: Region::Cell(run.row, col), geom: Geom::Dot(at, fit.unit * 0.16), label: format!("LED {}·{}", run.row, col + 1) });
+            }
+        }
+    }
+    if leds.rows > 6 && runs.is_empty() {
         let extra: Vec<(u8, u8)> = (6..leds.rows).flat_map(|r| (0..leds.columns).map(move |c| (r as u8, c as u8))).collect();
         let points = spaced(&trace.contour, extra.len());
         for ((row, col), at) in extra.into_iter().zip(points) {
             shapes.push(Shape { region: Region::Cell(row, col), geom: Geom::Dot(at, fit.unit * 0.16), label: format!("LED {}·{}", row, col + 1) });
         }
     }
-    Art::finish(trace, shapes, photo, variant, fit.unit)
+    let mut art = Art::finish(trace, shapes, photo, variant, fit.unit);
+    art.key_shift = leds.board.map_or(0, |b| b.shift);
+    art
+}
+
+/// The stretch of the outline a run of underglow lies along, from its first
+/// LED to its last: beside the keys for the sides, below them for the front
+/// (the wrist rest, where the photo shows one).
+fn glow_path(trace: &Trace, place: layout::Place, keys_top: f32, keys_bottom: f32, unit: f32) -> Vec<Pos2> {
+    use layout::Place;
+    let cx = centre_x(trace);
+    let beside = |y: f32| y >= keys_top && y <= keys_bottom;
+    let mut path = match place {
+        Place::Left => contour_run(trace, |x, y| x < cx && beside(y)),
+        Place::Right => contour_run(trace, |x, y| x > cx && beside(y)),
+        Place::Front => contour_run(trace, |_, y| y > keys_bottom + unit * 0.3),
+    };
+    let (Some(first), Some(last)) = (path.first().copied(), path.last().copied()) else { return path };
+    let backwards = match place {
+        Place::Left => first.y > last.y,
+        Place::Right => first.y < last.y,
+        Place::Front => first.x > last.x,
+    };
+    if backwards {
+        path.reverse();
+    }
+    // Not into the corners, where one run would meet the next.
+    let trim = path.len() / 16;
+    path[trim..path.len() - trim].to_vec()
 }
 
 /// Look left of a fitted board for a column of macro keys.
@@ -607,8 +664,8 @@ fn keyboard(traced: Option<Trace>, leds: &Leds, keypad: bool, forced: Option<Var
 /// full keys a gap away -- so every likely spacing is tried, and the column is
 /// kept if its keycap edges stand out as clearly as the board's did; or, for
 /// a board that says it has macro keys, wherever they fit best.
-fn find_macro_keys(trace: &Trace, fit: &Fit, _height: f32, rows: usize, declared: bool) -> Option<Vec<layout::KeyCap>> {
-    let mut best: Option<(f32, Vec<layout::KeyCap>)> = None;
+fn find_macro_keys(trace: &Trace, fit: &Fit, rows: usize, declared: bool) -> Option<(f32, f32)> {
+    let mut best: Option<(f32, (f32, f32))> = None;
     let mut total = 0.0;
     let mut count = 0usize;
     for (i, &inside) in trace.body.iter().enumerate() {
@@ -627,12 +684,12 @@ fn find_macro_keys(trace: &Trace, fit: &Fit, _height: f32, rows: usize, declared
             let score = samples.iter().map(|&(u, v)| trace.field_at(fit.x + u * fit.unit, fit.y + v * fit.unit)).sum::<f32>() / samples.len().max(1) as f32 / baseline;
             let on_body = keys.iter().all(|k| trace.inside(fit.x + (k.x + k.w / 2.0) * fit.unit, fit.y + (k.y + k.h / 2.0) * fit.unit));
             if on_body && best.as_ref().is_none_or(|(s, _)| score > *s) {
-                best = Some((score, keys));
+                best = Some((score, (gap, width)));
             }
         }
     }
-    let (score, keys) = best?;
-    (score >= fit.score * 0.8 || (declared && score >= GOOD_FIT * 0.8)).then_some(keys)
+    let (score, column) = best?;
+    (score >= fit.score * 0.8 || (declared && score >= GOOD_FIT * 0.8)).then_some(column)
 }
 
 /// A drawn keyboard: its body and keycaps, at a fixed scale.
@@ -1087,6 +1144,28 @@ mod tests {
     }
 
     #[test]
+    fn a_blackwidow_v4_pro_is_drawn_as_it_is_wired() {
+        let mut caps = caps("keyboard", Some([8, 23]), &["backlight"]);
+        caps["pid"] = json!(0x028D);
+        let art = Art::build("keyboard", &caps, None);
+        let at = |r: u8, c: u8| art.shapes.iter().find(|s| s.region == Region::Cell(r, c));
+        assert_eq!(at(0, 2).unwrap().label, "Esc");
+        assert_eq!(at(0, 1).unwrap().label, "Dial");
+        assert_eq!(at(0, 20).unwrap().label, "Play", "no logo: that LED is a media key");
+        assert_eq!(art.key_shift, 1);
+        let centre = |r: u8, c: u8| at(r, c).unwrap().bounds(&art).center();
+        let middle = (art.bbox[0] + art.bbox[2]) / 2.0;
+        // The sides: down the left, up the right; the rest round the front.
+        assert!(centre(6, 0).x < middle && centre(6, 0).y < centre(6, 8).y);
+        assert!(centre(6, 9).x > middle && centre(6, 9).y > centre(6, 17).y);
+        assert!(centre(7, 0).x < centre(7, 19).x && centre(7, 10).y > centre(6, 8).y);
+        assert!(at(6, 18).is_none() && at(7, 20).is_none(), "not wired");
+        let cells = art.shapes.iter().filter(|s| matches!(s.region, Region::Cell(..))).count();
+        let distinct: std::collections::HashSet<_> = art.shapes.iter().filter(|s| matches!(s.region, Region::Cell(..))).map(|s| s.region).collect();
+        assert_eq!(cells, distinct.len(), "each LED drawn once");
+    }
+
+    #[test]
     fn a_drawn_mouse_has_its_zones_and_leds() {
         let art = Art::build("mouse", &caps("mouse", Some([1, 5]), &["logo", "scroll"]), None);
         assert!(art.shapes.iter().any(|s| s.region == Region::Zone("scroll")));
@@ -1137,6 +1216,10 @@ mod tests {
                 let mut caps = caps("headset", Some([1, 2]), &["backlight", "left", "right"]);
                 caps["name"] = "Razer Kraken Kitty V2 BT".into();
                 ("headset", caps)
+            } else if name.contains("v4") {
+                let mut caps = caps("keyboard", Some([8, 23]), &["backlight"]);
+                caps["pid"] = if name.contains("pro") { 0x028D } else { 0x0287 }.into();
+                ("keyboard", caps)
             } else {
                 ("keyboard", caps("keyboard", Some([6, 22]), &["backlight", "logo"]))
             };

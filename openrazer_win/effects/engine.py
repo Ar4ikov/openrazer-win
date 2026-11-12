@@ -173,7 +173,7 @@ class EffectThread(threading.Thread):
         self._presses_lock = threading.Lock()
         rows, columns = device.matrix_dimensions or (1, 1)
         self.frame = Frame(rows, columns)
-        self.keymap = keymap_for(device.type, device.name)
+        self.keymap = keymap_for(device.type, device.name, getattr(device, 'pid', None))
         self.refresh = float(options.get('refresh_rate', DEFAULT_REFRESH))
         self.colour = tuple(options.get('colour', (0, 255, 0)))[:3]
         self.stack = None

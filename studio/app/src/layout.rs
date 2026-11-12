@@ -90,6 +90,94 @@ const ISO: &[(u8, u8, f32, f32, f32, f32, &str)] = &[
     (4, 2, 1.25, 4.25, 1.0, 1.0, "\\"),
 ];
 
+/// Where the lights past a board's keys are, and which way they are numbered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Place {
+    /// Down the left side of the keys.
+    Left,
+    /// Up the right side of the keys.
+    Right,
+    /// Round the front, below the keys, from the left to the right.
+    Front,
+}
+
+/// A run of LEDs in one matrix row: `count` of them from column `first`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Run {
+    pub row: u8,
+    pub first: u8,
+    pub count: u8,
+    pub place: Place,
+}
+
+/// Where a board's matrix is not the standard one.
+///
+/// The BlackWidow V4 and V4 Pro put a column of their own before Esc: the
+/// dial (or M6) and the macro keys are in column 1, and every other key is a
+/// column later than on any other board.  Their media keys are in the
+/// matrix too, and rows 6 and 7 are the underglow.
+#[derive(Debug)]
+pub struct Board {
+    /// How many columns later than usual the keys start.
+    pub shift: u8,
+    /// The macro keys: their matrix column, the key above them and their
+    /// names from the top.
+    pub macros: Option<(u8, &'static str, [&'static str; 5])>,
+    /// Keys of its own, as `COMMON` has them: placed from Esc, matrix columns as they are.
+    pub extra: &'static [(u8, u8, f32, f32, f32, f32, &'static str)],
+    /// The lights past the keys.  Cells of those rows in no run are not wired.
+    pub runs: &'static [Run],
+}
+
+/// Previous, play, next and mute, over the numpad.
+#[rustfmt::skip]
+const MEDIA_KEYS: &[(u8, u8, f32, f32, f32, f32, &str)] = &[
+    (0, 19, 18.6, 0.05, 0.9, 0.9, "Prev"), (0, 20, 19.55, 0.05, 0.9, 0.9, "Play"),
+    (0, 21, 20.5, 0.05, 0.9, 0.9, "Next"), (0, 22, 21.45, 0.05, 0.9, 0.9, "Mute"),
+];
+
+const SIDE_GLOW: [Run; 2] = [Run { row: 6, first: 0, count: 9, place: Place::Left }, Run { row: 6, first: 9, count: 9, place: Place::Right }];
+
+static BLACKWIDOW_V4: Board = Board { shift: 1, macros: Some((1, "M6", ["M5", "M4", "M3", "M2", "M1"])), extra: MEDIA_KEYS, runs: &SIDE_GLOW };
+
+static BLACKWIDOW_V4_PRO: Board = Board {
+    shift: 1,
+    macros: Some((1, "Dial", ["M5", "M4", "M3", "M2", "M1"])),
+    extra: MEDIA_KEYS,
+    runs: &[SIDE_GLOW[0], SIDE_GLOW[1], Run { row: 7, first: 0, count: 20, place: Place::Front }],
+};
+
+/// What is particular to the board with this USB product id.
+pub fn board(pid: u64) -> Option<&'static Board> {
+    match pid {
+        0x0287 => Some(&BLACKWIDOW_V4),
+        0x028D => Some(&BLACKWIDOW_V4_PRO),
+        _ => None,
+    }
+}
+
+impl Board {
+    /// The macro column `gap` left of the board and `width` wide, with the
+    /// key above it, in this board's matrix.
+    pub fn macro_keys(&self, gap: f32, width: f32, rows: usize) -> Vec<KeyCap> {
+        let Some((col, above, names)) = self.macros else { return Vec::new() };
+        let mut keys: Vec<KeyCap> = macro_keys(gap, width, rows).into_iter().enumerate().map(|(i, k)| KeyCap { col, label: names[i], ..k }).collect();
+        if rows >= 6 && !above.is_empty() {
+            keys.push(KeyCap { row: 0, col, x: -gap - width, y: 0.0, w: width, h: 1.0, label: above });
+        }
+        keys
+    }
+
+    /// The board's own keys, on a board of `rows` x `columns`.
+    pub fn own_keys(&self, rows: usize, columns: usize) -> Vec<KeyCap> {
+        self.extra
+            .iter()
+            .filter(|(row, col, ..)| rows >= 6 && (*row as usize) < rows && (*col as usize) < columns)
+            .map(|&(row, col, x, y, w, h, label)| KeyCap { row, col, x, y, w, h, label })
+            .collect()
+    }
+}
+
 /// M1-M5, `gap` key units left of the board and `width` wide, on keyboards
 /// that have them.  Boards differ in both, so the editor looks for them.
 pub fn macro_keys(gap: f32, width: f32, rows: usize) -> Vec<KeyCap> {
@@ -107,7 +195,15 @@ pub fn macro_keys(gap: f32, width: f32, rows: usize) -> Vec<KeyCap> {
 /// physical rows below one.  Keys beyond the matrix are left off, so a 6 x 18
 /// board comes out tenkeyless.
 pub fn keyboard(rows: usize, columns: usize, variant: Variant, macro_column: bool) -> Layout {
+    keyboard_on(rows, columns, variant, macro_column, None)
+}
+
+/// ... on `board`, where that is not a standard one.  `complete` adds the
+/// macro column and the board's own keys; without them it is the keys every
+/// board has, to fit onto a photo.
+pub fn keyboard_on(rows: usize, columns: usize, variant: Variant, complete: bool, board: Option<&Board>) -> Layout {
     let shift_down = rows == 5;
+    let across = board.map_or(0, |b| b.shift);
     let extra = match variant {
         Variant::Ansi => ANSI,
         Variant::Iso => ISO,
@@ -122,14 +218,23 @@ pub fn keyboard(rows: usize, columns: usize, variant: Variant, macro_column: boo
         } else {
             row
         };
+        let first = shift_down && row == 1 && col == 1;
+        let col = col + across;
         if matrix_row as usize >= rows || col as usize >= columns {
             continue;
         }
-        let label = if shift_down && row == 1 && col == 1 { "Esc" } else { label };
+        let label = if first { "Esc" } else { label };
         keys.push(KeyCap { row: matrix_row, col, x, y, w, h, label });
     }
-    if macro_column {
-        keys.extend(macro_keys(0.2, 1.0, rows.min(6)).into_iter().map(|k| KeyCap { y: k.y - if shift_down { 1.25 } else { 0.0 }, ..k }));
+    if complete {
+        let lift = if shift_down { 1.25 } else { 0.0 };
+        match board {
+            Some(board) => {
+                keys.extend(board.macro_keys(0.25, 1.0, rows.min(6)).into_iter().map(|k| KeyCap { y: k.y - lift, ..k }));
+                keys.extend(board.own_keys(rows, columns));
+            }
+            None => keys.extend(macro_keys(0.2, 1.0, rows.min(6)).into_iter().map(|k| KeyCap { y: k.y - lift, ..k })),
+        }
     }
     normalise(keys)
 }
@@ -224,6 +329,39 @@ mod tests {
         assert_eq!((m1.x, m1.label), (0.0, "M1"));
         assert_eq!(find(&layout, 1, 1).unwrap().x, 1.2);
         assert_eq!(macro_keys(0.3, 0.9, 6)[0].x, -1.2);
+    }
+
+    #[test]
+    fn a_blackwidow_v4_pro_starts_a_column_late() {
+        let board = board(0x028D).unwrap();
+        let layout = keyboard_on(8, 23, Variant::Ansi, true, Some(board));
+        // What its owner found (issue #19): the dial where Esc usually is,
+        // Esc a column on, M5 beside the backtick.
+        assert_eq!(find(&layout, 0, 1).unwrap().label, "Dial");
+        assert_eq!(find(&layout, 0, 2).unwrap().label, "Esc");
+        assert_eq!(find(&layout, 0, 4).unwrap().label, "F1");
+        assert_eq!(find(&layout, 1, 1).unwrap().label, "M5");
+        assert_eq!(find(&layout, 5, 1).unwrap().label, "M1");
+        assert_eq!(find(&layout, 2, 3).unwrap().label, "Q");
+        assert_eq!(find(&layout, 5, 8).unwrap().label, "");
+        assert_eq!(find(&layout, 5, 21).unwrap().label, ".");
+        assert_eq!(find(&layout, 0, 20).unwrap().label, "Play");
+        assert!(find(&layout, 0, 3).is_none() && find(&layout, 1, 0).is_none());
+        for (i, a) in layout.keys.iter().enumerate() {
+            for b in &layout.keys[i + 1..] {
+                assert!((a.row, a.col) != (b.row, b.col), "{a:?} and {b:?} share an LED");
+            }
+        }
+        // Nine lights a side, twenty round the wrist rest, each cell once.
+        let cells: Vec<(u8, u8)> = board.runs.iter().flat_map(|r| (0..r.count).map(move |i| (r.row, r.first + i))).collect();
+        assert_eq!(cells.len(), 38);
+        assert!(cells.iter().all(|&(row, col)| row >= 6 && col < 23));
+        assert!(super::board(0x0287).unwrap().runs.len() == 2 && super::board(0x0203).is_none());
+    }
+
+    #[test]
+    fn a_standard_board_is_as_it_was() {
+        assert_eq!(keyboard(6, 22, Variant::Iso, true).keys, keyboard_on(6, 22, Variant::Iso, true, None).keys);
     }
 
     #[test]

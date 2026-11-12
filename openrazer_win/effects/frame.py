@@ -6,6 +6,8 @@ import os
 from functools import lru_cache
 from typing import Iterable, Optional, Tuple
 
+from ..devices.layouts import key_cell, key_column_shift
+
 KEYMAP_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     'devices', 'data', 'keymap.json')
@@ -19,7 +21,14 @@ def get_keymaps() -> dict:
                 for family, mapping in json.load(handle).items()}
 
 
-def keymap_for(device_type: str, name: str = '') -> dict:
+@lru_cache(maxsize=None)
+def _keymap_on(pid: int) -> dict:
+    """The default key map on a board that lays its matrix out differently."""
+    return {key: key_cell(pid, *position)
+            for key, position in get_keymaps().get('default', {}).items()}
+
+
+def keymap_for(device_type: str, name: str = '', pid: Optional[int] = None) -> dict:
     keymaps = get_keymaps()
     lowered = name.lower()
     if 'tartarus' in lowered:
@@ -28,6 +37,8 @@ def keymap_for(device_type: str, name: str = '') -> dict:
         return keymaps.get('orbweaver', {})
     if 'naga hex v2' in lowered:
         return keymaps.get('naga_hex_v2', {})
+    if key_column_shift(pid):
+        return _keymap_on(pid)
     return keymaps.get('default', {})
 
 
