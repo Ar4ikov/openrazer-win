@@ -14,7 +14,7 @@ import time
 from typing import Optional
 
 from ..hid.base import HidDeviceInfo, HidError
-from ..protocol import blackshark, blackshark_v3x
+from ..protocol import barracuda, blackshark, blackshark_v3x
 from ..protocol.report import REPORT_SIZE, RazerReport, RazerReportError, Status
 
 logger = logging.getLogger(__name__)
@@ -106,6 +106,27 @@ def select_blackshark_v3x_interface(candidates: list):
     if not usable:
         return None
     return sorted(usable, key=lambda i: (i.interface or 0, i.collection or 0))[0]
+
+
+def is_barracuda_interface(info: HidDeviceInfo) -> bool:
+    """A collection that takes and gives the Barracuda X's 64-byte reports."""
+    return (info.output_length >= barracuda.REPORT_SIZE
+            and info.input_length >= barracuda.REPORT_SIZE)
+
+
+def select_barracuda_interface(candidates: list):
+    """Pick the collection to talk to a Barracuda X's receiver through.
+
+    The vendor collection on interface 3.  Nobody has said how Windows cuts
+    that interface up -- its play/pause button is on a report of its own -- so
+    failing a vendor collection, any with reports of the right size will do.
+    """
+    usable = [info for info in candidates if is_barracuda_interface(info)]
+    if not usable:
+        return None
+    return sorted(usable, key=lambda i: (i.usage_page < 0xFF00,
+                                         i.interface != barracuda.INTERFACE,
+                                         i.interface or 0, i.collection or 0))[0]
 
 
 def select_control_interface(candidates: list, preferred_index: Optional[int] = None):
@@ -357,6 +378,81 @@ class FeatureChannel:
             except Exception:  # pragma: no cover - best effort
                 logger.debug('error closing the feature channel', exc_info=True)
             self._handle = None
+
+    def close(self) -> None:
+        with self._lock:
+            self._close()
+
+
+class TunnelChannel:
+    """Requests written to the interrupt endpoint, answered with a stream of frames.
+
+    The Barracuda X's receiver cuts what it says into input reports; they are
+    put back together here, and whoever asked is shown each frame in turn until
+    one is the answer.
+    """
+
+    #: As many reports left over from before as are thrown away at a time.
+    _STALE = 64
+
+    def __init__(self, backend, info: HidDeviceInfo, timeout: float = 1.5):
+        self._backend = backend
+        self.info = info
+        #: How long an answer is waited for; the kernel driver gives it 2 s.
+        self.timeout = timeout
+        self._lock = threading.Lock()
+        self._writer = None
+        self._reader = None
+        self._frames = barracuda.Reassembler()
+
+    def exchange(self, report: bytes, accept):
+        """Send `report` and return what `accept` makes of the answer.
+
+        `accept` is shown every frame that arrives and returns ``None`` for one
+        that is not what it is waiting for.  ``None`` from here is nothing
+        having come in time.  Reports already waiting are thrown away first:
+        whatever they say, it is not about this request.
+        """
+        with self._lock:
+            try:
+                if self._reader is None:
+                    # Before anything is sent: input reports are only queued
+                    # for a handle that is already open.
+                    self._reader = self._backend.open_input(self.info)
+                if self._writer is None:
+                    self._writer = self._backend.open(self.info)
+                for _ in range(self._STALE):
+                    if self._reader.read(0) is None:
+                        break
+                self._frames.reset()
+                self._writer.write_output_report(
+                    report.ljust(self.info.output_length, b'\x00'))
+                deadline = time.monotonic() + self.timeout
+                while True:
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        return None
+                    answer = self._reader.read(left)
+                    if answer is None:
+                        continue
+                    for frame in self._frames.feed(answer):
+                        result = accept(frame)
+                        if result is not None:
+                            return result
+            except (HidError, OSError):
+                # The receiver was pulled out, say.  Start afresh next time.
+                self._close()
+                raise
+
+    def _close(self) -> None:
+        for attribute in ('_writer', '_reader'):
+            handle = getattr(self, attribute)
+            if handle is not None:
+                try:
+                    handle.close()
+                except Exception:  # pragma: no cover - best effort
+                    logger.debug('error closing %s', attribute, exc_info=True)
+                setattr(self, attribute, None)
 
     def close(self) -> None:
         with self._lock:

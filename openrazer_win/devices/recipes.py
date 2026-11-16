@@ -292,7 +292,10 @@ def _execute(steps: list, env: Environment, send: Sender) -> Environment:
         if op == 'build':
             builder = get_builder(step['fn'])
             args = [evaluate(a, env) for a in step['args']]
-            env.reports[step['target']] = builder(*args)
+            report = builder(*args)
+            if step['fn'] == WAVE_BUILDER and env.vars.get('wave_speed') is not None:
+                report.set_argument(WAVE_SPEED_ARGUMENT, int(env.vars['wave_speed']) & 0xFF)
+            env.reports[step['target']] = report
 
         elif op == 'txid':
             report = _report(env, step['target'])
@@ -441,6 +444,27 @@ def _report(env: Environment, target: str) -> RazerReport:
 #: the device does not implement the attribute, not that the call should fail
 #: at transport time.
 ACTIONABLE_OPS = frozenset(('build', 'for_each_row', 'send_argb'))
+
+#: The wave of the newer ("extended") lighting commands carries one byte more
+#: than its direction, which the kernel driver always sends as 0x28 and marks
+#: unknown.  It is taken here to be the wave's speed, as Synapse has a slider
+#: for one, and can be given as the ``wave_speed`` variable (issue #22).
+WAVE_BUILDER = 'razer_chroma_extended_matrix_effect_wave'
+WAVE_SPEED_ARGUMENT = 4
+WAVE_SPEED_DEFAULT = 0x28
+
+
+def uses_builder(steps: list, name: str) -> bool:
+    """Whether a recipe builds a report with the builder called `name`."""
+    for step in steps:
+        if step['op'] == 'build' and step.get('fn') == name:
+            return True
+        nested = list(step.get('steps', ())) + list(step.get('then', ()))             + list(step.get('else', ())) + list(step.get('default', ()))
+        for case in step.get('cases', ()):
+            nested += case['steps']
+        if nested and uses_builder(nested, name):
+            return True
+    return False
 
 
 def is_actionable(steps: list) -> bool:

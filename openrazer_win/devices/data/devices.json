@@ -1457,6 +1457,43 @@
    "transport": "hid"
   },
   {
+   "class_name": "RazerDeathAdder2000_Alternate",
+   "name": "Razer DeathAdder 2000",
+   "vid": 5426,
+   "pid": 95,
+   "type": "mouse",
+   "has_matrix": false,
+   "matrix_dims": null,
+   "dedicated_macro_keys": false,
+   "driver_mode": false,
+   "wave_dirs": [
+    1,
+    2
+   ],
+   "poll_rates": null,
+   "dpi_max": 2000,
+   "image": "https://assets2.razerzone.com/images/da10m/carousel/razer-death-adder-gallery-09.png",
+   "methods": [
+    "get_device_type_mouse",
+    "get_dpi_xy",
+    "get_logo_brightness",
+    "get_poll_rate",
+    "get_scroll_brightness",
+    "max_dpi",
+    "set_dpi_xy",
+    "set_logo_breath_mono",
+    "set_logo_brightness",
+    "set_logo_none",
+    "set_logo_on",
+    "set_poll_rate",
+    "set_scroll_breath_mono",
+    "set_scroll_brightness",
+    "set_scroll_none",
+    "set_scroll_on"
+   ],
+   "transport": "hid"
+  },
+  {
    "class_name": "RazerLanceheadTE",
    "name": "Razer Lancehead Tournament Edition",
    "vid": 5426,
@@ -11219,6 +11256,32 @@
     "set_none_effect",
     "set_spectrum_effect",
     "set_static_effect"
+   ],
+   "transport": "hid"
+  },
+  {
+   "class_name": "RazerBarracudaXWireless",
+   "name": "Razer Barracuda X (Wireless)",
+   "vid": 5426,
+   "pid": 1362,
+   "type": "headset",
+   "has_matrix": false,
+   "matrix_dims": null,
+   "dedicated_macro_keys": false,
+   "driver_mode": false,
+   "wave_dirs": [
+    1,
+    2
+   ],
+   "poll_rates": null,
+   "dpi_max": null,
+   "image": null,
+   "methods": [
+    "get_device_type_headset",
+    "get_battery",
+    "is_charging",
+    "get_idle_time",
+    "set_idle_time"
    ],
    "transport": "hid"
   },

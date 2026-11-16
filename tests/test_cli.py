@@ -275,8 +275,10 @@ def test_a_blackwidow_v4_pro_has_its_keys_a_column_on():
     assert keymap['ESC'] == (0, 2)
     assert keymap['Q'] == (standard['Q'][0], standard['Q'][1] + 1)
     assert (keymap['M5'], keymap['M1'], keymap['M6']) == ((1, 1), (5, 1), (0, 1))
-    assert len(set(keymap.values())) == len(set(standard.values()))
-    assert keymap_for('keyboard', 'Razer BlackWidow V4', 0x0287) == keymap
+    # Its own keys: the dial, and the media keys and roller over the numpad.
+    assert (keymap['DIAL'], keymap['MEDIA_PLAY'], keymap['VOL_UP']) == ((0, 1), (0, 20), (0, 22))
+    v4 = keymap_for('keyboard', 'Razer BlackWidow V4', 0x0287)
+    assert 'DIAL' not in v4 and {k: v for k, v in keymap.items() if k != 'DIAL'} == v4
     assert keymap_for('keyboard', 'Razer BlackWidow V4 X', 0x0293) is standard
 
 

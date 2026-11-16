@@ -146,6 +146,9 @@ class KeyService:
         #: Sees what the Fn layer lets through, on this same hook: a second
         #: hook could not know what this one had swallowed.
         self.snap_tap = None
+        #: Told the name of every macro key pressed (``M1``, ``DIAL``), for
+        #: the effects that answer key presses: no keyboard hook sees these.
+        self.on_press: Optional[Callable[[str], None]] = None
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> bool:
@@ -297,6 +300,11 @@ class KeyService:
             if sent is not None:
                 self.injector.key(sent, False)
             return
+        if self.on_press is not None:
+            try:
+                self.on_press(name)
+            except Exception:  # noqa: BLE001 - a light must not cost the key
+                logger.debug('could not report %s as pressed', name, exc_info=True)
         with self._lock:
             recording = self._recording
             if recording is not None and recording.binding is binding:

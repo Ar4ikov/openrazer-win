@@ -12,12 +12,14 @@ from .._version import UPSTREAM_VERSION, __version__
 from ..client import DaemonUnavailable, DeviceManager
 from ..client.rpc import RpcClient, is_daemon_running
 from ..core.device import DeviceError
-from ..core.transport import is_blackshark_interface, is_blackshark_v3x_interface
+from ..core.transport import (
+    is_barracuda_interface, is_blackshark_interface, is_blackshark_v3x_interface,
+)
 from ..daemon.protocol import RpcError, endpoint_path
 from ..devices.database import get_database
 from ..devices.recipes import NotSupported
 from ..hid.base import HidError
-from ..protocol import blackshark_v3x
+from ..protocol import barracuda, blackshark_v3x
 
 COLOURS = {
     'red': (255, 0, 0), 'green': (0, 255, 0), 'blue': (0, 0, 255),
@@ -94,8 +96,8 @@ Examples:
 
 HEADSET_HELP = """\
 For headsets that keep their sound settings themselves: the BlackShark V2
-HyperSpeed and the BlackShark V3 X HyperSpeed.  They do not have all the same
-settings, and one that a headset lacks says so.
+HyperSpeed, the BlackShark V3 X HyperSpeed and the Barracuda X.  They do not
+have all the same settings, and one that a headset lacks says so.
 
 Examples:
   openrazer-win headset                  show what it is set to
@@ -107,12 +109,15 @@ Examples:
   openrazer-win headset eq -3,0,0,0,0,0,0,2,3,3
                                          your own curve: ten bands, -9 to 6 dB;
                                          on the V3 X it is the curve of the preset
-                                         chosen, -6 to 6 dB
+                                         chosen, -6 to 6 dB; on the Barracuda X
+                                         steps of its own, -5 to 5
   openrazer-win headset dnd on           do not disturb
   openrazer-win headset led battery      off, link, battery or warning
   openrazer-win headset nc on            the microphone's noise cancelling
   openrazer-win headset saving on        power saving on the radio
-  openrazer-win headset sleep 30         minutes before it turns off, 0 for never"""
+  openrazer-win headset sleep 30         minutes before it turns off, 0 for never;
+                                         the V3 X has no never and starts at 1, the
+                                         Barracuda X takes 0, 5, 15, 30, 45 or 60"""
 
 ZONES_HELP = """\
 Examples:
@@ -313,7 +318,7 @@ def _apply_effect(fx, effect: str, colour, colour2, colour3, args) -> None:
     elif effect == 'wave_soft':
         fx.wave_soft(*colour)
     elif effect == 'wave':
-        fx.wave(args.direction)
+        fx.wave(args.direction, speed=getattr(args, 'wave_speed', None))
     elif effect == 'wheel':
         fx.wheel(args.direction)
     elif effect == 'reactive':
@@ -847,10 +852,11 @@ def _show_headset(device) -> None:
     # Not every headset has every setting: one it lacks is not in what it reports.
     if 'microphone_muted' in audio:
         print('  microphone  {0}'.format('muted' if audio['microphone_muted'] else 'on'))
-    print('  sidetone    {0}'.format(
-        'level {0}'.format(audio['sidetone_level']) if audio['sidetone'] else 'off'))
+    if 'sidetone' in audio:
+        print('  sidetone    {0}'.format(
+            'level {0}'.format(audio['sidetone_level']) if audio['sidetone'] else 'off'))
     print('  equalizer   {0}'.format(
-        audio['equalizer_preset'] if audio['equalizer'] else 'off'))
+        audio['equalizer_preset'] if audio.get('equalizer', True) else 'off'))
     per_preset = device.capabilities['audio'].get('equalizer_curve_per_preset')
     print('  {0}   {1}'.format('its curve' if per_preset else 'custom EQ',
                              ' '.join(str(g) for g in audio['equalizer_bands'])))
@@ -1185,6 +1191,8 @@ def cmd_doctor(args) -> int:
         if info.product_id in blackshark_v3x.PRODUCT_IDS:
             # Two of its collections take 64-byte reports; one has the feature report.
             return is_blackshark_v3x_interface(info)
+        if info.product_id in barracuda.PRODUCT_IDS:
+            return is_barracuda_interface(info)
         return info.feature_length == FEATURE_BUFFER_SIZE or is_blackshark_interface(info)
 
     for info in collections:
@@ -1338,6 +1346,9 @@ def build_parser() -> argparse.ArgumentParser:
     effect.add_argument('--zone', '-z')
     effect.add_argument('--speed', type=int, default=1, choices=(1, 2, 3, 4))
     effect.add_argument('--direction', type=int, default=1, choices=(0, 1, 2))
+    effect.add_argument('--wave-speed', type=int, metavar='1-255',
+                        help="experimental: the speed byte of the device's own wave "
+                             '(its usual is 40), on devices whose wave takes one')
 
     zones = add('zones', cmd_zones,
                 "colour each zone separately (the headset's two ears)",

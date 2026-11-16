@@ -613,7 +613,8 @@ fn keyboard(traced: Option<Trace>, leds: &Leds, keypad: bool, forced: Option<Var
     let runs = leds.board.map(|b| b.runs).unwrap_or_default();
     for run in runs.iter().filter(|r| (r.row as usize) < leds.rows) {
         let path = glow_path(&trace, run.place, fit.y, keys_bottom, fit.unit);
-        for (i, at) in run_points(&path, run.count as usize).into_iter().enumerate() {
+        let points = if run.side > 0 { cornered_points(&path, run.count as usize, run.side as usize) } else { run_points(&path, run.count as usize) };
+        for (i, at) in points.into_iter().enumerate() {
             let col = run.first + i as u8;
             if (col as usize) < leds.columns {
                 shapes.push(Shape { region: Region::Cell(run.row, col), geom: Geom::Dot(at, fit.unit * 0.16), label: format!("LED {}·{}", run.row, col + 1) });
@@ -833,6 +834,32 @@ fn run_points(run: &[Pos2], n: usize) -> Vec<Pos2> {
         return vec![run[run.len() / 2]];
     }
     (0..n).map(|i| run[i * (run.len() - 1) / (n - 1)]).collect()
+}
+
+/// `n` points along `run`, which goes down one side, along the front and up
+/// the other side: `side` of them on each side, one in each corner and the
+/// rest along the front.  The corners are where the outline is furthest out
+/// towards the bottom left and the bottom right.
+fn cornered_points(run: &[Pos2], n: usize, side: usize) -> Vec<Pos2> {
+    if run.len() < n || n < 2 * side + 3 {
+        return run_points(run, n);
+    }
+    let furthest = |score: &dyn Fn(&Pos2) -> f32| (0..run.len()).max_by(|&a, &b| score(&run[a]).total_cmp(&score(&run[b]))).unwrap_or(0);
+    let left = furthest(&|p| p.y - p.x);
+    let right = furthest(&|p| p.y + p.x);
+    let last = run.len() - 1;
+    // A drawing with no wrist rest has no sides below the keys to put any on.
+    if left >= right || left < 2 * side || last - right < 2 * side {
+        return run_points(run, n);
+    }
+    let front = n - 2 * side - 2;
+    let mut points = Vec::with_capacity(n);
+    points.extend((0..side).map(|k| run[k * left / side]));
+    points.push(run[left]);
+    points.extend((1..=front).map(|k| run[left + k * (right - left) / (front + 1)]));
+    points.push(run[right]);
+    points.extend((1..=side).map(|k| run[right + k * (last - right) / side]));
+    points
 }
 
 /// The lit part of a headset on one side, above the cups: a Kraken Kitty's
@@ -1163,6 +1190,27 @@ mod tests {
         let cells = art.shapes.iter().filter(|s| matches!(s.region, Region::Cell(..))).count();
         let distinct: std::collections::HashSet<_> = art.shapes.iter().filter(|s| matches!(s.region, Region::Cell(..))).map(|s| s.region).collect();
         assert_eq!(cells, distinct.len(), "each LED drawn once");
+    }
+
+    #[test]
+    fn lights_round_a_wrist_rest_have_one_in_each_corner() {
+        // Down the left side, along the front and up the right side, as the
+        // BlackWidow V4 Pro's owner found them (issue #19): three a side,
+        // LED 4 and LED 17 in the corners, twelve between them.
+        let mut run: Vec<Pos2> = (0..=40).map(|i| pos2(0.0, i as f32)).collect();
+        run.extend((1..200).map(|i| pos2(i as f32, 40.0)));
+        run.extend((0..=40).rev().map(|i| pos2(200.0, i as f32)));
+        let points = cornered_points(&run, 20, 3);
+        assert_eq!(points.len(), 20);
+        assert!(points[..3].iter().all(|p| p.x == 0.0 && p.y < 40.0) && points[0].y < points[2].y);
+        assert_eq!(points[3], pos2(0.0, 40.0));
+        assert!(points[4..16].iter().all(|p| p.y == 40.0 && p.x > 0.0 && p.x < 200.0));
+        assert!(points[4..16].windows(2).all(|w| w[0].x < w[1].x));
+        assert_eq!(points[16], pos2(200.0, 40.0));
+        assert!(points[17..].iter().all(|p| p.x == 200.0 && p.y < 40.0) && points[17].y > points[19].y);
+        // With no sides to speak of, they are spread along what there is.
+        let flat: Vec<Pos2> = (0..100).map(|i| pos2(i as f32, 0.0)).collect();
+        assert_eq!(cornered_points(&flat, 20, 3), run_points(&flat, 20));
     }
 
     #[test]

@@ -102,10 +102,20 @@ fn microphone(app: &mut App, ui: &mut egui::Ui, device: &Device, audio: &Value, 
     let mut send: Vec<Command> = Vec::new();
     let mut later: Vec<(String, Command)> = Vec::new();
     let edit = app.edits.entry(serial.clone()).or_default();
-    widgets::panel(ui, t("Microphone"), |ui| {
+    // A headset with nothing to set about its microphone still has the rest.
+    let has_sidetone = audio["sidetone"].is_boolean();
+    let title = if has_sidetone || audio["microphone_muted"].is_boolean() || audio["microphone_noise_cancelling"].is_boolean() { t("Microphone") } else { t("Headset") };
+    widgets::panel(ui, title, |ui| {
+        let mut first = true;
+        let mut next = |ui: &mut egui::Ui| {
+            if !std::mem::take(&mut first) {
+                widgets::divider(ui);
+            }
+        };
         // Headsets differ in what they have: a setting one lacks is not in
         // what it reports, and gets no row.
         if audio["microphone_muted"].is_boolean() {
+            next(ui);
             widgets::row(ui, t("Right now"), t("The mute button on the headset decides this."), |ui| {
                 if audio["microphone_muted"] == true {
                     widgets::badge(ui, t("Muted"), theme::WARN);
@@ -113,34 +123,36 @@ fn microphone(app: &mut App, ui: &mut egui::Ui, device: &Device, audio: &Value, 
                     widgets::badge(ui, t("On"), ACCENT);
                 }
             });
+        }
+        if has_sidetone {
+            next(ui);
+            if widgets::toggle_row(ui, t("Hear your own voice"), t("The microphone played back quietly in the headset, so you do not shout."), &mut edit.audio.sidetone) {
+                send.push(call(&serial, "set_sidetone", json!(edit.audio.sidetone)));
+            }
             widgets::divider(ui);
-        }
-        if widgets::toggle_row(ui, t("Hear your own voice"), t("The microphone played back quietly in the headset, so you do not shout."), &mut edit.audio.sidetone) {
-            send.push(call(&serial, "set_sidetone", json!(edit.audio.sidetone)));
-        }
-        widgets::divider(ui);
-        let top = caps["audio"]["sidetone_max"].as_f64().unwrap_or(15.0);
-        widgets::row(ui, t("Level"), "", |ui| {
-            ui.add_enabled_ui(edit.audio.sidetone, |ui| {
-                if widgets::slider_field(ui, ("sidetone", &serial), &mut edit.audio.sidetone_level, 0.0..=top, 1.0, 0, "", 72.0) {
-                    later.push((format!("sidetone:{serial}"), call(&serial, "set_sidetone_level", json!(edit.audio.sidetone_level.round() as i64))));
-                }
+            let top = caps["audio"]["sidetone_max"].as_f64().unwrap_or(15.0);
+            widgets::row(ui, t("Level"), "", |ui| {
+                ui.add_enabled_ui(edit.audio.sidetone, |ui| {
+                    if widgets::slider_field(ui, ("sidetone", &serial), &mut edit.audio.sidetone_level, 0.0..=top, 1.0, 0, "", 72.0) {
+                        later.push((format!("sidetone:{serial}"), call(&serial, "set_sidetone_level", json!(edit.audio.sidetone_level.round() as i64))));
+                    }
+                });
             });
-        });
+        }
         if audio["microphone_noise_cancelling"].is_boolean() {
-            widgets::divider(ui);
+            next(ui);
             if widgets::toggle_row(ui, t("Noise cancelling"), t("Takes background noise out of what the microphone picks up."), &mut edit.audio.noise_cancelling) {
                 send.push(call(&serial, "set_microphone_noise_cancelling", json!(edit.audio.noise_cancelling)));
             }
         }
         if audio["do_not_disturb"].is_boolean() {
-            widgets::divider(ui);
+            next(ui);
             if widgets::toggle_row(ui, t("Do not disturb"), t("Silences Bluetooth calls while you are on the 2.4 GHz receiver."), &mut edit.audio.do_not_disturb) {
                 send.push(call(&serial, "set_do_not_disturb", json!(edit.audio.do_not_disturb)));
             }
         }
         if audio["power_saving"].is_boolean() {
-            widgets::divider(ui);
+            next(ui);
             if widgets::toggle_row(ui, t("Power saving"), t("The headset's own setting for its 2.4 GHz link."), &mut edit.audio.power_saving) {
                 send.push(call(&serial, "set_power_saving", json!(edit.audio.power_saving)));
             }
@@ -167,6 +179,8 @@ fn equalizer(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value) {
     // preset: each preset keeps a curve of its own, there to be changed.
     let has_switch = caps["audio"]["equalizer_switch"] != false;
     let per_preset = caps["audio"]["equalizer_curve_per_preset"] == true;
+    // Decibels, unless the headset says its bands are in something else.
+    let unit = caps["audio"]["equalizer_unit"].as_str().map_or(t("dB"), |_| "");
     let mut send: Vec<Command> = Vec::new();
     let mut later: Vec<(String, Command)> = Vec::new();
     let edit = app.edits.entry(serial.clone()).or_default();
@@ -203,7 +217,7 @@ fn equalizer(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value) {
                     let Some(gain) = edit.audio.bands.get_mut(band) else { continue };
                     widgets::row(ui, &band_label(*frequency), "", |ui| {
                         ui.add_enabled_ui(current, |ui| {
-                            changed |= widgets::slider_field(ui, ("band", &serial, band), gain, low..=high, 1.0, 0, t("dB"), 72.0);
+                            changed |= widgets::slider_field(ui, ("band", &serial, band), gain, low..=high, 1.0, 0, unit, 72.0);
                         });
                     });
                 }

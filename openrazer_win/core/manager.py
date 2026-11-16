@@ -9,16 +9,18 @@ from typing import Optional
 from ..devices.database import DeviceDatabase, DeviceInfo, get_database
 from ..devices.recipes import RecipeTable, get_recipes
 from ..hid import get_backend
-from ..protocol import blackshark, blackshark_v3x, razer_ble
+from ..protocol import barracuda, blackshark, blackshark_v3x, razer_ble
 from ..protocol.report import VENDOR_ID
+from .barracuda import BarracudaDevice
 from .blackshark import BlackSharkDevice
 from .blackshark_v3x import BlackSharkV3XDevice
 from .device import RazerDevice
 from .kraken import KrakenDevice
 from .persistence import Persistence
 from .transport import (
-    FeatureChannel, ReportChannel, Transport, select_blackshark_interface,
-    select_blackshark_v3x_interface, select_control_interface, select_kraken_interface,
+    FeatureChannel, ReportChannel, Transport, TunnelChannel, select_barracuda_interface,
+    select_blackshark_interface, select_blackshark_v3x_interface, select_control_interface,
+    select_kraken_interface,
 )
 
 logger = logging.getLogger(__name__)
@@ -277,6 +279,8 @@ class DeviceManager:
             return self._build_blackshark(meta, infos)
         if meta.pid in blackshark_v3x.PRODUCT_IDS:
             return self._build_blackshark_v3x(meta, infos)
+        if meta.pid in barracuda.PRODUCT_IDS:
+            return self._build_barracuda(meta, infos)
 
         params = self.recipes.transport_params(meta.driver, meta.pid)
         control = select_control_interface(infos, params.get('index'))
@@ -320,6 +324,16 @@ class DeviceManager:
             return None
         channel = FeatureChannel(self.backend, control, wait=blackshark_v3x.WAIT_SECONDS)
         return BlackSharkV3XDevice(meta, channel, self.persistence)
+
+    def _build_barracuda(self, meta: DeviceInfo, infos: list) -> Optional[BarracudaDevice]:
+        """A headset reached through a tunnel in its receiver's reports."""
+        control = select_barracuda_interface(infos)
+        if control is None:
+            logger.warning('%s is attached but exposes no 64-byte input and output '
+                           'reports: %s', meta.name,
+                           '; '.join(info.describe() for info in infos))
+            return None
+        return BarracudaDevice(meta, TunnelChannel(self.backend, control), self.persistence)
 
     # -- accessors ---------------------------------------------------------
     @property

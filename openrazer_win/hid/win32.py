@@ -164,6 +164,9 @@ def _configure_prototypes() -> None:
     _kernel32.ReadFile.argtypes = [HANDLE, ctypes.c_void_p, DWORD,
                                    ctypes.POINTER(DWORD), ctypes.c_void_p]
     _kernel32.ReadFile.restype = BOOL
+    _kernel32.WriteFile.argtypes = [HANDLE, ctypes.c_void_p, DWORD,
+                                    ctypes.POINTER(DWORD), ctypes.c_void_p]
+    _kernel32.WriteFile.restype = BOOL
     _kernel32.WaitForSingleObject.argtypes = [HANDLE, DWORD]
     _kernel32.WaitForSingleObject.restype = DWORD
     _kernel32.GetOverlappedResult.argtypes = [HANDLE, ctypes.c_void_p,
@@ -238,6 +241,26 @@ class Win32HidHandle:
         if not _hid.HidD_SetOutputReport(self._handle, buffer, len(data)):
             raise HidError('HidD_SetOutputReport failed: WinError {0}'.format(
                 ctypes.get_last_error()))
+
+    def write_output_report(self, data: bytes) -> None:
+        """Write an output report to the interrupt OUT endpoint.
+
+        ``data[0]`` must be the report id, and the length what the collection
+        declares.  Not the same as :meth:`send_output_report`: that one is a
+        SET_REPORT on the control pipe, which a device that listens on its
+        interrupt endpoint -- the Barracuda X's receiver -- does not answer.
+        The handle is not opened for overlapped I/O, so this returns once the
+        report has gone.
+        """
+        buffer = ctypes.create_string_buffer(bytes(data), len(data))
+        written = DWORD(0)
+        if not _kernel32.WriteFile(self._handle, buffer, len(data),
+                                   ctypes.byref(written), None):
+            raise HidError('WriteFile failed: WinError {0}'.format(
+                ctypes.get_last_error()))
+        if written.value != len(data):
+            raise HidError('WriteFile wrote {0} of {1} bytes'.format(
+                written.value, len(data)))
 
     def close(self) -> None:
         if self._handle:

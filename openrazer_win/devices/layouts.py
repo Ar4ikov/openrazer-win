@@ -17,6 +17,26 @@ KEY_COLUMN_SHIFT = {
 }
 
 
+#: The four media keys over the numpad and the roller beside them, which
+#: these boards have in their matrix where others have nothing.
+_MEDIA_KEYS = {
+    'MEDIA_BACK': (0, 19), 'MEDIA_PLAY': (0, 20), 'MEDIA_FORWARD': (0, 21),
+    'MUTE': (0, 22), 'VOL_UP': (0, 22), 'VOL_DOWN': (0, 22),
+}
+
+#: Product id -> keys of its own, by the name a press of them goes by, at the
+#: matrix cell they light.  The dial is the V4 Pro's, where the V4 has M6.
+BOARD_KEYS = {
+    0x0287: dict(_MEDIA_KEYS),
+    0x028D: dict(_MEDIA_KEYS, DIAL=(0, 1)),
+}
+
+
+def board_keys(pid: Optional[int]) -> dict:
+    """Keys only this board has, or that it has somewhere of its own."""
+    return BOARD_KEYS.get(pid, {}) if pid is not None else {}
+
+
 def key_column_shift(pid: Optional[int]) -> int:
     return KEY_COLUMN_SHIFT.get(pid, 0) if pid is not None else 0
 

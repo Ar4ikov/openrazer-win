@@ -40,6 +40,10 @@ DEFAULT_SIDETONE = 8
 #: eighteen hours, which is no use on a slider.
 IDLE_SECONDS_MAX = 60 * 60
 
+#: The shortest it takes.  It has no way of staying on: asked for 0, the
+#: headset answers that the command failed and keeps the time it had (issue #17).
+IDLE_SECONDS_MIN = 60
+
 
 class BlackSharkV3XDevice:
     """A BlackShark V3 X, on its receiver or on its cable."""
@@ -136,6 +140,7 @@ class BlackSharkV3XDevice:
                 'poll_rate': False, 'supported_poll_rates': [],
                 'battery': True, 'idle_time': True,
                 'idle_time_max': IDLE_SECONDS_MAX,
+                'idle_time_min': IDLE_SECONDS_MIN,
                 'game_mode': False, 'macro_mode': False, 'keyboard_layout': False,
                 'keyswitch_optimization': False,
                 'scroll_mode': False, 'custom_frame': False, 'software_effects': False,
@@ -273,9 +278,14 @@ class BlackSharkV3XDevice:
 
     def set_idle_time(self, seconds: int) -> None:
         seconds = int(seconds)
-        if not 0 <= seconds < protocol.NOT_LINKED:
-            raise DeviceError('the sleep timer goes up to {0} seconds'.format(
-                protocol.NOT_LINKED - 1))
+        if seconds < IDLE_SECONDS_MIN:
+            raise DeviceError(
+                '{0} cannot be kept from switching itself off: its sleep timer '
+                'starts at {1} minute and goes up to {2}'.format(
+                    self.name, IDLE_SECONDS_MIN // 60, (protocol.NOT_LINKED - 1) // 60))
+        if seconds >= protocol.NOT_LINKED:
+            raise DeviceError('the sleep timer goes up to {0} minutes'.format(
+                (protocol.NOT_LINKED - 1) // 60))
         self._write(Class.POWER, Command.SLEEP, (seconds >> 8, seconds & 0xFF))
 
     def get_power_saving(self) -> bool:

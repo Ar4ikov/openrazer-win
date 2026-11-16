@@ -21,15 +21,18 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from openrazer_win.core.barracuda import BarracudaDevice  # noqa: E402
 from openrazer_win.core.blackshark import BlackSharkDevice  # noqa: E402
 from openrazer_win.core.blackshark_v3x import BlackSharkV3XDevice  # noqa: E402
 from openrazer_win.core.device import RazerDevice  # noqa: E402
 from openrazer_win.core.kraken import KrakenDevice  # noqa: E402
 from openrazer_win.core.persistence import Persistence  # noqa: E402
-from openrazer_win.core.transport import FeatureChannel, ReportChannel, Transport  # noqa: E402
+from openrazer_win.core.transport import (  # noqa: E402
+    FeatureChannel, ReportChannel, Transport, TunnelChannel,
+)
 from openrazer_win.devices import get_database, get_recipes  # noqa: E402
 from openrazer_win.hid.fake import FakeHidBackend, FakeRazerDevice  # noqa: E402
-from openrazer_win.protocol import blackshark, blackshark_v3x  # noqa: E402
+from openrazer_win.protocol import barracuda, blackshark, blackshark_v3x  # noqa: E402
 
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
@@ -86,6 +89,12 @@ def build_device(meta, persistence, recipes) -> Optional[RazerDevice]:
         channel = FeatureChannel(backend, fake.headset_info, wait=0)
         return BlackSharkV3XDevice(meta, channel, persistence)
 
+    if meta.pid in barracuda.PRODUCT_IDS:
+        # A tunnel through its receiver's reports, and nothing to light either.
+        fake = FakeRazerDevice(meta.pid, meta.name, headset=True)
+        backend.add(fake)
+        return BarracudaDevice(meta, TunnelChannel(backend, fake.headset_info), persistence)
+
     params = recipes.transport_params(meta.driver, meta.pid)
     fake = FakeRazerDevice(meta.pid, meta.name, interface=params.get('index') or 0,
                            argb=meta.driver == 'accessory')
@@ -98,8 +107,9 @@ def checks_for(device: RazerDevice) -> list:
     """Build the list of ``(label, callable)`` probes for one device."""
     caps = device.capabilities()
     checks = [('serial', lambda: device.serial)]
-    # Krakens report firmware over input reports the port does not read.
-    if caps.get('readback', True):
+    # Krakens report firmware over input reports the port does not read, and
+    # nobody knows how to ask a Barracuda X for its own.
+    if caps.get('readback', True) and caps.get('protocol') != 'barracuda':
         checks.append(('firmware', lambda: device.firmware_version))
     for zone, zone_caps in caps['zones'].items():
         for effect in zone_caps['effects']:
@@ -127,7 +137,9 @@ def checks_for(device: RazerDevice) -> list:
         checks.append(('battery', lambda: (device.get_battery_level(),
                                            device.is_charging())))
     if caps['idle_time']:
-        checks.append(('idle_time', lambda: (device.set_idle_time(600),
+        # Ten minutes, or for a device that only takes some lengths, one of them.
+        idle = (caps.get('idle_time_choices') or [600])[-1]
+        checks.append(('idle_time', lambda: (device.set_idle_time(idle),
                                              device.get_idle_time())))
     if caps['game_mode']:
         checks.append(('game_mode', lambda: (device.set_game_mode(True),
@@ -143,9 +155,12 @@ def checks_for(device: RazerDevice) -> list:
         checks.append(('scroll_mode', lambda: (device.set_scroll_mode(1),
                                                device.get_scroll_mode())))
     if caps.get('audio'):
-        checks.append(('audio', lambda: (device.set_sidetone_level(8),
-                                         device.set_equalizer_preset('game'),
-                                         device.get_audio())))
+        sidetone = min(8, caps['audio']['sidetone_max'])
+        checks.append(('audio', lambda: (
+            # A headset whose sidetone goes up to nothing has none to set.
+            device.set_sidetone_level(sidetone) if sidetone else None,
+            device.set_equalizer_preset('game'),
+            device.get_audio())))
     if caps['custom_frame']:
         rows, columns = caps['matrix_dimensions'] or (1, 1)
         colours = bytes(GREEN) * columns

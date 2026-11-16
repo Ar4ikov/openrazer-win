@@ -104,3 +104,81 @@ def test_the_pro_type_ultra_is_driven_on_its_third_interface(pid, transaction_id
                                               0x01, 0xFF, 0xFF, 0xFF]
     finally:
         device.close()
+
+
+# -- the Mouse Dock Pro's transaction id (issue #22) -------------------------
+
+@pytest.mark.parametrize('apply', [
+    lambda device: device.set_static(255, 0, 0),
+    lambda device: device.set_spectrum(),
+    lambda device: device.set_wave(1),
+    lambda device: device.set_breath_random(),
+    lambda device: device.set_breath_single(0, 255, 0),
+    lambda device: device.set_none(),
+    lambda device: device.set_brightness(40),
+])
+def test_the_mouse_dock_pro_is_only_ever_spoken_to_with_0xff(apply, persistence):
+    # It answers "timeout" to anything else, and upstream sends the mode
+    # command every effect starts with as 0x3F.
+    device, fake = make_device(0x00A4, persistence)
+    try:
+        fake.state.sent.clear()
+        apply(device)
+        assert fake.sent_reports
+        assert {report.transaction_id for report in fake.sent_reports} == {0xFF}
+    finally:
+        device.close()
+
+
+def test_other_accessories_keep_their_transaction_ids(persistence):
+    device, fake = make_device(0x0F26, persistence)          # Charging Pad Chroma
+    try:
+        fake.state.sent.clear()
+        device.set_spectrum()
+        ids = [report.transaction_id for report in fake.sent_reports
+               if (report.command_class, report.command_id) in ((0x00, 0x04), (0x0F, 0x02))]
+        assert ids == [0x3F, 0x1F]
+    finally:
+        device.close()
+
+
+# -- the wave's speed (issue #22) ---------------------------------------------
+
+def test_a_wave_of_the_newer_kind_takes_a_speed(persistence):
+    device, fake = make_device(0x00A4, persistence)
+    try:
+        assert device.has_wave_speed()
+        device.set_wave(1)
+        assert list(last_report(fake, 0x0F, 0x02).arguments[:5]) == [0x01, 0x00, 0x04, 0x02, 0x28]
+        device.set_wave(1, speed=80)
+        assert last_report(fake, 0x0F, 0x02).arguments[4] == 80
+        assert persistence.get(device.serial, 'backlight', 'wave_speed') == 80
+        fake.state.sent.clear()
+        device.restore()
+        assert last_report(fake, 0x0F, 0x02).arguments[4] == 80
+        # Without one it is the driver's own again, and that is remembered too.
+        device.set_wave(1)
+        assert last_report(fake, 0x0F, 0x02).arguments[4] == 0x28
+        assert persistence.get(device.serial, 'backlight', 'wave_speed') is None
+    finally:
+        device.close()
+
+
+def test_a_wave_of_the_older_kind_has_no_speed(persistence):
+    from openrazer_win.devices.recipes import NotSupported
+    device, fake = make_device(0x0203, persistence)          # BlackWidow Chroma
+    try:
+        assert not device.has_wave_speed()
+        with pytest.raises(NotSupported):
+            device.set_wave(1, speed=80)
+        device.set_wave(1)
+    finally:
+        device.close()
+
+
+# -- the retail DeathAdder 2000 (issue #20, openrazer/openrazer#2931) ---------
+
+def test_the_retail_deathadder_2000_is_the_other_one_under_a_second_id(recipes, persistence):
+    for attribute in ('read:dpi', 'write:dpi', 'write:poll_rate', 'write:logo_matrix_effect_on',
+                      'write:scroll_matrix_effect_breath', 'write:logo_led_brightness'):
+        assert recipes.lookup('mouse', attribute, 0x005F) == recipes.lookup('mouse', attribute, 0x004F)

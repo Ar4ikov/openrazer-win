@@ -6,7 +6,7 @@ import os
 from functools import lru_cache
 from typing import Iterable, Optional, Tuple
 
-from ..devices.layouts import key_cell, key_column_shift
+from ..devices.layouts import board_keys, key_cell, key_column_shift
 
 KEYMAP_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -24,8 +24,10 @@ def get_keymaps() -> dict:
 @lru_cache(maxsize=None)
 def _keymap_on(pid: int) -> dict:
     """The default key map on a board that lays its matrix out differently."""
-    return {key: key_cell(pid, *position)
-            for key, position in get_keymaps().get('default', {}).items()}
+    keymap = {key: key_cell(pid, *position)
+              for key, position in get_keymaps().get('default', {}).items()}
+    keymap.update(board_keys(pid))
+    return keymap
 
 
 def keymap_for(device_type: str, name: str = '', pid: Optional[int] = None) -> dict:

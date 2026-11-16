@@ -360,3 +360,29 @@ def test_a_batch_is_sent_by_scan_code_with_the_marker():
     assert [(k.wVk, k.wScan, k.dwFlags, k.dwExtraInfo) for k in sent] == [
         (0, 0x1E, inject.KEYEVENTF_SCANCODE | inject.KEYEVENTF_KEYUP, inject.MARKER),
         (0, 0x48, inject.KEYEVENTF_SCANCODE | inject.KEYEVENTF_EXTENDEDKEY, inject.MARKER)]
+
+
+def test_a_macro_key_press_is_told_to_the_reactive_effects(rig):
+    # Issue #19: no keyboard hook sees a macro key, so Reactive never lit one.
+    _, keys, _, fake, _, _ = rig
+    pressed = []
+    keys.on_press = pressed.append
+    fake.hold(0x20)
+    assert wait_for(lambda: pressed == ['M1'])
+    fake.hold()
+    fake.hold(0x60)
+    assert wait_for(lambda: pressed == ['M1', 'DIAL'])
+
+
+def test_the_daemon_passes_macro_key_presses_to_its_effects(tmp_path):
+    fake = FakeRazerDevice(BLACKWIDOW_CHROMA, 'Razer BlackWidow Chroma', interface=2, keys=True)
+    backend = FakeHidBackend([fake])
+    keys = KeyService(backend, macros=MacroStore(str(tmp_path / 'm.json')),
+                      injector=RecordingInjector(), hook=FakeHook())
+    service = DaemonService(backend=backend, persistence=Persistence(str(tmp_path / 'p.json')),
+                            keys=keys, macros=keys.macros)
+    assert keys.on_press == service.effects.keys.press
+    heard = []
+    service.effects.keys._subscribers.append(heard.append)
+    keys.on_press('M3')
+    assert heard == ['M3']

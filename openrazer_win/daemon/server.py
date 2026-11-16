@@ -138,6 +138,9 @@ class DaemonService:
         self.keys = keys
         if self.keys is None and enable_keys:
             self.keys = KeyService(self.manager.backend, macros=self.macros)
+        if self.keys is not None and self.effects is not None:
+            # Macro keys and the dial light up under reactive effects too.
+            self.keys.on_press = self.effects.keys.press
         #: Off until asked for, and it rides on the hook above when there is one.
         self.snaptap = snaptap if snaptap is not None else SnapTapHost(
             SnapTapSettings(os.path.join(os.path.dirname(self.persistence.path), 'snaptap.json')),

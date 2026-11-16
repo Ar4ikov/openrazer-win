@@ -108,6 +108,9 @@ pub struct Run {
     pub first: u8,
     pub count: u8,
     pub place: Place,
+    /// How many of them are on each side before the run turns a corner,
+    /// with one LED in the corner itself; 0 for a run with no corners.
+    pub side: u8,
 }
 
 /// Where a board's matrix is not the standard one.
@@ -136,7 +139,7 @@ const MEDIA_KEYS: &[(u8, u8, f32, f32, f32, f32, &str)] = &[
     (0, 21, 20.5, 0.05, 0.9, 0.9, "Next"), (0, 22, 21.45, 0.05, 0.9, 0.9, "Mute"),
 ];
 
-const SIDE_GLOW: [Run; 2] = [Run { row: 6, first: 0, count: 9, place: Place::Left }, Run { row: 6, first: 9, count: 9, place: Place::Right }];
+const SIDE_GLOW: [Run; 2] = [Run { row: 6, first: 0, count: 9, place: Place::Left, side: 0 }, Run { row: 6, first: 9, count: 9, place: Place::Right, side: 0 }];
 
 static BLACKWIDOW_V4: Board = Board { shift: 1, macros: Some((1, "M6", ["M5", "M4", "M3", "M2", "M1"])), extra: MEDIA_KEYS, runs: &SIDE_GLOW };
 
@@ -144,7 +147,10 @@ static BLACKWIDOW_V4_PRO: Board = Board {
     shift: 1,
     macros: Some((1, "Dial", ["M5", "M4", "M3", "M2", "M1"])),
     extra: MEDIA_KEYS,
-    runs: &[SIDE_GLOW[0], SIDE_GLOW[1], Run { row: 7, first: 0, count: 20, place: Place::Front }],
+    // Round the wrist rest: three down its left side, one in the corner,
+    // twelve along the front, the other corner and three up the right
+    // side, as its owner found them (issue #19).
+    runs: &[SIDE_GLOW[0], SIDE_GLOW[1], Run { row: 7, first: 0, count: 20, place: Place::Front, side: 3 }],
 };
 
 /// What is particular to the board with this USB product id.

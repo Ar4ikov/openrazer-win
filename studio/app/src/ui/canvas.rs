@@ -186,6 +186,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, serial: &str, art: &Art, colours: 
         let selected = (view.selected)(shape);
         let hovered = picked.hovered == Some(index);
         let radius = if round { CornerRadius::same(255) } else { CornerRadius::same((3.0 * scale.min(1.5)) as u8) };
+        // A light that is off has nothing drawn of it: a key keeps its
+        // outline from the photo, a spot on the edge has none to keep.
+        if let Geom::Dot(..) = shape.geom {
+            let colour = colours.get(index).copied().unwrap_or(Color32::BLACK);
+            if colour.r().max(colour.g()).max(colour.b()) < 24 {
+                painter.circle_stroke(bounds.center(), bounds.width() / 2.0, Stroke::new(1.0_f32, TEXT_FAINT.gamma_multiply(0.8)));
+            }
+        }
         if selected {
             painter.rect_filled(bounds, radius, ACCENT.gamma_multiply(0.08));
             painter.rect_stroke(bounds, radius, Stroke::new(1.3_f32, ACCENT.gamma_multiply(0.85)), StrokeKind::Inside);

@@ -267,6 +267,8 @@ pub const RU: &[(&str, &str)] = &[
     ("The headset is switched off", "Гарнитура выключена"),
     ("Switch it on to see and change its settings.", "Включите её, чтобы увидеть и изменить настройки."),
     ("With Synapse open, this headset's mute button can leave the microphone level in Windows at zero. Close it and the button simply mutes, and everything on this page still works.", "Когда Synapse открыт, кнопка выключения микрофона на этой гарнитуре может оставлять уровень микрофона в Windows на нуле. Закройте его: кнопка будет просто выключать микрофон, а всё на этой странице продолжит работать."),
+    ("Minutes without use before the headset switches off; Off keeps it on.", "Сколько минут без дела до выключения гарнитуры; «Выкл.» — не выключать."),
+    ("Minutes without use before the headset switches off.", "Сколько минут без дела до выключения гарнитуры."),
     ("Minutes without use before the headset switches off; 0 keeps it on.", "Сколько минут без дела до выключения гарнитуры; 0 — не выключать."),
     // -- integrations --------------------------------------------------------------------
     ("Games with Razer Chroma", "Игры с Razer Chroma"),
