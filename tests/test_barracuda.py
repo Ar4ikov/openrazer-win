@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import sys
 import threading
 
 import pytest
@@ -826,6 +827,7 @@ def test_the_channel_listens_before_it_writes_and_pads_to_what_windows_declares(
     assert calls[-2:] == [('close', 'writer'), ('close', 'reader')]
 
 
+@pytest.mark.skipif(sys.platform != 'win32', reason='reads the Win32 last error')
 def test_writing_goes_through_writefile_and_says_when_it_fails(monkeypatch):
     calls = []
 
