@@ -278,8 +278,9 @@ def test_the_sleep_timer_is_kept_in_seconds(headset):
     assert fake.headset.idle_seconds == 1800
     assert writes(fake)[-1] == (Class.POWER, Command.SLEEP, bytes((0x07, 0x08)))
     # It has no way of staying on: the headset refuses 0 (issue #17).
-    assert device.capabilities()['idle_time_min'] == 60
-    for seconds in (-1, 0, 59, 0xFFFF):
+    # Nor anything under five minutes, which it refuses just the same.
+    assert device.capabilities()['idle_time_min'] == 300
+    for seconds in (-1, 0, 60, 299, 0xFFFF):
         with pytest.raises(DeviceError):
             device.set_idle_time(seconds)
 

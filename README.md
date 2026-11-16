@@ -159,6 +159,23 @@ cannot read its key report, or runs with `--no-keys`, the keyboard stays in norm
 its Fn layer to itself. `openrazer-win macro watch` prints the raw key reports, for working out a
 keyboard that does not respond.
 
+### Mouse side buttons
+
+A mouse's two side buttons — back and forward, *Mouse Button 4* and *5* in Synapse — can be given
+a key, a shortcut, a macro, another mouse button or nothing at all, under *Buttons* in Studio or
+with the same command:
+
+```bash
+openrazer-win macro set MOUSE4 --keys "ctrl+c" -d deathadder   # held as long as the button is
+openrazer-win macro set MOUSE5 --button middle -d deathadder
+openrazer-win macro clear MOUSE4 -d deathadder                 # back again
+```
+
+Razer's mice have no command for what a button does; Synapse reassigns them on the PC too. The
+daemon does it with a low-level mouse hook, installed only while a connected mouse has a side
+button reassigned. Windows does not say which mouse a button came from, so while that mouse is
+connected its bindings apply to the side buttons of every mouse.
+
 ### Python
 
 The API mirrors upstream's `openrazer.client`, so scripts written for Linux usually port by changing
@@ -275,7 +292,8 @@ still shipped as a single file with the daemon inside. Pick a device on the left
 - **Performance** — DPI with presets, the DPI stages the mouse button cycles, polling rate,
   keyswitch optimization.
 - **Power** — battery, charging, sleep timer, low-battery warning.
-- **Macro keys** — what each key does, editing, recording and trying it out.
+- **Macro keys** — what each key does, editing, recording and trying it out; on a mouse,
+  **Buttons**, for its side buttons.
 - **Profiles** — save what is showing under a name, apply it later.
 
 It starts the daemon itself if it is not running — the one built into it, or one beside it or
@@ -549,7 +567,7 @@ Upstream has no driver for it yet either. This follows the one proposed in
 on both product ids. Here it has only been run against an emulator of that protocol, since nobody
 here owns the headset: if yours misbehaves, `openrazer-win doctor` lists what Windows sees of it.
 
-It has no way of staying on: the shortest its sleep timer takes is one minute, and the longest
+It has no way of staying on: the shortest its sleep timer takes is five minutes, and the longest
 1092.
 
 ### Barracuda X (2022)

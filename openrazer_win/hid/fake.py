@@ -209,8 +209,8 @@ class FakeHeadsetV3X:
         key = (command_class, command)
         if key == (cls.POWER, cmd.SLEEP):
             seconds = (arguments[0] << 8) | arguments[1]
-            if not seconds:
-                return False        # it has no "never", and says the command failed
+            if seconds < 300:
+                return False        # nothing under five minutes, and no "never"
             self.idle_seconds = seconds
         elif key == (cls.POWER, cmd.POWER_SAVING):
             self.power_saving = bool(arguments[1])
@@ -265,6 +265,9 @@ class FakeBarracuda:
         self.forgetful: set = set()
         #: Told to change the route, the receiver says yes and does not.
         self.stuck_route = False
+        #: What the read length is answered with: 240, as the reference saw,
+        #: or 0, as a receiver on Windows said (issue #21).
+        self.read_length_result = barracuda.READ_MAX_LEN_RESULT
         #: Set to a status to have every request acknowledged with it.
         self.force_status: Optional[int] = None
         #: The receiver numbers what it sends itself.
@@ -341,7 +344,7 @@ class FakeBarracuda:
         if family == barracuda.Family.DIAG:
             good = payload == barracuda.READ_MAX_LEN
             return self._reports([self._ack(family, sequence, 0 if good else 1,
-                                            barracuda.READ_MAX_LEN_RESULT if good else b'')])
+                                            self.read_length_result if good else b'')])
         if family == barracuda.Family.CUSTOMER:
             return self._reports(self._customer(payload))
         return []

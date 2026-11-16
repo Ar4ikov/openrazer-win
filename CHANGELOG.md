@@ -6,6 +6,39 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.5] - 2026-11-17
+
+### Added
+
+- **Mouse side buttons can be reassigned**, as in Synapse: a key or a
+  shortcut (held for as long as the button is), a macro from the library,
+  text, a program, another mouse button, or nothing. Under *Buttons* in
+  Studio, or `openrazer-win macro set MOUSE4 --keys "ctrl+c"`. Razer's mice
+  have no command for this, so it is done on the PC, by a mouse hook that is
+  only installed while a connected mouse has a side button reassigned.
+  Windows does not say which mouse a button came from: while that mouse is
+  connected, its bindings apply to the side buttons of every mouse
+  ([#20](https://github.com/Ar4ikov/openrazer-win/issues/20)).
+- **`openrazer-win headset trace`** prints the last requests a Barracuda X
+  was sent and what came back, for a bug report.
+
+### Fixed
+
+- **Razer Barracuda X: settings failed with "did not answer" or "unexpected
+  answer 00000000 to the read length".** Before asking for settings, Razer's
+  software asks the receiver for longer reads. The receiver it was tried on
+  answered with a length of 0, or not at all, where the reference project's
+  answered 240, and 1.6.4 stopped there. The answer is now only noted, and a
+  receiver that does not answer it is not asked again. A register that goes
+  unanswered is named in the error
+  ([#21](https://github.com/Ar4ikov/openrazer-win/issues/21)).
+- **Razer BlackShark V3 X HyperSpeed: the sleep timer starts at 5 minutes.**
+  The headset refuses anything shorter, as it refuses 0
+  ([#17](https://github.com/Ar4ikov/openrazer-win/issues/17)).
+- **`--wave-speed` takes 1 to 255 and says so.** 0 and 256 were taken and
+  quietly sent as 1 and 255
+  ([#22](https://github.com/Ar4ikov/openrazer-win/issues/22)).
+
 ## [1.6.4] - 2026-11-16
 
 ### Added

@@ -7,6 +7,8 @@ A binding is one of:
   with the delay in milliseconds before the event;
 * ``{"type": "text", "text": "..."}`` -- typed as is, whatever the layout;
 * ``{"type": "launch", "target": "..."}`` -- a program, document or URL;
+* ``{"type": "button", "button": "..."}`` -- a mouse button: left, right,
+  middle, back or forward;
 * ``{"type": "disabled"}`` -- the key does nothing at all.
 
 A key with no binding sends what upstream's driver turns it into -- F13-F17
@@ -28,7 +30,10 @@ from ..core.persistence import default_config_dir
 
 logger = logging.getLogger(__name__)
 
-TYPES = ('keys', 'text', 'launch', 'disabled')
+TYPES = ('keys', 'text', 'launch', 'button', 'disabled')
+
+#: What a binding of type ``button`` can click.
+MOUSE_BUTTONS = ('left', 'right', 'middle', 'back', 'forward')
 
 #: Generous limits that still stop a broken client filling the disk or
 #: pinning the daemon in a ten-minute "macro".
@@ -82,7 +87,33 @@ def validate(action) -> dict:
         if not isinstance(target, str) or not target.strip():
             raise MacroError('a launch binding needs a program, file or URL')
         return {'type': 'launch', 'target': target.strip()}
+    if kind == 'button':
+        button = action.get('button')
+        if button not in MOUSE_BUTTONS:
+            raise MacroError('a button binding clicks one of {0}'.format(', '.join(MOUSE_BUTTONS)))
+        return {'type': 'button', 'button': button}
     return {'type': 'disabled'}
+
+
+def held_keys(action: dict) -> Optional[list]:
+    """The keys of a binding that is one key or one shortcut, else ``None``.
+
+    Pressed, all of them, and then let go: what a single key or a shortcut
+    such as Ctrl+C is, typed or recorded.  On a mouse button such a binding is
+    held for as long as the button is, as Synapse holds one.  Delays in it are
+    only how long the keys were held when it was recorded.
+    """
+    if action.get('type') != 'keys':
+        return None
+    events = action.get('events') or []
+    identity = [(e['vk'], e['scan'], e['ext']) for e in events]
+    downs = [i for i, e in zip(identity, events) if e['down']]
+    ups = [i for i, e in zip(identity, events) if not e['down']]
+    first_up = next((n for n, e in enumerate(events) if not e['down']), len(events))
+    if (not downs or len(set(downs)) != len(downs) or sorted(downs) != sorted(ups)
+            or any(e['down'] for e in events[first_up:])):
+        return None
+    return downs
 
 
 class MacroStore:

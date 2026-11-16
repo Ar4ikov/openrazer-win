@@ -40,9 +40,10 @@ DEFAULT_SIDETONE = 8
 #: eighteen hours, which is no use on a slider.
 IDLE_SECONDS_MAX = 60 * 60
 
-#: The shortest it takes.  It has no way of staying on: asked for 0, the
-#: headset answers that the command failed and keeps the time it had (issue #17).
-IDLE_SECONDS_MIN = 60
+#: The shortest it takes.  It has no way of staying on: asked for anything
+#: under five minutes, 0 included, the headset answers that the command failed
+#: and keeps the time it had (issue #17).
+IDLE_SECONDS_MIN = 5 * 60
 
 
 class BlackSharkV3XDevice:
@@ -281,7 +282,7 @@ class BlackSharkV3XDevice:
         if seconds < IDLE_SECONDS_MIN:
             raise DeviceError(
                 '{0} cannot be kept from switching itself off: its sleep timer '
-                'starts at {1} minute and goes up to {2}'.format(
+                'starts at {1} minutes and goes up to {2}'.format(
                     self.name, IDLE_SECONDS_MIN // 60, (protocol.NOT_LINKED - 1) // 60))
         if seconds >= protocol.NOT_LINKED:
             raise DeviceError('the sleep timer goes up to {0} minutes'.format(

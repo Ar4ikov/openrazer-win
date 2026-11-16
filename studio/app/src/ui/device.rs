@@ -120,7 +120,9 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
             app.device_ui.tab = tabs[0];
         }
     }
-    let options: Vec<(Tab, &str)> = tabs.iter().map(|tab| (*tab, tab.label())).collect();
+    // A mouse has buttons where a keyboard has keys.
+    let mouse = snap.details.get(&device.serial).and_then(|d| d.caps.as_ref()).is_some_and(|caps| caps["type"] == "mouse");
+    let options: Vec<(Tab, &str)> = tabs.iter().map(|tab| (*tab, if *tab == Tab::Keys && mouse { t("Buttons") } else { tab.label() })).collect();
     widgets::tabs(ui, &options, &mut app.device_ui.tab);
     ui.add_space(theme::GAP);
     if app.device_ui.tab == Tab::Lighting {

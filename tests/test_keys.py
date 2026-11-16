@@ -386,3 +386,112 @@ def test_the_daemon_passes_macro_key_presses_to_its_effects(tmp_path):
     service.effects.keys._subscribers.append(heard.append)
     keys.on_press('M3')
     assert heard == ['M3']
+
+
+# -- mouse side buttons (issue #20) ------------------------------------------
+
+DEATHADDER_2000 = 0x005F
+VK_C = 0x43
+LCTRL = KEYS['KEY_LEFTCTRL']
+
+
+@pytest.fixture
+def mouse_rig(tmp_path):
+    """A daemon with a mouse, key handling and a stand-in mouse hook."""
+    fake = FakeRazerDevice(DEATHADDER_2000, 'Razer DeathAdder 2000')
+    backend = FakeHidBackend([fake])
+    injector = RecordingInjector()
+    hook = FakeHook()
+    keys = KeyService(backend, macros=MacroStore(str(tmp_path / 'macros.json')),
+                      injector=injector, hook=FakeHook(), mouse_hook=hook,
+                      launcher=lambda target: None)
+    service = DaemonService(backend=backend, persistence=Persistence(str(tmp_path / 'p.json')),
+                            enable_effects=False, keys=keys, macros=keys.macros)
+    service.start()
+    device = service.manager.devices[0]
+    yield service, keys, device, hook, injector
+    service.stop()
+
+
+def test_a_mouse_offers_its_side_buttons(mouse_rig):
+    service, keys, device, hook, _ = mouse_rig
+    info = service.rpc_macro_list(device.serial)
+    assert info['keys'] == ['MOUSE4', 'MOUSE5']
+    assert info['buttons'] is True and info['recordable'] is False
+    # Nothing to reassign yet, so nothing watches the mouse.
+    assert not hook.running
+    assert keys.handle_button('MOUSE4', True) is False
+
+
+def test_the_hook_is_only_there_while_a_button_has_a_binding(mouse_rig):
+    service, keys, device, hook, _ = mouse_rig
+    service.rpc_macro_set(device.serial, 'MOUSE4', {'type': 'disabled'})
+    assert hook.running
+    assert keys.handle_button('MOUSE4', True) is True
+    assert keys.handle_button('MOUSE5', True) is False      # the other is left alone
+    service.rpc_macro_delete(device.serial, 'MOUSE4')
+    assert not hook.running
+    assert keys.handle_button('MOUSE4', True) is False
+
+
+def test_a_shortcut_on_a_button_is_held_as_long_as_the_button(mouse_rig):
+    service, keys, device, _, injector = mouse_rig
+    service.rpc_macro_set(device.serial, 'MOUSE5', {'type': 'keys', 'sequence': 'ctrl+c'})
+    assert keys.handle_button('MOUSE5', True) is True
+    assert wait_for(lambda: len(injector.sent) == 2)
+    assert [(e[0], e[4]) for e in injector.sent] == [('raw', True), ('raw', True)]
+    assert injector.sent[0][2] == LCTRL.scan
+    assert keys.handle_button('MOUSE5', False) is True
+    assert wait_for(lambda: len(injector.sent) == 4)
+    # Let go in the opposite order: C first, then Ctrl.
+    assert [e[4] for e in injector.sent[2:]] == [False, False]
+    assert injector.sent[3][2] == LCTRL.scan
+
+
+def test_a_button_can_be_another_button(mouse_rig):
+    service, keys, device, _, injector = mouse_rig
+    service.rpc_macro_set(device.serial, 'MOUSE4', {'type': 'button', 'button': 'middle'})
+    keys.handle_button('MOUSE4', True)
+    keys.handle_button('MOUSE4', False)
+    assert wait_for(lambda: injector.sent == [('mouse', 'middle', True), ('mouse', 'middle', False)])
+
+
+def test_a_longer_macro_on_a_button_plays_once_per_press(mouse_rig):
+    service, keys, device, _, injector = mouse_rig
+    service.rpc_macro_set(device.serial, 'MOUSE4', {'type': 'text', 'text': 'gg'})
+    assert keys.handle_button('MOUSE4', True) is True
+    assert keys.handle_button('MOUSE4', False) is True
+    assert wait_for(lambda: injector.sent == [('text', 'gg')])
+
+
+def test_a_mouse_that_goes_takes_its_bindings_with_it(mouse_rig):
+    service, keys, device, hook, _ = mouse_rig
+    service.rpc_macro_set(device.serial, 'MOUSE4', {'type': 'disabled'})
+    assert hook.running
+    keys.detach(device)
+    assert not hook.running
+    assert keys.handle_button('MOUSE4', True) is False
+    keys.attach(device)
+    assert hook.running
+
+
+def test_a_button_held_when_the_hook_goes_is_let_go(mouse_rig):
+    service, keys, device, _, injector = mouse_rig
+    service.rpc_macro_set(device.serial, 'MOUSE4', {'type': 'button', 'button': 'left'})
+    keys.handle_button('MOUSE4', True)
+    service.rpc_macro_delete(device.serial, 'MOUSE4')
+    assert wait_for(lambda: injector.sent == [('mouse', 'left', True), ('mouse', 'left', False)])
+
+
+def test_only_one_key_or_one_shortcut_is_held():
+    from openrazer_win.keys.macros import held_keys
+    assert held_keys({'type': 'keys', 'events': parse_sequence('ctrl+shift+t')}) is not None
+    assert held_keys({'type': 'keys', 'events': parse_sequence('a')}) is not None
+    assert held_keys({'type': 'keys', 'events': parse_sequence('ctrl+c, ctrl+v')}) is None
+    assert held_keys({'type': 'text', 'text': 'x'}) is None
+
+
+def test_a_button_binding_names_a_button():
+    assert validate({'type': 'button', 'button': 'back'}) == {'type': 'button', 'button': 'back'}
+    with pytest.raises(MacroError):
+        validate({'type': 'button', 'button': 'sixth'})

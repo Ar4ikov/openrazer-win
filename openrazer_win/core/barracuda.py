@@ -61,6 +61,8 @@ class BarracudaDevice:
         self._quiet_until = 0.0
         #: The receiver was left passing requests on, and would not stop.
         self._route_failed = False
+        #: Whether the receiver answers the read length: None until asked.
+        self._read_length_heard: Optional[bool] = None
 
     # -- identity ----------------------------------------------------------
     @property
@@ -209,15 +211,41 @@ class BarracudaDevice:
             raise DeviceError('{0}: the receiver did not change its route'.format(self.name))
 
     def _read_max_length(self) -> None:
-        """What Razer's software says before it asks for settings."""
-        result = self._request(
-            Family.DIAG, protocol.READ_MAX_LEN,
-            lambda sequence, frame: protocol.ack(frame, Family.DIAG, sequence))
+        """What Razer's software says before it asks for settings.
+
+        Asked for longer reads, a receiver tried on Windows answered with a
+        length of 0 where the one the reference project saw answered 240, and
+        at times not at all (issue #21); the battery, asked without it, answers
+        either way.  So the answer is noted and nothing more, and a receiver
+        that once said nothing is not asked again: each time would cost the
+        whole wait.
+        """
+        if self._read_length_heard is False:
+            return
+        try:
+            result = self._request(
+                Family.DIAG, protocol.READ_MAX_LEN,
+                lambda sequence, frame: protocol.ack(frame, Family.DIAG, sequence))
+        except DeviceError as error:
+            self.channel_note('read length refused: {0}'.format(error))
+            return
         if result is None:
-            raise DeviceError('{0} did not answer'.format(self.name))
+            self._read_length_heard = False
+            self.channel_note('read length: no answer; not asked again')
+            return
+        self._read_length_heard = True
         if result != protocol.READ_MAX_LEN_RESULT:
-            raise DeviceError('{0}: unexpected answer {1} to the read length'.format(
-                self.name, result.hex()))
+            self.channel_note('read length answered {0}'.format(result.hex(' ') or 'nothing'))
+
+    def channel_note(self, text: str) -> None:
+        note = getattr(self.channel, 'note', None)
+        if note is not None:
+            note(text)
+        logger.debug('%s: %s', self.name, text)
+
+    def get_trace(self) -> list:
+        """The last requests and answers, oldest first, for a report."""
+        return list(getattr(self.channel, 'trace', ()))
 
     def _off(self) -> HeadsetOff:
         self._quiet_until = time.monotonic() + QUIET_SECONDS
@@ -296,7 +324,8 @@ class BarracudaDevice:
             Family.CUSTOMER, protocol.get(register),
             lambda _sequence, frame: protocol.register_reply(frame, register))
         if value is None:
-            raise DeviceError('{0} did not answer'.format(self.name))
+            raise DeviceError('{0} did not answer when asked for register 0x{1:02x}'.format(
+                self.name, register))
         return value
 
     def _byte(self, register: int, what: str, allowed) -> int:
@@ -316,7 +345,8 @@ class BarracudaDevice:
             Family.CUSTOMER, protocol.put(register, value),
             lambda _sequence, frame: protocol.register_reply(frame, register | protocol.WRITE))
         if answer is None:
-            raise DeviceError('{0} did not answer'.format(self.name))
+            raise DeviceError('{0} did not answer when register 0x{1:02x} was set'.format(
+                self.name, register))
         if answer != b'\x00':
             raise DeviceError('{0} refused the {1}'.format(self.name, what))
         if self._get(register) != value:

@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 #: "Sent by openrazer-win" -- what the hook looks for in dwExtraInfo.
 MARKER = 0x52415A52      # 'RAZR'
 
+INPUT_MOUSE = 0
 INPUT_KEYBOARD = 1
 KEYEVENTF_EXTENDEDKEY = 0x0001
 KEYEVENTF_KEYUP = 0x0002
@@ -39,8 +40,15 @@ class _KEYBDINPUT(ctypes.Structure):
                 ('dwExtraInfo', ctypes.c_size_t)]
 
 
+#: Mouse buttons: the flags for pressing and letting go, and mouseData.
+MOUSE_BUTTON_EVENTS = {
+    'left': (0x0002, 0x0004, 0), 'right': (0x0008, 0x0010, 0),
+    'middle': (0x0020, 0x0040, 0),
+    'back': (0x0080, 0x0100, 0x0001), 'forward': (0x0080, 0x0100, 0x0002),
+}
+
+
 class _MOUSEINPUT(ctypes.Structure):
-    # Never sent; present so the union below has the size Windows expects.
     _fields_ = [('dx', ctypes.c_long), ('dy', ctypes.c_long),
                 ('mouseData', ctypes.c_ulong), ('dwFlags', ctypes.c_ulong),
                 ('time', ctypes.c_ulong), ('dwExtraInfo', ctypes.c_size_t)]
@@ -124,6 +132,18 @@ class Injector:
                             | (0 if down else KEYEVENTF_KEYUP))
                            for scan, extended, down in events])
 
+    def mouse_button(self, button: str, down: bool) -> None:
+        """Press or let go of a mouse button: left, right, middle, back or forward."""
+        pressed, released, data = MOUSE_BUTTON_EVENTS[button]
+        if self._send is None:
+            return
+        event = _INPUT()
+        event.type = INPUT_MOUSE
+        event.union.mi = _MOUSEINPUT(0, 0, data, pressed if down else released, 0, MARKER)
+        if self._send(1, ctypes.byref(event), ctypes.sizeof(_INPUT)) != 1:
+            logger.debug('SendInput did not send the mouse button: WinError %d',
+                         ctypes.get_last_error())
+
     def text(self, text: str) -> None:
         """Type `text` character by character, independent of keyboard layout."""
         events = []
@@ -160,3 +180,6 @@ class RecordingInjector:
 
     def text(self, text: str) -> None:
         self.sent.append(('text', text))
+
+    def mouse_button(self, button: str, down: bool) -> None:
+        self.sent.append(('mouse', button, down))

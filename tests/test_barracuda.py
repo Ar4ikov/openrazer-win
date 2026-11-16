@@ -588,10 +588,31 @@ def test_the_route_is_put_back_whatever_goes_wrong(headset):
     with pytest.raises(RuntimeError):
         device._with_headset(work)
     assert routes(fake) == [1, 0] and fake.headset.route == protocol.ROUTE_LOCAL
-    fake.headset.silent = {(Family.DIAG, protocol.READ_MAX_LEN[0])}
-    with pytest.raises(DeviceError, match='did not answer'):
+    fake.headset.registers[Register.IDLE_MINUTES] = b''
+    fake.headset.silent = {(Family.CUSTOMER, Register.IDLE_MINUTES)}
+    with pytest.raises(DeviceError, match='register 0x2c'):
         device.get_idle_time()
-    assert routes(fake) == [1, 0, 1, 0] and asked(fake) == []
+    assert routes(fake) == [1, 0, 1, 0]
+
+
+def test_a_read_length_answered_with_nothing_is_no_reason_to_stop(headset):
+    # What a receiver on Windows said (issue #21): a length of 0, not 240.
+    device, fake = headset
+    fake.headset.read_length_result = bytes(4)
+    device.set_do_not_disturb(True)
+    assert fake.headset.registers[Register.DO_NOT_DISTURB] == b''
+    assert any('read length answered 00 00 00 00' in line for line in device.get_trace())
+
+
+def test_a_receiver_silent_about_the_read_length_is_not_asked_again(headset):
+    device, fake = headset
+    fake.headset.silent = {(Family.DIAG, protocol.READ_MAX_LEN[0])}
+    assert device.get_idle_time() == 60 * fake.headset.registers[Register.IDLE_MINUTES][0]
+    device.get_idle_time()
+    assert sum(1 for family, _ in fake.headset.requests if family == Family.DIAG) == 1
+    trace = device.get_trace()
+    assert any(line.split()[1] == '>' for line in trace)
+    assert any('not asked again' in line for line in trace)
 
 
 def test_a_route_that_will_not_change_is_an_error_and_nothing_is_asked(headset):

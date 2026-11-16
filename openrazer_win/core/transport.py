@@ -9,6 +9,7 @@ descriptor declares a 90-byte feature report.
 from __future__ import annotations
 
 import logging
+import collections
 import threading
 import time
 from typing import Optional
@@ -18,6 +19,9 @@ from ..protocol import barracuda, blackshark, blackshark_v3x
 from ..protocol.report import REPORT_SIZE, RazerReport, RazerReportError, Status
 
 logger = logging.getLogger(__name__)
+
+#: How many lines of a Barracuda X's traffic are kept for its owner to look at.
+TRACE_LENGTH = 200
 
 #: HID feature buffers carry a leading report-id byte.
 FEATURE_BUFFER_SIZE = REPORT_SIZE + 1
@@ -404,6 +408,18 @@ class TunnelChannel:
         self._writer = None
         self._reader = None
         self._frames = barracuda.Reassembler()
+        #: What went out and came back lately, for ``openrazer-win headset trace``:
+        #: nobody here has the headset, so this is how its owner can show it.
+        self.trace: collections.deque = collections.deque(maxlen=TRACE_LENGTH)
+
+    def note(self, text: str) -> None:
+        """Put a line of the device's own in the trace, between the frames."""
+        self._remember('--', text)
+
+    def _remember(self, direction: str, text: str) -> None:
+        stamp = time.strftime('%H:%M:%S') + '.{0:03d}'.format(int(time.time() * 1000) % 1000)
+        self.trace.append('{0} {1} {2}'.format(stamp, direction, text))
+        logger.debug('barracuda %s %s', direction, text)
 
     def exchange(self, report: bytes, accept):
         """Send `report` and return what `accept` makes of the answer.
@@ -425,17 +441,20 @@ class TunnelChannel:
                     if self._reader.read(0) is None:
                         break
                 self._frames.reset()
+                self._remember('>', report[:3 + report[2]].hex(' '))
                 self._writer.write_output_report(
                     report.ljust(self.info.output_length, b'\x00'))
                 deadline = time.monotonic() + self.timeout
                 while True:
                     left = deadline - time.monotonic()
                     if left <= 0:
+                        self._remember('--', 'nothing more in {0:.1f} s'.format(self.timeout))
                         return None
                     answer = self._reader.read(left)
                     if answer is None:
                         continue
                     for frame in self._frames.feed(answer):
+                        self._remember('<', frame.hex(' '))
                         result = accept(frame)
                         if result is not None:
                             return result

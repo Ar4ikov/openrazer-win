@@ -463,7 +463,8 @@ impl Worker {
     }
 
     fn read_macros(&mut self, serial: &str, caps: &Value) {
-        if caps["type"] != "keyboard" && caps["type"] != "keypad" && caps["dedicated_macro_keys"] != true {
+        // A mouse for its side buttons, which the daemon reassigns on the PC.
+        if caps["type"] != "keyboard" && caps["type"] != "keypad" && caps["type"] != "mouse" && caps["dedicated_macro_keys"] != true {
             return;
         }
         if let Ok(info) = self.with(|c| c.call("macro.list", json!({ "serial": serial }))) {

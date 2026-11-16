@@ -576,8 +576,7 @@ fn assign(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
         .collect();
     if with_keys.is_empty() {
         widgets::panel(ui, t("Macro keys"), |ui| {
-            widgets::help(ui, t("None of the devices here has macro keys the port can handle. Macros made in the library can be put on a keyboard's macro keys once one is plugged in."));
-            widgets::help(ui, t("Mouse buttons cannot be reassigned yet."));
+            widgets::help(ui, t("None of the devices here has macro keys or side buttons the port can handle. Macros made in the library can be put on a keyboard's macro keys, or a mouse's side buttons, once one is plugged in."));
         });
         return;
     }
@@ -592,6 +591,9 @@ pub fn device_keys(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Sna
     let Some(info) = snap.details.get(&device.serial).and_then(|d| d.macros.clone()) else { return };
     let serial = device.serial.clone();
     let handled = info["handled"] == true;
+    // A mouse's side buttons: reassigned on the PC, with nothing to record on.
+    let buttons = info["buttons"] == true;
+    let recordable = info["recordable"] != false;
     let keys: Vec<String> = info["keys"].as_array().map(|k| k.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
     let bindings = info["bindings"].clone();
     let recording = &snap.keys["recording"];
@@ -599,10 +601,12 @@ pub fn device_keys(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Sna
 
     widgets::panel_with(
         ui,
-        &tf("{} · macro keys", &[&super::app::title(device, snap)]),
+        &if buttons { tf("{} · side buttons", &[&super::app::title(device, snap)]) } else { tf("{} · macro keys", &[&super::app::title(device, snap)]) },
         |ui| {
             if handled {
                 widgets::badge(ui, t("Live"), ACCENT);
+            } else if buttons {
+                widgets::badge(ui, t("Off"), theme::WARN).on_hover_text(t("The daemon reassigns side buttons only while it handles keys, on Windows."));
             } else if snap.keys["running"] == true {
                 widgets::badge(ui, t("Idle"), theme::WARN).on_hover_text(t("The daemon could not read this keyboard's key report, so its macro keys do nothing. Bindings can still be set up."));
             } else {
@@ -619,7 +623,7 @@ pub fn device_keys(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Sna
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 10.0;
-                        widgets::keycap(ui, key, 56.0, bound);
+                        widgets::keycap(ui, &key_label(key), 56.0, bound);
                         let tools = 200.0 + 4.0 * 34.0;
                         let room = (ui.available_width() - tools).max(60.0);
                         let (rect, response) = ui.allocate_exact_size(vec2(room, 32.0), Sense::hover());
@@ -636,7 +640,9 @@ pub fn device_keys(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Sna
                             if ui.add(IconButton::new(icon::DELETE, t("Back to the default")).danger().size(30.0).enabled(bound && !live)).clicked() {
                                 app.send(Command::MacroDelete { serial: serial.clone(), key: key.clone() });
                             }
-                            if ui.add(IconButton::new(icon::SAVE, t("Copy into the library")).size(30.0).enabled(bound && !live)).clicked() {
+                            // A mouse button is not a macro: the library has no place for one.
+                            let copyable = action.is_some_and(|a| a["type"] != "button");
+                            if ui.add(IconButton::new(icon::SAVE, t("Copy into the library")).size(30.0).enabled(bound && !live && copyable)).clicked() {
                                 if let Some(action) = action {
                                     app.settings.macros.push(LibraryMacro { name: tf("{} of {}", &[key, &short_name(&device.name)]), action: action.clone() });
                                     app.save_settings();
@@ -650,12 +656,25 @@ pub fn device_keys(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Sna
                                 if ui.add(IconButton::new(icon::STOP, t("Stop recording")).danger().on(true).size(30.0)).clicked() {
                                     app.send(Command::MacroRecordStop { serial: serial.clone() });
                                 }
-                            } else if ui.add(IconButton::new(icon::RECORD, t("Record on the keyboard: type the macro anywhere, then stop")).size(30.0).enabled(handled && !recording_here)).clicked() {
+                            } else if ui.add(IconButton::new(icon::RECORD, if recordable { t("Record on the keyboard: type the macro anywhere, then stop") } else { t("Make a macro in the library to put on a button") }).size(30.0).enabled(handled && recordable && !recording_here)).clicked() {
                                 app.send(Command::MacroRecordStart { serial: serial.clone(), key: key.clone() });
                             }
                             let mut chosen: Option<usize> = None;
+                            let mut fixed: Option<Value> = None;
                             ui.add_enabled_ui(!live, |ui| {
                                 widgets::select(ui, ("assign", &serial, key), RichText::new(t("Put a macro on it")).color(TEXT_DIM), 190.0, |ui| {
+                                    if buttons {
+                                        // What Synapse calls a mouse function: another button.
+                                        for (name, label) in mouse_functions() {
+                                            if widgets::option(ui, false, label).clicked() {
+                                                fixed = Some(json!({ "type": "button", "button": name }));
+                                            }
+                                        }
+                                        if widgets::option(ui, false, t("Does nothing")).clicked() {
+                                            fixed = Some(json!({ "type": "disabled" }));
+                                        }
+                                        widgets::divider(ui);
+                                    }
                                     if app.settings.macros.is_empty() {
                                         ui.label(widgets::faint(t("The library is empty")));
                                     }
@@ -670,12 +689,33 @@ pub fn device_keys(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Sna
                                 let action = app.settings.macros[i].action.clone();
                                 app.send(Command::MacroSet { serial: serial.clone(), key: key.clone(), action });
                             }
+                            if let Some(action) = fixed {
+                                app.send(Command::MacroSet { serial: serial.clone(), key: key.clone(), action });
+                            }
                         });
                     });
                 });
             }
+            if buttons {
+                widgets::help(ui, t("A single key or shortcut is held for as long as the button is; a longer macro plays once per press."));
+                widgets::help(ui, t("Windows does not say which mouse a button came from: while this mouse is connected, what its buttons do applies to the side buttons of every mouse."));
+            }
         },
     );
+}
+
+/// What a mouse button can be made into, as Synapse offers it.
+fn mouse_functions() -> [(&'static str, &'static str); 5] {
+    [("back", t("Back")), ("forward", t("Forward")), ("middle", t("Middle click")), ("left", t("Left click")), ("right", t("Right click"))]
+}
+
+/// A key's name on its keycap: a mouse's side buttons by what they do.
+fn key_label(key: &str) -> String {
+    match key {
+        "MOUSE4" => t("Back").to_string(),
+        "MOUSE5" => t("Forward").to_string(),
+        other => other.to_string(),
+    }
 }
 
 /// One line saying what a binding does.
@@ -691,6 +731,8 @@ pub fn summary(action: Option<&Value>, key: &str) -> (String, bool) {
             "SIDE2" => "F19",
             "SIDE3" => "F20",
             "DIAL" => "F24",
+            "MOUSE4" => return (t("Goes back, as it came").to_string(), false),
+            "MOUSE5" => return (t("Goes forward, as it came").to_string(), false),
             _ => "—",
         };
         return (tf("Sends {}", &[&default]), false);
@@ -727,6 +769,11 @@ pub fn summary(action: Option<&Value>, key: &str) -> (String, bool) {
         "text" => tf("Types “{}”", &[&truncate(action["text"].as_str().unwrap_or_default(), 48)]),
         "launch" => tf("Opens {}", &[&truncate(action["target"].as_str().unwrap_or_default(), 56)]),
         "disabled" => t("Does nothing").to_string(),
+        "button" => {
+            let name = action["button"].as_str().unwrap_or_default();
+            let label = mouse_functions().iter().find(|(n, _)| *n == name).map_or(name, |(_, l)| *l);
+            tf("Acts as {}", &[&label.to_lowercase()])
+        }
         _ => t("Other").to_string(),
     };
     (text, true)
@@ -766,6 +813,8 @@ mod tests {
     fn an_unbound_key_says_what_it_sends() {
         set_english();
         assert_eq!(summary(None, "M1"), ("Sends F13".to_string(), false));
+        assert!(!summary(None, "MOUSE4").1);
+        assert_eq!(summary(Some(&json!({ "type": "button", "button": "middle" })), "MOUSE5").0, "Acts as middle click");
     }
 
     fn set_english() {
