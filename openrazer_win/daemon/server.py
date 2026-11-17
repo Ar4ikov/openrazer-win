@@ -59,6 +59,9 @@ DEVICE_METHODS = {
     'get_poll_rate', 'set_poll_rate', 'supported_poll_rates',
     'get_scroll_mode', 'set_scroll_mode', 'get_scroll_acceleration',
     'set_scroll_acceleration', 'get_scroll_smart_reel', 'set_scroll_smart_reel',
+    'get_onboard_profiles', 'get_active_onboard_profile', 'set_active_onboard_profile',
+    'get_buttons', 'get_button_binding', 'set_button_binding',
+    'backup_button_bindings', 'restore_button_bindings', 'get_onboard_macros',
     # power
     'get_battery_level', 'is_charging', 'get_idle_time', 'set_idle_time',
     'get_low_battery_threshold', 'set_low_battery_threshold',

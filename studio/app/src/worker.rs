@@ -7,7 +7,7 @@
 
 use openrazer_studio_core::rpc::{Client, RpcError};
 use openrazer_studio_core::{t, tf};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -72,6 +72,10 @@ pub struct Detail {
     pub macros: Option<Value>,
     /// A headset's own sound settings.
     pub audio: Option<Value>,
+    /// Onboard button memory, for mice that have it:
+    /// `{ profiles, profile, buttons: [{id, name}], bindings: { normal: [..], hypershift: [..] }, macros }`,
+    /// the bindings in the same order as the buttons, the macros by id as bindings spell it.
+    pub onboard: Option<Value>,
 }
 
 #[derive(Clone, Debug)]
@@ -133,6 +137,10 @@ pub enum Command {
     MacroRecordStart { serial: String, key: String },
     MacroRecordStop { serial: String },
     MacroPlay { serial: String, key: String },
+    /// Read one onboard profile's bindings.
+    ButtonsLoad { serial: String, profile: i64 },
+    ButtonsBackup { serial: String, profile: i64, path: std::path::PathBuf },
+    ButtonsRestore { serial: String, path: std::path::PathBuf },
     StartDaemon,
     StopDaemon,
     RestartDaemon,
@@ -157,6 +165,8 @@ pub enum Then {
     Power,
     Keyboard,
     Audio,
+    /// The onboard profile on screen.
+    Buttons,
 }
 
 pub type Shared = Arc<Mutex<Snapshot>>;
@@ -286,6 +296,7 @@ impl Worker {
             self.load_device(&serial);
         }
         self.poll_batteries();
+        self.poll_onboard_profiles();
     }
 
     fn slow_poll(&mut self) {
@@ -343,7 +354,69 @@ impl Worker {
         self.read_profiles(serial);
         self.read_macros(serial, &caps);
         self.read_audio(serial);
+        self.read_buttons(serial, &caps, None);
         self.battery_at.insert(serial.to_string(), Instant::now());
+    }
+
+    /// Every binding of one onboard profile, both layers, and the mouse's
+    /// macros; `None` picks the active profile.
+    fn read_buttons(&mut self, serial: &str, caps: &Value, profile: Option<i64>) {
+        if caps["onboard_buttons"] != true {
+            return;
+        }
+        let read = |worker: &mut Self| -> Result<Value, RpcError> {
+            let profiles = worker.with(|c| c.device(serial, "get_onboard_profiles", vec![], None))?;
+            let profile = profile.or_else(|| profiles["active"].as_i64()).unwrap_or(1);
+            let buttons = worker.with(|c| c.device(serial, "get_buttons", vec![], None))?;
+            let mut bindings = Map::new();
+            for layer in ["normal", "hypershift"] {
+                let mut row = vec![];
+                for button in buttons.as_array().into_iter().flatten() {
+                    let args = vec![json!(profile), button["id"].clone(), json!(layer)];
+                    row.push(worker.with(|c| c.device(serial, "get_button_binding", args, None))?);
+                }
+                bindings.insert(layer.into(), Value::Array(row));
+            }
+            // What each macro does, keyed as bindings spell its id ("1615").
+            let macros: Map<String, Value> = worker
+                .with(|c| c.device(serial, "get_onboard_macros", vec![], None))
+                .ok()
+                .and_then(|list| list.as_array().cloned())
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|m| Some((format!("{:04x}", m["id"].as_i64()?), m)))
+                .collect();
+            Ok(json!({ "profiles": profiles, "profile": profile, "buttons": buttons, "bindings": bindings, "macros": macros }))
+        };
+        match read(self) {
+            Ok(onboard) => self.update(serial, |d| d.onboard = Some(onboard)),
+            Err(error) => self.toast(tf("Could not read the buttons: {}", &[&error]), true),
+        }
+    }
+
+    fn onboard_profile(&self, serial: &str) -> Option<i64> {
+        let shared = self.shared.lock().unwrap();
+        shared.details.get(serial)?.onboard.as_ref()?["profile"].as_i64()
+    }
+
+    /// The profile button on the mouse switches profiles without telling anyone,
+    /// so ask which one is active (a single short read) and follow it.
+    fn poll_onboard_profiles(&mut self) {
+        let loaded: Vec<(String, Value, Value)> = {
+            let shared = self.shared.lock().unwrap();
+            shared
+                .details
+                .iter()
+                .filter_map(|(serial, d)| Some((serial.clone(), d.onboard.clone()?, d.caps.clone()?)))
+                .collect()
+        };
+        for (serial, onboard, caps) in loaded {
+            // A failed read is left for the next tick: no toast every two seconds.
+            let now = self.with(|c| c.device(&serial, "get_active_onboard_profile", vec![], None)).ok();
+            if profile_switched(&onboard, now.as_ref().and_then(Value::as_i64)) {
+                self.read_buttons(&serial, &caps, None);
+            }
+        }
     }
 
     fn update(&self, serial: &str, f: impl FnOnce(&mut Detail)) {
@@ -500,9 +573,15 @@ impl Worker {
             Command::Call { serial, method, args, zone, then } => {
                 let result = self.with(|c| c.device(&serial, &method, args, zone.as_deref()));
                 self.report(&result, None);
-                if result.is_ok() {
+                // A refused rebind may still have changed the button (a put-back
+                // that failed), so the Buttons page is re-read either way.
+                if result.is_ok() || then == Then::Buttons {
                     let caps = self.caps(&serial);
                     match (then, caps) {
+                        (Then::Buttons, Some(caps)) => {
+                            let profile = self.onboard_profile(&serial);
+                            self.read_buttons(&serial, &caps, profile);
+                        }
                         (Then::Lighting, Some(caps)) => {
                             self.load_persistence();
                             self.read_lighting(&serial, &caps);
@@ -608,6 +687,41 @@ impl Worker {
             Command::MacroPlay { serial, key } => {
                 let result = self.with(|c| c.call("macro.play", json!({ "serial": serial, "key": key })));
                 self.report(&result, None);
+            }
+            Command::ButtonsLoad { serial, profile } => {
+                if let Some(caps) = self.caps(&serial) {
+                    self.read_buttons(&serial, &caps, Some(profile));
+                }
+            }
+            Command::ButtonsBackup { serial, profile, path } => {
+                match self.with(|c| c.device(&serial, "backup_button_bindings", vec![json!(profile)], None)) {
+                    Ok(doc) => {
+                        let text = serde_json::to_string_pretty(&doc).unwrap_or_default();
+                        match std::fs::write(&path, text) {
+                            Ok(()) => self.toast(tf("Profile {} backed up to {}", &[&profile, &path.display()]), false),
+                            Err(error) => self.toast(tf("Could not save the backup: {}", &[&error]), true),
+                        }
+                    }
+                    Err(error) => self.toast(error.to_string(), true),
+                }
+            }
+            Command::ButtonsRestore { serial, path } => {
+                let doc = std::fs::read_to_string(&path)
+                    .map_err(|e| e.to_string())
+                    .and_then(|text| serde_json::from_str::<Value>(&text).map_err(|e| e.to_string()));
+                match doc {
+                    Err(error) => self.toast(tf("Could not read {}: {}", &[&path.display(), &error]), true),
+                    Ok(doc) => {
+                        let result = self.with(|c| c.device(&serial, "restore_button_bindings", vec![doc.clone()], None));
+                        match &result {
+                            Ok(count) => self.toast(tf("{} bindings restored", &[&count.as_i64().unwrap_or(0)]), false),
+                            Err(error) => self.toast(error.to_string(), true),
+                        }
+                        if let Some(caps) = self.caps(&serial) {
+                            self.read_buttons(&serial, &caps, doc["profile"].as_i64());
+                        }
+                    }
+                }
             }
             Command::StartDaemon => self.start_daemon(false),
             Command::StopDaemon => {
@@ -745,4 +859,23 @@ fn parse_device(row: &Value) -> Device {
 /// Positional arguments for `device.call`.
 pub fn args(values: &[i64]) -> Vec<Value> {
     values.iter().map(|v| json!(v)).collect()
+}
+
+/// Whether the mouse is now on another profile than the one the page last read.
+fn profile_switched(onboard: &Value, now: Option<i64>) -> bool {
+    now.is_some() && onboard["profiles"]["active"].as_i64() != now
+}
+
+#[cfg(test)]
+mod onboard_tests {
+    use super::*;
+
+    #[test]
+    fn a_profile_button_press_is_noticed() {
+        let onboard = json!({ "profiles": { "active": 1 }, "profile": 1 });
+        assert!(profile_switched(&onboard, Some(2)));
+        assert!(!profile_switched(&onboard, Some(1)));
+        // Firmware that cannot tell, or a read that failed: nothing to follow.
+        assert!(!profile_switched(&onboard, None));
+    }
 }
