@@ -71,6 +71,10 @@ pub struct DeviceUi {
     apps: Vec<String>,
     /// When the sound page last asked the headset how it stands.
     pub audio_read: Option<std::time::Instant>,
+    /// The onboard button being changed on the Buttons tab.
+    pub onboard_edit: Option<super::onboard::ButtonEdit>,
+    /// The Buttons tab shows the Hypershift layer rather than the normal one.
+    pub onboard_hypershift: bool,
 }
 
 /// A profile is lighting, so a device with none has nothing to put in one.
@@ -99,7 +103,9 @@ fn tabs_for(device: &Device, snap: &Snapshot) -> Vec<Tab> {
     if keeps_profiles(caps) {
         tabs.push(Tab::Profiles);
     }
-    if detail.and_then(|d| d.macros.as_ref()).is_some_and(|m| m["keys"].as_array().is_some_and(|k| !k.is_empty())) {
+    // Buttons the mouse keeps itself count, as well as keys the PC reassigns.
+    let onboard = caps.is_some_and(|c| c["onboard_buttons"] == true);
+    if onboard || detail.and_then(|d| d.macros.as_ref()).is_some_and(|m| m["keys"].as_array().is_some_and(|k| !k.is_empty())) {
         tabs.push(Tab::Keys);
     }
     tabs.push(Tab::About);
@@ -136,7 +142,13 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
         Tab::Sound => super::audio::page(app, ui, &device, snap),
         Tab::Power => power(app, ui, &device, snap),
         Tab::Profiles => profiles(app, ui, &device, snap),
-        Tab::Keys => super::macros::device_keys(app, ui, &device, snap),
+        Tab::Keys => {
+            if snap.details.get(&device.serial).and_then(|d| d.caps.as_ref()).is_some_and(|c| c["onboard_buttons"] == true) {
+                super::onboard::panel(app, ui, &device, snap);
+                ui.add_space(theme::GAP);
+            }
+            super::macros::device_keys(app, ui, &device, snap);
+        }
         Tab::About => about(app, ui, &device, snap),
         Tab::Lighting => {}
     });

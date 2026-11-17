@@ -10,6 +10,7 @@ pub mod home;
 pub mod integrations;
 pub mod lighting;
 pub mod macros;
+pub mod onboard;
 pub mod settings;
 pub mod setup;
 pub mod snaptap;

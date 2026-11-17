@@ -17,9 +17,11 @@ uses [semantic versioning](https://semver.org/).
   are shown as raw bytes and carried through a backup unchanged. The macros
   Synapse stored on the mouse are read too, with what each one types. Unlike
   the side-button reassignment of 1.6.5, which is done on the PC, these live in
-  the mouse and work with nothing running. The classic control panel
-  (`openrazer-win-gui`) has a Buttons tab for all of it, where a key combo can
-  be recorded by pressing it. Only the Basilisk V3 is offered it so far.
+  the mouse and work with nothing running. In Studio they sit at the top of
+  the mouse's *Buttons* tab: the profiles in the colours of the light under
+  the mouse (picking one switches the mouse to it, and the mouse's own profile
+  button is followed), and a key combo can be recorded by pressing it. Only
+  the Basilisk V3 is offered it so far.
 
 ## [1.6.5] - 2026-11-17
 

@@ -1,7 +1,6 @@
 //! Everything drawn in the window.
 
 pub mod app;
-pub mod buttons;
 pub mod device_pages;
 pub mod edit;
 pub mod lighting;
