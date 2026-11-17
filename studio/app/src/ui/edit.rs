@@ -5,7 +5,7 @@
 //! user touched something moments ago -- a reload then would snap a slider
 //! back under their hand.
 
-use super::effects::{own_zones, ZONE_SOFTWARE};
+use super::effects::{own_zones, WAVE_SPEED_DEFAULT, ZONE_SOFTWARE};
 use crate::worker::{Command, Detail, Device, Snapshot};
 use egui::Color32;
 use serde_json::{json, Value};
@@ -31,12 +31,14 @@ pub struct ZoneEdit {
     pub active: usize,
     pub speed: i64,
     pub direction: i64,
+    /// The delay byte a wave is sent with, on a zone whose wave takes one.
+    pub wave_speed: Option<i64>,
     pub brightness: Option<f32>,
 }
 
 impl Default for ZoneEdit {
     fn default() -> Self {
-        ZoneEdit { effect: String::new(), colours: DEFAULT_COLOURS, active: 0, speed: 1, direction: 1, brightness: None }
+        ZoneEdit { effect: String::new(), colours: DEFAULT_COLOURS, active: 0, speed: 1, direction: 1, wave_speed: None, brightness: None }
     }
 }
 
@@ -186,6 +188,7 @@ impl DeviceEdit {
             }
             edit.speed = state["speed"].as_i64().unwrap_or(1).clamp(1, 4);
             edit.direction = state["wave_dir"].as_i64().unwrap_or(1).clamp(1, 2);
+            edit.wave_speed = (caps["zones"][zone]["wave_speed"] == true).then(|| state["wave_speed"].as_i64().unwrap_or(WAVE_SPEED_DEFAULT).clamp(1, 255));
             edit.brightness = detail
                 .brightness
                 .get(zone)
@@ -362,6 +365,22 @@ mod tests {
         assert_ne!(edit.bands_of, edit.preset);
         let read = AudioEdit::read(&json!({ "equalizer_preset": "movie", "equalizer_bands": [0, 0] }));
         assert_eq!(read.bands_of, read.preset);
+    }
+
+    #[test]
+    fn a_wave_speed_is_read_only_where_the_wave_takes_one() {
+        let device = Device { serial: "D1".into(), kind: "accessory".into(), ..Default::default() };
+        let zones = json!({ "backlight": { "effects": ["wave"], "wave_speed": true }, "logo": { "effects": ["wave"], "wave_speed": false } });
+        let detail = Detail { caps: Some(json!({ "zones": zones })), ..Default::default() };
+        let mut snap = Snapshot { persistence: json!({ "D1": { "zones": { "backlight": { "effect": "wave", "wave_speed": 10 } } } }), generation: 1, ..Default::default() };
+        let mut edit = DeviceEdit::default();
+        edit.refresh(&device, &detail, &snap);
+        assert_eq!((edit.zones["backlight"].wave_speed, edit.zones["logo"].wave_speed), (Some(10), None));
+        // None saved: the driver's own.
+        snap.persistence = json!({ "D1": { "zones": { "backlight": { "effect": "wave" } } } });
+        snap.generation += 1;
+        edit.refresh(&device, &detail, &snap);
+        assert_eq!(edit.zones["backlight"].wave_speed, Some(WAVE_SPEED_DEFAULT));
     }
 
     #[test]

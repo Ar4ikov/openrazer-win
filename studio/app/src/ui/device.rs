@@ -526,6 +526,7 @@ pub fn profile_switcher(app: &mut App, ui: &mut egui::Ui, device: &Device, snap:
         });
     });
     if let Some(name) = chosen {
+        app.flush_device(&device.serial);
         app.send(Command::Profile { action: "load", serial: device.serial.clone(), name, quiet: false });
     }
 }
@@ -559,6 +560,7 @@ fn profiles(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) 
                     let save = ui.add(Button::primary(t("Create")).icon(icon::ADD).width(save_width).enabled(free));
                     if (save.clicked() || enter) && free {
                         app.device_ui.creating = true;
+                        app.flush_device(&serial);
                         app.send(Command::ProfileCreate { serial: serial.clone(), name, source: None });
                     }
                 });
@@ -640,6 +642,7 @@ fn profile_row(app: &mut App, ui: &mut egui::Ui, serial: &str, profile: &serde_j
                     app.device_ui.copying = false;
                 }
                 if ui.add(Button::secondary(t("Apply")).icon(icon::CHECK).min_width(110.0)).clicked() {
+                    app.flush_device(serial);
                     app.send(Command::Profile { action: "load", serial: serial.to_string(), name: name.clone(), quiet: false });
                 }
             });
@@ -686,6 +689,7 @@ fn duplicate_row(app: &mut App, ui: &mut egui::Ui, serial: &str, source: &str, p
         let create = ui.add(Button::primary(t("Duplicate")).icon(icon::COPY).width(110.0).enabled(free));
         if (create.clicked() || enter) && free {
             app.device_ui.copying = true;
+            app.flush_device(serial);
             app.send(Command::ProfileCreate { serial: serial.to_string(), name: copy, source: Some(source.to_string()) });
         }
         if ui.add(Button::secondary(t("Cancel")).width(96.0)).clicked() {

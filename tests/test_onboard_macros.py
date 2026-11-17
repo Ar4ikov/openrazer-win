@@ -74,6 +74,36 @@ def test_a_busy_macro_read_is_an_error(basilisk):
         device.get_onboard_macros()
 
 
+def test_a_mouse_that_repeats_its_macro_list_is_not_read_for_ever(basilisk, monkeypatch):
+    device, fake = basilisk
+    fake.state.onboard['macros'] = {0x0100 + i: ('M{0}'.format(i), b'') for i in range(32)}
+    answer = fake._respond_macro
+
+    def first_page_always(cmd, args, response):
+        if cmd == 0x8B:
+            args = bytes((0, 0)) + bytes(args[2:])
+        answer(cmd, args, response)
+
+    monkeypatch.setattr(fake, '_respond_macro', first_page_always)
+    assert len(device.get_onboard_macros()) == 32
+    pages = [r for r in fake.sent_reports if (r.command_class, r.command_id) == (0x06, 0x8B)]
+    assert len(pages) == 2
+
+
+def test_forty_macros_take_two_pages(basilisk):
+    device, fake = basilisk
+    fake.state.onboard['macros'] = {0x0100 + i: ('M{0}'.format(i), b'') for i in range(40)}
+    assert [m['id'] for m in device.get_onboard_macros()] == [0x0100 + i for i in range(40)]
+
+
+def test_a_macro_bigger_than_believable_is_read_only_so_far(basilisk):
+    device, fake = basilisk
+    fake.state.onboard['macros'] = {0x0100: ('Long', bytes((0x01, 0x04, 0x02, 0x04)) * 0x2000)}
+    device.get_onboard_macros()
+    reads = [r for r in fake.sent_reports if (r.command_class, r.command_id) == (0x06, 0x89)]
+    assert len(reads) == -(-0x4000 // 72)
+
+
 def test_other_mice_are_not_offered_macros(persistence):
     other, _ = make_device(0x0078, persistence)
     try:

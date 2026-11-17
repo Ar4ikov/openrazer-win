@@ -79,6 +79,24 @@ pub fn speeds(effect: &str) -> Option<Vec<(i64, String)>> {
     }
 }
 
+/// The byte the driver sends for a wave's speed when none is chosen.
+pub const WAVE_SPEED_DEFAULT: i64 = 40;
+
+/// A wave's speed as people set it, 0 to 100 %, for the byte the device takes.
+///
+/// The byte is a delay, 1 to 255: on the Mouse Dock Pro 10 is very fast and
+/// 200 slow (issue #22). Halving the delay doubles the speed, so the scale is
+/// logarithmic, or the whole slow half would sit at the left end.
+pub fn wave_percent(byte: i64) -> f64 {
+    let byte = byte.clamp(1, 255) as f64;
+    (100.0 * (1.0 - byte.ln() / 255f64.ln())).round()
+}
+
+/// The delay byte for a speed of 0 to 100 %.
+pub fn wave_byte(percent: f64) -> i64 {
+    255f64.powf(1.0 - percent.clamp(0.0, 100.0) / 100.0).round().clamp(1.0, 255.0) as i64
+}
+
 pub fn zone_label(zone: &str, kind: &str) -> &'static str {
     match (zone, kind) {
         ("backlight", "headset") => t("Both ears"),
@@ -125,7 +143,10 @@ pub fn apply_commands(serial: &str, zone: &str, edit: &ZoneEdit, software_runnin
         "on" => ("set_on", vec![]),
         "static" => ("set_static", c1.to_vec()),
         "spectrum" => ("set_spectrum", vec![]),
-        "wave" => ("set_wave", vec![edit.direction]),
+        "wave" => match edit.wave_speed {
+            Some(speed) => ("set_wave_with_speed", vec![edit.direction, speed.clamp(1, 255)]),
+            None => ("set_wave", vec![edit.direction]),
+        },
         "wheel" => ("set_wheel", vec![edit.direction]),
         "reactive" => ("set_reactive", flat(&[&c1, &[edit.speed]])),
         "blinking" => ("set_blinking", c1.to_vec()),
@@ -203,7 +224,32 @@ mod tests {
             active: 0,
             speed: 3,
             direction: 2,
+            wave_speed: None,
             brightness: None,
+        }
+    }
+
+    #[test]
+    fn a_wave_that_takes_a_speed_is_sent_with_it() {
+        let mut wave = zone("wave");
+        wave.wave_speed = Some(10);
+        let (method, args, zone_name) = call(&apply_commands("S", "backlight", &wave, false));
+        assert_eq!((method.as_str(), zone_name.as_deref()), ("set_wave_with_speed", Some("backlight")));
+        assert_eq!(args, vec![json!(2), json!(10)]);
+    }
+
+    #[test]
+    fn the_speed_slider_is_fast_on_the_right_and_even_to_the_eye() {
+        // The byte is a delay: the smallest is the fastest.
+        assert_eq!((wave_percent(255), wave_percent(1)), (0.0, 100.0));
+        assert!(wave_percent(10) > wave_percent(WAVE_SPEED_DEFAULT) && wave_percent(WAVE_SPEED_DEFAULT) > wave_percent(200));
+        // Half way is about 16, a sixteenth of the slowest delay.
+        assert_eq!(wave_byte(50.0), 16);
+        assert_eq!((wave_byte(0.0), wave_byte(100.0), wave_byte(150.0)), (255, 1, 1));
+        // What the slider shows comes back as the same position.
+        for byte in [1, 10, 40, 41, 200, 255] {
+            let shown = wave_percent(byte);
+            assert_eq!(wave_percent(wave_byte(shown)), shown);
         }
     }
 

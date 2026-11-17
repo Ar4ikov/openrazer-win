@@ -171,10 +171,15 @@ openrazer-win macro set MOUSE5 --button middle -d deathadder
 openrazer-win macro clear MOUSE4 -d deathadder                 # back again
 ```
 
-Razer's mice have no command for what a button does; Synapse reassigns them on the PC too. The
-daemon does it with a low-level mouse hook, installed only while a connected mouse has a side
-button reassigned. Windows does not say which mouse a button came from, so while that mouse is
+Most of Razer's mice have no command for what a button does; Synapse reassigns them on the PC
+too. The daemon does it with a low-level mouse hook, installed only while a connected mouse has a
+side button reassigned. Windows does not say which mouse a button came from, so while that mouse is
 connected its bindings apply to the side buttons of every mouse.
+
+The **Basilisk V3** does keep its buttons in its own memory, so on it the *Buttons* tab also shows
+the profiles stored on the mouse, what every button does on the normal and the Hypershift layer,
+and the macros Synapse saved there. A button changed here is written into the mouse and works on
+any computer with nothing running; a profile's buttons can be backed up to a file and restored.
 
 ### Python
 
@@ -244,7 +249,8 @@ Razer owners to look for it, in English or Russian.
   what a device shows and put it back, and a profile linked to a game or app is applied whenever
   that app is in front.
 - **Lighting**, two ways. *Quick effects*: click a part of the device — the logo, the wheel, the
-  keys, a Kraken Kitty's cat ears — and pick an effect, its colours and speed; or apply the same look
+  keys, a Kraken Kitty's cat ears — and pick an effect, its colours and speed (the wave's too,
+  on a device whose wave takes one, such as the Mouse Dock Pro); or apply the same look
   to every device at once. *Studio*:
   per-key lighting in layers, Chroma Studio style. Each layer is one effect — static, gradient,
   breathing, spectrum, rainbow wave, starlight, reactive, ripple — painted onto the keys you click or

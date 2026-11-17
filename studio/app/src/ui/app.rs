@@ -244,6 +244,17 @@ impl App {
     }
 
     /// Whether a command queued under `key` is still waiting to go.
+    /// Send at once what is waiting to go to `serial`. Before it switches
+    /// profile, so that an edit lands in the profile it was made in, not in
+    /// the next one (issue #19).
+    pub fn flush_device(&mut self, serial: &str) {
+        let (now, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.pending).into_iter().partition(|p| p.key.contains(serial));
+        self.pending = waiting;
+        for pending in now {
+            self.send(pending.command);
+        }
+    }
+
     pub fn is_pending(&self, key: &str) -> bool {
         self.pending.iter().any(|p| p.key == key)
     }

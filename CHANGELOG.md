@@ -6,6 +6,8 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.6] - 2026-11-18
+
 ### Added
 
 - **Onboard button remapping and profile reading (Razer Basilisk V3).** The
@@ -21,7 +23,27 @@ uses [semantic versioning](https://semver.org/).
   the mouse's *Buttons* tab: the profiles in the colours of the light under
   the mouse (picking one switches the mouse to it, and the mouse's own profile
   button is followed), and a key combo can be recorded by pressing it. Only
-  the Basilisk V3 is offered it so far.
+  the Basilisk V3 is offered it so far
+  ([#23](https://github.com/Ar4ikov/openrazer-win/pull/23), thanks
+  @tejas-911).
+- **The wave's speed in Studio.** Where the wave takes a speed, as on the
+  Mouse Dock Pro, *Speed* under *Adjustments* is a slider, faster to the
+  right. The byte behind it is a delay: on the dock 10 is a fast wave and 200
+  a slow one ([#22](https://github.com/Ar4ikov/openrazer-win/issues/22)).
+
+### Fixed
+
+- **Studio showed one profile's per-key layers under another, and the next
+  edit saved them there.** After a switch, the page read the daemon's saved
+  state before asking which effect the daemon now drew, so it took the layers
+  of the profile just left, and a profile with no layers went on showing the
+  last one's. Studio now asks first, shows each profile its own layers or a
+  fresh base, and sends an edit still waiting to go out before it switches
+  ([#19](https://github.com/Ar4ikov/openrazer-win/issues/19)).
+- **Razer BlackWidow V4 Pro and V4: turning the volume roller lit the Mute
+  key** under the effects that light a pressed key, such as Ripple and
+  Studio's Reactive layers. The roller has no light of its own
+  ([#19](https://github.com/Ar4ikov/openrazer-win/issues/19)).
 
 ## [1.6.5] - 2026-11-17
 

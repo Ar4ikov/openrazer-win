@@ -48,8 +48,8 @@ RETRY_DELAYS = (5.0, 15.0, 30.0, 60.0)
 #: the RPC surface is a deliberate allowlist, not ``getattr`` on the device.
 DEVICE_METHODS = {
     # lighting
-    'set_none', 'set_on', 'set_static', 'set_spectrum', 'set_wave', 'set_wheel',
-    'set_reactive', 'trigger_reactive', 'set_blinking', 'set_custom',
+    'set_none', 'set_on', 'set_static', 'set_spectrum', 'set_wave', 'set_wave_with_speed',
+    'set_wheel', 'set_reactive', 'trigger_reactive', 'set_blinking', 'set_custom',
     'set_breath_random', 'set_breath_single', 'set_breath_dual', 'set_breath_triple',
     'set_starlight_random', 'set_starlight_single', 'set_starlight_dual',
     'set_brightness', 'get_brightness', 'set_key_row', 'set_custom_frame',
@@ -82,8 +82,8 @@ DEVICE_METHODS = {
 #: host-drawn effect would go on painting over it -- and come back with the
 #: daemon -- so it is stopped and forgotten first.
 HARDWARE_EFFECTS = {
-    'set_none', 'set_on', 'set_static', 'set_spectrum', 'set_wave', 'set_wheel',
-    'set_reactive', 'set_blinking', 'set_breath_random', 'set_breath_single',
+    'set_none', 'set_on', 'set_static', 'set_spectrum', 'set_wave', 'set_wave_with_speed',
+    'set_wheel', 'set_reactive', 'set_blinking', 'set_breath_random', 'set_breath_single',
     'set_breath_dual', 'set_breath_triple', 'set_starlight_random',
     'set_starlight_single', 'set_starlight_dual', 'set_zone_colours',
 }

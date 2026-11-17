@@ -172,8 +172,29 @@ def test_a_wave_of_the_older_kind_has_no_speed(persistence):
         with pytest.raises(NotSupported):
             device.set_wave(1, speed=80)
         device.set_wave(1)
+        assert device.capabilities()['zones']['backlight']['wave_speed'] is False
     finally:
         device.close()
+
+
+def test_studio_is_told_which_waves_take_a_speed_and_can_give_one(persistence):
+    device, fake = make_device(0x00A4, persistence)          # Mouse Dock Pro
+    try:
+        zones = device.capabilities()['zones']
+        assert zones['backlight']['wave_speed'] is True
+        assert not any(z['wave_speed'] for name, z in zones.items() if 'wave' not in z['effects'])
+        # The zone is a keyword over RPC, so the speed comes second.
+        device.set_wave_with_speed(2, 10, zone='backlight')
+        assert last_report(fake, 0x0F, 0x02).arguments[4] == 10
+        assert persistence.get(device.serial, 'backlight', 'wave_speed') == 10
+        assert persistence.get(device.serial, 'backlight', 'wave_dir') == 2
+    finally:
+        device.close()
+
+
+def test_a_speed_with_the_wave_is_allowed_over_rpc():
+    from openrazer_win.daemon.server import DEVICE_METHODS, HARDWARE_EFFECTS
+    assert 'set_wave_with_speed' in DEVICE_METHODS & HARDWARE_EFFECTS
 
 
 # -- the retail DeathAdder 2000 (issue #20, openrazer/openrazer#2931) ---------

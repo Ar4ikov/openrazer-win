@@ -523,9 +523,25 @@ impl Worker {
         if let Ok(status) = self.with(|c| c.call("snaptap.status", json!({}))) {
             self.shared.lock().unwrap().snaptap = status;
         }
+        // The effect the daemon draws now is the new profile's: the per-key
+        // page takes its layers from it, and with the last profile's still
+        // here it showed those, and saved them into this one (issue #19).
+        self.read_software();
         // Last: the new generation is what has the page take up the values
         // just read, so they have to be there first.
         self.load_persistence();
+    }
+
+    /// Which effect the daemon draws on each device, and with what.
+    fn read_software(&mut self) {
+        if let Ok(status) = self.with(|c| c.call("effect.status", json!({}))) {
+            let mut shared = self.shared.lock().unwrap();
+            shared.software = status["active"]
+                .as_object()
+                .map(|a| a.iter().filter_map(|(s, e)| Some((s.clone(), e.as_str()?.to_string()))).collect())
+                .unwrap_or_default();
+            shared.software_options = status["options"].as_object().map(|o| o.iter().map(|(s, v)| (s.clone(), v.clone())).collect()).unwrap_or_default();
+        }
     }
 
     fn read_profiles(&mut self, serial: &str) {
@@ -597,16 +613,8 @@ impl Worker {
             Command::Software { serial, effect, options } => {
                 let result = self.with(|c| c.call("effect.set", json!({ "serial": serial, "effect": effect, "options": options })));
                 self.report(&result, None);
+                self.read_software();
                 self.load_persistence();
-                if let Ok(status) = self.with(|c| c.call("effect.status", json!({}))) {
-                    let mut shared = self.shared.lock().unwrap();
-                    shared.software = status["active"]
-                        .as_object()
-                        .map(|a| a.iter().filter_map(|(s, e)| Some((s.clone(), e.as_str()?.to_string()))).collect())
-                        .unwrap_or_default();
-                    shared.software_options =
-                        status["options"].as_object().map(|o| o.iter().map(|(s, v)| (s.clone(), v.clone())).collect()).unwrap_or_default();
-                }
             }
             Command::Integration { name, enabled } => {
                 let result = self.with(|c| c.call("integration.set", json!({ "name": name, "enabled": enabled })));

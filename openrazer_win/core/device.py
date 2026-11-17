@@ -155,6 +155,11 @@ _PROFILE_META_LENGTH = 0xFA
 _PROFILE_META_CHUNK = 75
 _PROFILE_NAME = slice(0x10, 0x74)
 
+#: How much of what a mouse says about its macros is believed: a reply that
+#: never says "that was the last" must not keep the daemon reading for good.
+_MACRO_IDS_MAX = 256
+_MACRO_BYTES_MAX = 0x4000
+
 
 def _clamp(value, low, high):
     return low if value < low else (high if value > high else value)
@@ -439,8 +444,8 @@ class RazerDevice:
                  speed: Optional[int] = None) -> None:
         """The wave; `speed` is the raw byte the device takes, 1 to 255.
 
-        The driver always sends 40 there.  Which way is faster has not been
-        seen on a device here, so the byte is passed on as it is given.
+        The byte is a delay: on the Mouse Dock Pro 10 is a very fast wave and
+        200 a slow one (issue #22).  The driver always sends 40 there.
         """
         direction = _clamp(int(direction), 0, 2)
         variables = {'direction': direction}
@@ -453,6 +458,11 @@ class RazerDevice:
         self.persistence.set(self.serial, zone, 'wave_dir', direction)
         if speed is not None or self.persistence.get(self.serial, zone, 'wave_speed') is not None:
             self.persistence.set(self.serial, zone, 'wave_speed', speed)
+
+    def set_wave_with_speed(self, direction: int, speed: int, zone: str = 'backlight') -> None:
+        """:meth:`set_wave` with the speed second, for a client that names the
+        zone apart from the arguments, as Studio does."""
+        self.set_wave(direction, zone, speed=speed)
 
     def set_wheel(self, direction: int = 1, zone: str = 'backlight') -> None:
         direction = _clamp(int(direction), 1, 2)
@@ -933,7 +943,7 @@ class RazerDevice:
                                 for offset in (0, 64))
                 name = bytes(meta[20:120]).split(b'\0', 1)[0].decode('utf-8', 'replace')
                 reply = self._onboard(0x06, 0x88, 0x06, key)
-                size = int.from_bytes(reply[2:6], 'big')
+                size = min(int.from_bytes(reply[2:6], 'big'), _MACRO_BYTES_MAX)
                 data = bytearray()
                 while len(data) < size:
                     chunk = min(72, size - len(data))
@@ -949,12 +959,16 @@ class RazerDevice:
 
     def _onboard_macro_ids(self) -> list:
         ids: list = []
-        while True:
+        while len(ids) < _MACRO_IDS_MAX:
             reply = self._onboard(0x06, 0x8B, 0x50, bytes((len(ids) >> 8, len(ids) & 0xFF)))
             count = min(reply[2] << 8 | reply[3], 38)  # 38 ids fill the 80-byte reply
-            ids += [reply[4 + 2 * i] << 8 | reply[5 + 2 * i] for i in range(count)]
-            if count < 32:  # Synapse reads 32 a time; fewer means that was the last
-                return ids
+            page = [reply[4 + 2 * i] << 8 | reply[5 + 2 * i] for i in range(count)]
+            if count < 32 or set(page) <= set(ids):
+                # Synapse reads 32 a time, so fewer means that was the last; a
+                # page of ids already read means the mouse is repeating itself.
+                return ids + [i for i in page if i not in ids]
+            ids += page
+        return ids[:_MACRO_IDS_MAX]
 
     # -- capability report -------------------------------------------------
     def _feature(self, attribute: str, *method_names: str) -> bool:
@@ -989,7 +1003,8 @@ class RazerDevice:
             if effects == ['custom'] and not has_brightness:
                 continue
             if effects or has_brightness:
-                zones[zone] = {'effects': effects, 'brightness': has_brightness}
+                zones[zone] = {'effects': effects, 'brightness': has_brightness,
+                               'wave_speed': 'wave' in effects and self.has_wave_speed(zone)}
 
         capabilities = {
             'name': self.info.name,

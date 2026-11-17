@@ -26,7 +26,11 @@ def _keymap_on(pid: int) -> dict:
     """The default key map on a board that lays its matrix out differently."""
     keymap = {key: key_cell(pid, *position)
               for key, position in get_keymaps().get('default', {}).items()}
-    keymap.update(board_keys(pid))
+    for key, cell in board_keys(pid).items():
+        if cell is None:
+            keymap.pop(key, None)       # on this board it lights nothing
+        else:
+            keymap[key] = cell
     return keymap
 
 

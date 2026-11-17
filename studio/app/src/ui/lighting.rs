@@ -51,11 +51,46 @@ struct Stack {
     presses: Vec<(Instant, (u8, u8))>,
     /// Which of the chosen layer's colours is being edited.
     slot: usize,
+    /// The profile the device followed when the layers were last read.
+    profile: Option<String>,
 }
 
 impl Default for Stack {
     fn default() -> Self {
-        Stack { layers: Vec::new(), current: 0, generation: u64::MAX, dirty: false, sent: None, started: Instant::now(), presses: Vec::new(), slot: 0 }
+        Stack { layers: Vec::new(), current: 0, generation: u64::MAX, dirty: false, sent: None, started: Instant::now(), presses: Vec::new(), slot: 0, profile: None }
+    }
+}
+
+impl Stack {
+    /// Take the layers the daemon has, read at `generation` while the device
+    /// follows `profile`, unless they are older than an edit on screen.
+    ///
+    /// Where the daemon has none, the layers on screen stay for coming back to
+    /// after a quick effect. Not after a switch to another profile, though:
+    /// that profile's own layers are shown, or a fresh base, never the last
+    /// profile's, which the next edit would then have saved into it (issue #19).
+    fn take_daemon(&mut self, generation: u64, theirs: Option<Vec<Layer>>, profile: Option<String>, base: impl FnOnce() -> Layer) {
+        self.generation = generation;
+        let switched = self.profile != profile;
+        self.profile = profile;
+        // What was read before the last edit arrived is older than what is on
+        // screen: taking it would undo that edit, and the next one would then
+        // be made on the stale copy and keep it undone (issue #19).
+        let stale = !switched && self.sent.is_some_and(|at| at.elapsed() < SETTLE) && theirs.as_ref() != Some(&self.layers);
+        if !stale {
+            self.sent = None;
+        }
+        match theirs {
+            _ if stale => {}
+            Some(layers) if !layers.is_empty() => self.layers = layers,
+            _ if switched || self.layers.is_empty() => self.layers = vec![base()],
+            _ => {}
+        }
+        if switched {
+            self.current = 0;
+            self.slot = 0;
+        }
+        self.current = self.current.min(self.layers.len().saturating_sub(1));
     }
 }
 
@@ -287,12 +322,23 @@ fn quick(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value, snap: 
             });
             widgets::divider(ui);
             let speed_label = if effect == "reactive" { t("Afterglow") } else { t("Speed") };
+            let wave_speed = effect == "wave" && !running_here && caps["zones"][&zone]["wave_speed"] == true;
             widgets::row(ui, speed_label, "", |ui| match speeds(&effect).filter(|_| !running_here) {
                 Some(options) => {
                     let mut speed = current.speed.min(options.len() as i64);
                     if widgets::segmented(ui, &options, &mut speed) {
                         current.speed = speed;
                         commands.extend(effects::apply_commands(&serial, &zone, current, software.is_some()));
+                    }
+                }
+                None if wave_speed => {
+                    let mut value = effects::wave_percent(current.wave_speed.unwrap_or(effects::WAVE_SPEED_DEFAULT));
+                    if widgets::slider_field(ui, ("wave_speed", &serial, &zone), &mut value, 0.0..=100.0, 1.0, 0, "%", 72.0) {
+                        current.wave_speed = Some(effects::wave_byte(value));
+                        // Not running here, so nothing is to be stopped first: the wave alone.
+                        if let Some(command) = effects::apply_commands(&serial, &zone, current, false).pop() {
+                            debounced.push((format!("wave:{serial}:{zone}"), command, 150));
+                        }
                     }
                 }
                 None => {
@@ -400,14 +446,18 @@ fn sync_all(app: &mut App, snap: &Snapshot, look: &super::edit::ZoneEdit) {
             if !effects_for(&caps, &zone).contains(&look.effect) {
                 continue;
             }
+            // A wave's speed goes only where the wave takes one.
+            let mut look = look.clone();
+            look.wave_speed = (caps["zones"][&zone]["wave_speed"] == true).then(|| look.wave_speed.unwrap_or(effects::WAVE_SPEED_DEFAULT));
             let edit = app.edits.entry(device.serial.clone()).or_default();
             let target = edit.zones.entry(zone.clone()).or_default();
             target.effect = look.effect.clone();
             target.colours = look.colours;
             target.speed = look.speed;
             target.direction = look.direction;
+            target.wave_speed = look.wave_speed;
             edit.touch();
-            for command in effects::apply_commands(&device.serial, &zone, &look.clone(), running) {
+            for command in effects::apply_commands(&device.serial, &zone, &look, running) {
                 app.send(command);
             }
             count += 1;
@@ -509,29 +559,15 @@ fn studio(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value, snap:
     let serial = device.serial.clone();
     let all = cells_of(&art);
     let fallback = app.edits.get(&serial).and_then(|e| e.zones.get("backlight")).map(|z| z.colours[0]).unwrap_or(ACCENT);
+    let profile = snap.details.get(&serial).and_then(|d| d.profiles.iter().find(|p| p["active"] == true)).and_then(|p| p["name"].as_str()).map(str::to_string);
     let stack = app.lighting.stacks.entry(serial.clone()).or_default();
     // Load what the daemon has, unless there are edits not yet sent to it.
     if stack.generation != snap.generation && !stack.dirty {
-        stack.generation = snap.generation;
-        let theirs = stack_from(snap, &serial);
-        // What was read before the last edit arrived is older than what is on
-        // screen: taking it would undo that edit, and the next one would then
-        // be made on the stale copy and keep it undone (issue #19).
-        let stale = stack.sent.is_some_and(|at| at.elapsed() < SETTLE) && theirs.as_ref() != Some(&stack.layers);
-        if !stale {
-            stack.sent = None;
-        }
-        match theirs {
-            _ if stale => {}
-            Some(layers) if !layers.is_empty() => stack.layers = layers,
-            _ if stack.layers.is_empty() => {
-                let mut base = Layer::new(Kind::Static, all.clone(), fallback);
-                base.name = t("Base").into();
-                stack.layers = vec![base];
-            }
-            _ => {}
-        }
-        stack.current = stack.current.min(stack.layers.len().saturating_sub(1));
+        stack.take_daemon(snap.generation, stack_from(snap, &serial), profile, || {
+            let mut base = Layer::new(Kind::Static, all.clone(), fallback);
+            base.name = t("Base").into();
+            base
+        });
     }
     let running = snap.software.get(&serial).map(String::as_str) == Some("layers");
     let mut changed = false;
@@ -946,4 +982,53 @@ fn layer_panel(app: &mut App, ui: &mut egui::Ui, serial: &str) -> bool {
         app.settings.remember_colour(colour);
     }
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn layer(colour: Color32) -> Layer {
+        Layer::new(Kind::Static, vec![(0, 0), (0, 1)], colour)
+    }
+
+    fn base() -> Layer {
+        layer(Color32::WHITE)
+    }
+
+    #[test]
+    fn a_profile_s_own_layers_replace_the_last_one_s() {
+        let mut stack = Stack::default();
+        stack.take_daemon(1, Some(vec![layer(Color32::RED)]), Some("Work".into()), base);
+        assert_eq!(stack.layers, vec![layer(Color32::RED)]);
+        // An edit was just sent, and the daemon then switched profile: the
+        // edit was the last profile's, and the new profile's layers are shown.
+        stack.sent = Some(Instant::now());
+        stack.take_daemon(2, Some(vec![layer(Color32::BLUE)]), Some("Games".into()), base);
+        assert_eq!(stack.layers, vec![layer(Color32::BLUE)]);
+        assert_eq!(stack.sent, None);
+    }
+
+    #[test]
+    fn a_profile_without_layers_is_not_shown_the_last_one_s() {
+        let mut stack = Stack::default();
+        stack.take_daemon(1, Some(vec![layer(Color32::RED), layer(Color32::GREEN)]), Some("Work".into()), base);
+        stack.current = 1;
+        stack.take_daemon(2, None, Some("Default".into()), base);
+        assert_eq!((stack.layers.clone(), stack.current), (vec![base()], 0));
+    }
+
+    #[test]
+    fn within_one_profile_the_layers_wait_for_a_return_from_a_quick_effect() {
+        let mut stack = Stack::default();
+        stack.take_daemon(1, Some(vec![layer(Color32::RED)]), Some("Work".into()), base);
+        // A quick effect was chosen: the daemon draws no layers now.
+        stack.take_daemon(2, None, Some("Work".into()), base);
+        assert_eq!(stack.layers, vec![layer(Color32::RED)]);
+        // And an edit on its way is not undone by an older read.
+        stack.layers = vec![layer(Color32::GREEN)];
+        stack.sent = Some(Instant::now());
+        stack.take_daemon(3, Some(vec![layer(Color32::RED)]), Some("Work".into()), base);
+        assert_eq!(stack.layers, vec![layer(Color32::GREEN)]);
+    }
 }
