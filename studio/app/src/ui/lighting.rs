@@ -34,6 +34,10 @@ pub struct LightingUi {
     stacks: HashMap<String, Stack>,
 }
 
+/// How long the daemon is given to show an edit it was sent, before its copy
+/// is taken over the one on screen all the same.
+const SETTLE: Duration = Duration::from_secs(5);
+
 /// The layers being edited for one device.
 struct Stack {
     layers: Vec<Layer>,
@@ -41,6 +45,8 @@ struct Stack {
     generation: u64,
     /// Edited since it was sent to the daemon.
     dirty: bool,
+    /// Sent, and not yet seen in what the daemon says it has: since when.
+    sent: Option<Instant>,
     started: Instant,
     presses: Vec<(Instant, (u8, u8))>,
     /// Which of the chosen layer's colours is being edited.
@@ -49,7 +55,7 @@ struct Stack {
 
 impl Default for Stack {
     fn default() -> Self {
-        Stack { layers: Vec::new(), current: 0, generation: u64::MAX, dirty: false, started: Instant::now(), presses: Vec::new(), slot: 0 }
+        Stack { layers: Vec::new(), current: 0, generation: u64::MAX, dirty: false, sent: None, started: Instant::now(), presses: Vec::new(), slot: 0 }
     }
 }
 
@@ -507,7 +513,16 @@ fn studio(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value, snap:
     // Load what the daemon has, unless there are edits not yet sent to it.
     if stack.generation != snap.generation && !stack.dirty {
         stack.generation = snap.generation;
-        match stack_from(snap, &serial) {
+        let theirs = stack_from(snap, &serial);
+        // What was read before the last edit arrived is older than what is on
+        // screen: taking it would undo that edit, and the next one would then
+        // be made on the stale copy and keep it undone (issue #19).
+        let stale = stack.sent.is_some_and(|at| at.elapsed() < SETTLE) && theirs.as_ref() != Some(&stack.layers);
+        if !stale {
+            stack.sent = None;
+        }
+        match theirs {
+            _ if stale => {}
             Some(layers) if !layers.is_empty() => stack.layers = layers,
             _ if stack.layers.is_empty() => {
                 let mut base = Layer::new(Kind::Static, all.clone(), fallback);
@@ -573,8 +588,10 @@ fn studio(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value, snap:
         let layers = serde_json::to_value(&stack.layers).unwrap_or(Value::Null);
         app.debounce(format!("layers:{serial}"), Command::Software { serial: serial.clone(), effect: "layers".into(), options: json!({ "layers": layers }) }, 300);
     } else if stack.dirty && !pending {
-        // Sent: the daemon's copy is the one to load from again.
+        // Sent: the daemon's copy is the one to load from again, once it
+        // has what was sent.
         stack.dirty = false;
+        stack.sent = Some(Instant::now());
     }
 }
 

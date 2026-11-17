@@ -17,16 +17,19 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _SCRATCH = __import__('tempfile').mkdtemp(prefix='openrazer-win-tests-')
 os.environ['LOCALAPPDATA'] = _SCRATCH
 
+from openrazer_win.core.barracuda import BarracudaDevice  # noqa: E402
 from openrazer_win.core.blackshark import BlackSharkDevice  # noqa: E402
 from openrazer_win.core.blackshark_v3x import BlackSharkV3XDevice  # noqa: E402
 from openrazer_win.core.device import RazerDevice  # noqa: E402
 from openrazer_win.core.persistence import Persistence  # noqa: E402
-from openrazer_win.core.transport import FeatureChannel, ReportChannel, Transport  # noqa: E402
+from openrazer_win.core.transport import (  # noqa: E402
+    FeatureChannel, ReportChannel, Transport, TunnelChannel,
+)
 from openrazer_win.devices import get_database, get_recipes  # noqa: E402
 from openrazer_win.hid.fake import FakeHidBackend, FakeRazerDevice  # noqa: E402
 from openrazer_win.ble import Advertiser, BleUnavailable  # noqa: E402
 from openrazer_win.core.ble_device import BleDevice  # noqa: E402
-from openrazer_win.protocol import blackshark, blackshark_v3x, razer_ble  # noqa: E402
+from openrazer_win.protocol import barracuda, blackshark, blackshark_v3x, razer_ble  # noqa: E402
 
 @pytest.fixture(autouse=True, scope='session')
 def _remove_scratch_run_key():
@@ -170,6 +173,10 @@ def make_device(pid, persistence, *, argb=False):
         fake = FakeRazerDevice(pid, meta.name, headset=True)
         channel = FeatureChannel(FakeHidBackend([fake]), fake.headset_info, wait=0)
         return BlackSharkV3XDevice(meta, channel, persistence), fake
+    if pid in barracuda.PRODUCT_IDS:
+        fake = FakeRazerDevice(pid, meta.name, headset=True)
+        channel = TunnelChannel(FakeHidBackend([fake]), fake.headset_info, timeout=0.05)
+        return BarracudaDevice(meta, channel, persistence), fake
     params = recipes.transport_params(meta.driver, meta.pid)
     fake = FakeRazerDevice(pid, meta.name, interface=params.get('index') or 0,
                            argb=argb)

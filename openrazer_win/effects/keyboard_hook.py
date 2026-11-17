@@ -46,6 +46,9 @@ VK_TO_KEY = {
     0xBD: 'DASH', 0xBB: 'EQUALS', 0xDB: 'LEFTSQUAREBRACKET',
     0xDD: 'RIGHTSQUAREBRACKET', 0xDC: 'BACKSLASH', 0xBA: 'SEMICOLON',
     0xDE: 'APOSTROPHE', 0xBC: 'COMMA', 0xBE: 'PERIOD', 0xBF: 'FORWARDSLASH',
+    # Media keys: on the Fn layer of most boards, keys of their own on a few.
+    0xB1: 'MEDIA_BACK', 0xB3: 'MEDIA_PLAY', 0xB0: 'MEDIA_FORWARD',
+    0xAD: 'MUTE', 0xAE: 'VOL_DOWN', 0xAF: 'VOL_UP',
 }
 
 for _index in range(10):

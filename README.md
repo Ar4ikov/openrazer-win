@@ -25,8 +25,9 @@ on Windows.
 This is a full port. The protocol layer moves into user space on top of the Windows HID class driver,
 D-Bus is replaced by a loopback JSON-RPC daemon, and **every device quirk is transpiled directly from
 the upstream C sources** — so all 274 USB devices OpenRazer knows about behave the same way here as they
-do on Linux, plus the Pro Type Ultra from an upstream pull request still in review, a Bluetooth headset
-upstream cannot reach at all, the BlackShark V2 HyperSpeed and the BlackShark V3 X HyperSpeed.
+do on Linux, plus the Pro Type Ultra and the retail DeathAdder 2000 from upstream pull requests still in
+review, a Bluetooth headset upstream cannot reach at all, the BlackShark V2 HyperSpeed, the BlackShark
+V3 X HyperSpeed and the Barracuda X.
 
 <p align="center"><img src="docs/images/studio-lighting.png" alt="OpenRazer Studio: a BlackWidow keyboard drawn from its own product photo, lit key by key in layers" width="860"></p>
 
@@ -158,6 +159,23 @@ cannot read its key report, or runs with `--no-keys`, the keyboard stays in norm
 its Fn layer to itself. `openrazer-win macro watch` prints the raw key reports, for working out a
 keyboard that does not respond.
 
+### Mouse side buttons
+
+A mouse's two side buttons — back and forward, *Mouse Button 4* and *5* in Synapse — can be given
+a key, a shortcut, a macro, another mouse button or nothing at all, under *Buttons* in Studio or
+with the same command:
+
+```bash
+openrazer-win macro set MOUSE4 --keys "ctrl+c" -d deathadder   # held as long as the button is
+openrazer-win macro set MOUSE5 --button middle -d deathadder
+openrazer-win macro clear MOUSE4 -d deathadder                 # back again
+```
+
+Razer's mice have no command for what a button does; Synapse reassigns them on the PC too. The
+daemon does it with a low-level mouse hook, installed only while a connected mouse has a side
+button reassigned. Windows does not say which mouse a button came from, so while that mouse is
+connected its bindings apply to the side buttons of every mouse.
+
 ### Python
 
 The API mirrors upstream's `openrazer.client`, so scripts written for Linux usually port by changing
@@ -245,7 +263,7 @@ Razer owners to look for it, in English or Russian.
 
 Each device is drawn from **its own product photo**: Studio traces the photo into a line drawing,
 fits the key layout onto the keycaps in it, and finds the logo and wheel where the photo shows them
-lit — so every one of the 281 devices gets a drawing of itself, not a generic shape, and the lights
+lit — so every one of the 283 devices gets a drawing of itself, not a generic shape, and the lights
 glow where they really are. Without a photo (offline, say) it draws one.
 
 <p align="center"><img src="docs/images/studio-home.png" alt="Studio's home page: each device drawn in its own light, with quick settings" width="820"></p>
@@ -274,7 +292,8 @@ still shipped as a single file with the daemon inside. Pick a device on the left
 - **Performance** — DPI with presets, the DPI stages the mouse button cycles, polling rate,
   keyswitch optimization.
 - **Power** — battery, charging, sleep timer, low-battery warning.
-- **Macro keys** — what each key does, editing, recording and trying it out.
+- **Macro keys** — what each key does, editing, recording and trying it out; on a mouse,
+  **Buttons**, for its side buttons.
 - **Profiles** — save what is showing under a name, apply it later.
 
 It starts the daemon itself if it is not running — the one built into it, or one beside it or
@@ -384,13 +403,14 @@ to have a backlight it does not have.
 
 | Category | Devices |
 |---|---:|
-| Mice | 117 |
+| Mice | 118 |
 | Keyboards & laptops | 117 |
 | Accessories (docks, stands, ARGB controllers) | 17 |
 | Headsets (Kraken protocol) | 8 |
 | Headsets (Bluetooth LE) | 1 |
 | Headsets (BlackShark V2 HyperSpeed) | 2 |
 | Headsets (BlackShark V3 X HyperSpeed) | 2 |
+| Headsets (Barracuda X) | 1 |
 | Mousepads | 8 |
 | Keypads | 7 |
 | eGPU enclosures | 2 |
@@ -546,6 +566,31 @@ Upstream has no driver for it yet either. This follows the one proposed in
 [openrazer/openrazer#2899](https://github.com/openrazer/openrazer/pull/2899), whose author tested it
 on both product ids. Here it has only been run against an emulator of that protocol, since nobody
 here owns the headset: if yours misbehaves, `openrazer-win doctor` lists what Windows sees of it.
+
+It has no way of staying on: the shortest its sleep timer takes is five minutes, and the longest
+1092.
+
+### Barracuda X (2022)
+
+`1532:0552`, its USB-C receiver. It keeps the same settings in the same registers as the BlackShark
+V2 HyperSpeed and is asked for them in a way of its own: the receiver passes messages on to the
+headset through a tunnel, and only while it is told to. The same command sets it, and Studio shows
+it under *Sound* and *Power*:
+
+```bash
+openrazer-win headset                  # battery, equalizer, do not disturb ...
+openrazer-win headset eq game          # flat, game, music, movie or custom
+openrazer-win headset eq -3,0,0,0,0,0,0,2,3,3   # the custom curve, ten bands from -5 to 5
+openrazer-win headset dnd on           # do not disturb
+openrazer-win headset sleep 30         # 0 (never), 5, 15, 30, 45 or 60 minutes
+```
+
+The bands are steps of the headset's own rather than decibels. Sidetone, the Bluetooth gaming mode
+and switching between paired devices are left alone, as is pairing.
+
+Upstream has no driver for it. This follows [leag/razer-barracuda](https://github.com/leag/razer-barracuda)
+(MIT), which worked the protocol out on the headset. Here it has only been run against an emulator,
+since nobody here owns one.
 
 The Kraken headsets are covered too, through their own protocol: rather than the 90-byte control
 report, they expose the lighting controller's RAM, so colours are written to fixed addresses and a

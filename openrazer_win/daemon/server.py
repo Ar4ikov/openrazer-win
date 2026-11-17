@@ -69,7 +69,7 @@ DEVICE_METHODS = {
     'get_audio', 'get_microphone_muted', 'set_sidetone', 'set_sidetone_level',
     'set_equalizer', 'set_equalizer_preset', 'set_equalizer_bands',
     'set_do_not_disturb', 'set_dongle_led',
-    'set_microphone_noise_cancelling', 'set_power_saving',
+    'set_microphone_noise_cancelling', 'set_power_saving', 'get_trace',
     # keyboard
     'get_game_mode', 'set_game_mode', 'get_macro_mode', 'set_macro_mode',
     'set_macro_effect', 'set_fn_toggle', 'get_keyboard_layout',
@@ -141,6 +141,9 @@ class DaemonService:
         self.keys = keys
         if self.keys is None and enable_keys:
             self.keys = KeyService(self.manager.backend, macros=self.macros)
+        if self.keys is not None and self.effects is not None:
+            # Macro keys and the dial light up under reactive effects too.
+            self.keys.on_press = self.effects.keys.press
         #: Off until asked for, and it rides on the hook above when there is one.
         self.snaptap = snaptap if snaptap is not None else SnapTapHost(
             SnapTapSettings(os.path.join(os.path.dirname(self.persistence.path), 'snaptap.json')),
@@ -465,10 +468,19 @@ class DaemonService:
         return self.keys.status(self.manager.devices)
 
     def rpc_macro_list(self, serial: str) -> dict:
+        from ..keys import mouse
+        from ..keys.service import is_mouse
         device = self._device(serial)
         keys = self.keys.macro_keys(device) if self.keys is not None else []
         if not keys and getattr(getattr(device, 'info', None), 'dedicated_macro_keys', False):
             keys = ['M1', 'M2', 'M3', 'M4', 'M5']
+        if is_mouse(device):
+            # Its side buttons, reassigned by a hook on the PC: there is nothing
+            # to read from the mouse, and nothing to record on it.
+            return {'keys': keys, 'bindings': self.macros.bindings(device.serial),
+                    'handled': bool(self.keys is not None and self.keys.running
+                                    and mouse.is_available()),
+                    'buttons': True, 'recordable': False}
         return {'keys': keys, 'bindings': self.macros.bindings(device.serial),
                 'handled': bool(self.keys is not None and self.keys.handles(device))}
 
@@ -482,13 +494,19 @@ class DaemonService:
             if isinstance(action, dict) and action.get('type') == 'keys' \
                     and 'events' not in action and 'sequence' in action:
                 action = {'type': 'keys', 'events': parse_sequence(str(action['sequence']))}
-            return self.macros.set(device.serial, str(key), action)
+            saved = self.macros.set(device.serial, str(key), action)
         except (MacroError, ValueError) as error:
             raise RpcError(INVALID_PARAMS, str(error)) from error
+        if self.keys is not None:
+            self.keys.refresh_buttons()
+        return saved
 
     def rpc_macro_delete(self, serial: str, key: str) -> dict:
         device = self._device(serial)
-        return {'deleted': self.macros.delete(device.serial, str(key))}
+        deleted = self.macros.delete(device.serial, str(key))
+        if self.keys is not None:
+            self.keys.refresh_buttons()
+        return {'deleted': deleted}
 
     def rpc_macro_record_start(self, serial: str, key: str) -> dict:
         device = self._device(serial)

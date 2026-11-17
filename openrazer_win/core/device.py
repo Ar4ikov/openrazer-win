@@ -17,7 +17,8 @@ from typing import Iterable, Optional
 
 from ..devices.database import DeviceInfo
 from ..devices.recipes import (
-    Environment, NotSupported, RecipeError, RecipeTable, execute, get_recipes,
+    WAVE_BUILDER, Environment, NotSupported, RecipeError, RecipeTable, execute, get_recipes,
+    uses_builder,
 )
 from ..protocol import buttons
 from ..protocol import macros as macros_protocol
@@ -425,11 +426,33 @@ class RazerDevice:
     def set_spectrum(self, zone: str = 'backlight') -> None:
         self._apply(zone, 'spectrum')
 
-    def set_wave(self, direction: int = 1, zone: str = 'backlight') -> None:
+    def has_wave_speed(self, zone: str = 'backlight') -> bool:
+        """Whether the wave on `zone` is the kind that takes a speed."""
+        try:
+            attribute = self._effect_attribute(zone, 'wave')
+            steps, _ = self.recipes.lookup(self.driver, attribute, self.info.pid)
+        except (NotSupported, RecipeError):
+            return False
+        return uses_builder(steps, WAVE_BUILDER)
+
+    def set_wave(self, direction: int = 1, zone: str = 'backlight',
+                 speed: Optional[int] = None) -> None:
+        """The wave; `speed` is the raw byte the device takes, 1 to 255.
+
+        The driver always sends 40 there.  Which way is faster has not been
+        seen on a device here, so the byte is passed on as it is given.
+        """
         direction = _clamp(int(direction), 0, 2)
-        self._apply(zone, 'wave', str(direction).encode('ascii'), direction=direction)
+        variables = {'direction': direction}
+        if speed is not None:
+            if not self.has_wave_speed(zone):
+                raise NotSupported("{0}'s wave has no speed to set".format(self.name))
+            speed = _clamp(int(speed), 1, 255)
+            variables['wave_speed'] = speed
+        self._apply(zone, 'wave', str(direction).encode('ascii'), **variables)
         self.persistence.set(self.serial, zone, 'wave_dir', direction)
-        self.persistence.set(self.serial, zone, 'wave_dir', direction)
+        if speed is not None or self.persistence.get(self.serial, zone, 'wave_speed') is not None:
+            self.persistence.set(self.serial, zone, 'wave_speed', speed)
 
     def set_wheel(self, direction: int = 1, zone: str = 'backlight') -> None:
         direction = _clamp(int(direction), 1, 2)
@@ -1032,7 +1055,9 @@ class RazerDevice:
                 elif effect == 'blinking':
                     self.set_blinking(colours[0], colours[1], colours[2], zone)
                 elif effect == 'wave':
-                    self.set_wave(state.get('wave_dir', 1), zone)
+                    speed = state.get('wave_speed')
+                    self.set_wave(state.get('wave_dir', 1), zone,
+                                  speed=speed if speed and self.has_wave_speed(zone) else None)
                 elif effect == 'wheel':
                     self.set_wheel(state.get('wave_dir', 1), zone)
                 elif effect == 'reactive':

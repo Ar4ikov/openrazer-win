@@ -120,7 +120,9 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
             app.device_ui.tab = tabs[0];
         }
     }
-    let options: Vec<(Tab, &str)> = tabs.iter().map(|tab| (*tab, tab.label())).collect();
+    // A mouse has buttons where a keyboard has keys.
+    let mouse = snap.details.get(&device.serial).and_then(|d| d.caps.as_ref()).is_some_and(|caps| caps["type"] == "mouse");
+    let options: Vec<(Tab, &str)> = tabs.iter().map(|tab| (*tab, if *tab == Tab::Keys && mouse { t("Buttons") } else { tab.label() })).collect();
     widgets::tabs(ui, &options, &mut app.device_ui.tab);
     ui.add_space(theme::GAP);
     if app.device_ui.tab == Tab::Lighting {
@@ -425,14 +427,33 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
                     // A device that says how far its timer goes counts in whole
                     // minutes and can stay on; the rest sleep within fifteen.
                     let longest = caps["idle_time_max"].as_f64().map(|seconds| seconds / 60.0);
+                    // Not every headset can stay on: one says the shortest
+                    // time it takes, another the only times it takes.
+                    let shortest = caps["idle_time_min"].as_f64().map_or(0.0, |seconds| seconds / 60.0);
+                    let choices: Vec<i64> = caps["idle_time_choices"].as_array().map(|list| list.iter().filter_map(|v| v.as_i64()).collect()).unwrap_or_default();
                     let (range, step, decimals, hint) = match longest {
+                        Some(longest) if !choices.is_empty() => (shortest..=longest, 1.0, 0, t("Minutes without use before the headset switches off; Off keeps it on.")),
+                        Some(longest) if shortest > 0.0 => (shortest..=longest, 1.0, 0, t("Minutes without use before the headset switches off.")),
                         Some(longest) => (0.0..=longest, 1.0, 0, t("Minutes without use before the headset switches off; 0 keeps it on.")),
                         None => (1.0..=15.0, 0.5, 1, t("Minutes without use before the device sleeps.")),
                     };
                     widgets::row(ui, t("Turn off after"), hint, |ui| {
-                        if widgets::slider_field(ui, ("idle", &serial), &mut minutes, range, step, decimals, t("min"), 88.0) {
+                        let mut seconds = None;
+                        if choices.is_empty() {
+                            if widgets::slider_field(ui, ("idle", &serial), &mut minutes, range, step, decimals, t("min"), 88.0) {
+                                seconds = Some((minutes * 60.0).round() as i64);
+                            }
+                        } else {
+                            let options: Vec<(i64, String)> = choices.iter().map(|&s| (s, if s == 0 { t("Off").to_string() } else { (s / 60).to_string() })).collect();
+                            let mut chosen = (minutes * 60.0).round() as i64;
+                            if widgets::segmented(ui, &options, &mut chosen) {
+                                minutes = chosen as f64 / 60.0;
+                                seconds = Some(chosen);
+                            }
+                        }
+                        if let Some(seconds) = seconds {
                             edit.idle_minutes = Some(minutes as f32);
-                            later.push((format!("idle:{serial}"), Command::Call { serial: serial.clone(), method: "set_idle_time".into(), args: vec![json!((minutes * 60.0).round() as i64)], zone: None, then: Then::Power }));
+                            later.push((format!("idle:{serial}"), Command::Call { serial: serial.clone(), method: "set_idle_time".into(), args: vec![json!(seconds)], zone: None, then: Then::Power }));
                         }
                     });
                 }

@@ -245,8 +245,12 @@ class Fx:
     def spectrum(self):
         return self._device._call('set_spectrum', zone=self._zone)
 
-    def wave(self, direction: int = WAVE_RIGHT):
-        return self._device._call('set_wave', direction, zone=self._zone)
+    def wave(self, direction: int = WAVE_RIGHT, speed: Optional[int] = None):
+        """The device's own wave.  `speed` is a raw byte, 1 to 255 (the device's
+        usual is 40), on devices whose wave takes one; experimental."""
+        if speed is None:
+            return self._device._call('set_wave', direction, zone=self._zone)
+        return self._device._call('set_wave', direction, zone=self._zone, speed=int(speed))
 
     def wheel(self, direction: int = 1):
         return self._device._call('set_wheel', direction, zone=self._zone)

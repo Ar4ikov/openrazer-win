@@ -1,0 +1,38 @@
+Razer Mouse Dock Pro (1532:00A4): every command with transaction id 0xFF
+
+Not from an upstream pull request: found on the dock itself by its owner
+(https://github.com/Ar4ikov/openrazer-win/issues/22).  The dock answers only
+commands sent with transaction id 0xFF, and "timeout" to 0x3F and 0x1F.
+Upstream gives its effects 0xFF, but razer_set_device_mode(), which every
+effect calls first, always uses 0x3F, and the mode switch between the two
+halves of the static effect uses 0x1F: both fail, and the effect with them.
+
+Delete this file once upstream master sends these two with 0xFF.
+
+diff --git a/driver/razeraccessory_driver.c b/driver/razeraccessory_driver.c
+index e38d7b9..2328b83 100644
+--- a/driver/razeraccessory_driver.c
++++ b/driver/razeraccessory_driver.c
+@@ -115,7 +115,12 @@ static int razer_set_device_mode(struct razer_accessory_device *device, unsigned
+     struct razer_report response = {0};
+ 
+     request = razer_chroma_standard_set_device_mode(mode, param);
+-    request.transaction_id.id = 0x3F;
++
++    if (device->usb_dev->descriptor.idProduct == USB_DEVICE_ID_RAZER_MOUSE_DOCK_PRO) {
++        request.transaction_id.id = 0xFF;
++    } else {
++        request.transaction_id.id = 0x3F;
++    }
+ 
+     return razer_send_payload(device, &request, &response);
+ }
+@@ -758,7 +763,7 @@ static ssize_t razer_attr_write_matrix_effect_static(struct device *dev, struct
+ 
+         request = get_razer_report(0x0f, 0x02, 0x06);
+         request.arguments[2] = 0x08;
+-        request.transaction_id.id = 0x1F;
++        request.transaction_id.id = 0xFF;
+ 
+         err = razer_send_payload(device, &request, &response);
+         if (err)

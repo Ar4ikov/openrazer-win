@@ -479,6 +479,14 @@ class KeyPressSource:
         for callback in subscribers:
             callback(key_name)
 
+    def press(self, key_name: str) -> None:
+        """A key the keyboard hook never sees was pressed: a macro key, a dial.
+
+        In driver mode those are reported to the daemon alone, on the
+        keyboard's vendor collection, so the one who reads that tells of them.
+        """
+        self._broadcast(key_name)
+
     def subscribe(self, callback) -> None:
         with self._lock:
             self._subscribers.append(callback)

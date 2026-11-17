@@ -12,7 +12,7 @@ import itertools
 import queue
 from typing import Optional
 
-from ..protocol import blackshark, blackshark_v3x
+from ..protocol import barracuda, blackshark, blackshark_v3x
 from ..protocol.report import REPORT_SIZE, RazerReport, Status, calculate_crc
 from .base import HidDeviceInfo, HidError
 
@@ -208,7 +208,10 @@ class FakeHeadsetV3X:
         cls, cmd = blackshark_v3x.Class, blackshark_v3x.Command
         key = (command_class, command)
         if key == (cls.POWER, cmd.SLEEP):
-            self.idle_seconds = (arguments[0] << 8) | arguments[1]
+            seconds = (arguments[0] << 8) | arguments[1]
+            if seconds < 300:
+                return False        # nothing under five minutes, and no "never"
+            self.idle_seconds = seconds
         elif key == (cls.POWER, cmd.POWER_SAVING):
             self.power_saving = bool(arguments[1])
         elif key == (cls.AUDIO, cmd.EQ_PRESET):
@@ -256,10 +259,191 @@ def _onboard_seed() -> dict:
             'buttons': buttons, 'bindings': bindings, 'macros': macros}
 
 
-#: Onboard-memory commands (class 0x02 bindings, class 0x05 profiles).
+#: Onboard-memory commands (class 0x02 bindings, 0x05 profiles, 0x06 macro reads).
 ONBOARD_COMMANDS = frozenset(((0x02, 0x84), (0x02, 0x8C), (0x02, 0x0C),
                               (0x05, 0x81), (0x05, 0x84), (0x05, 0x88), (0x05, 0x04),
                               (0x06, 0x8B), (0x06, 0x8C), (0x06, 0x88), (0x06, 0x89)))
+
+
+class FakeBarracuda:
+    """A Barracuda X's receiver, the headset behind it, and their way of answering."""
+
+    #: The play/pause button going down, on the report it has to itself.
+    MEDIA_PRESS = bytes((0x02, 0x00, 0x02, 0x00, 0x00))
+    #: The transport status with a headset linked, as one gave it.
+    TRANSPORT = 0x1B
+
+    def __init__(self, emit=None):
+        #: Where what it says unasked goes: the queue of input reports.
+        self._emit = emit or (lambda report: None)
+        self._switched_on = True
+        #: Where requests for the headset go; they are only passed on at 1.
+        self.route = barracuda.ROUTE_LOCAL
+        register = barracuda.Register
+        self.registers = {
+            register.EQ_PRESET: b'\x00',
+            register.EQ_BANDS: bytes((5,)) * 10,
+            register.BATTERY: b'\x55',
+            register.DO_NOT_DISTURB: b'\x00',
+            register.CHARGING: b'\x00',
+            register.IDLE_MINUTES: b'\x0f',
+        }
+        #: Every request, as (family, payload), in the order they came.
+        self.requests: list = []
+        #: Cut every frame of a reply in two, across two input reports.
+        self.split = False
+        #: Input reports that arrive ahead of every reply, and between the two
+        #: halves of one that is split.  Only another report id can come in the
+        #: middle of a frame; a notification there would be part of it.
+        self.before_reply: list = []
+        self.inside_reply: list = []
+        #: Requests that draw nothing at all, as (family, first payload byte).
+        self.silent: set = set()
+        #: Registers whose writes are taken, answered as done, and not kept.
+        self.forgetful: set = set()
+        #: Told to change the route, the receiver says yes and does not.
+        self.stuck_route = False
+        #: What the read length is answered with: 240, as the reference saw,
+        #: or 0, as a receiver on Windows said (issue #21).
+        self.read_length_result = barracuda.READ_MAX_LEN_RESULT
+        #: Set to a status to have every request acknowledged with it.
+        self.force_status: Optional[int] = None
+        #: The receiver numbers what it sends itself.
+        self._counter = 0xC0
+
+    # -- the headset ---------------------------------------------------------
+    @property
+    def switched_on(self) -> bool:
+        """Off means the receiver is there with no headset linked to it."""
+        return self._switched_on
+
+    @switched_on.setter
+    def switched_on(self, value: bool) -> None:
+        value = bool(value)
+        if value == self._switched_on:
+            return
+        self._switched_on = value
+        # The receiver says so at once, twice over.
+        self._emit(self.report(self._link_frame(barracuda.Link.GET_LINK, int(value))))
+        self._emit(self.report(self.notification(barracuda.Register.LINK, int(value))))
+
+    # -- frames --------------------------------------------------------------
+    def _frame(self, family: int, data: bytes) -> bytes:
+        self._counter = (self._counter + 1) & 0xFF
+        return (bytes((0x50, 0x49, family, self._counter, 0, 0, 0, 0,
+                       len(data) & 0xFF, len(data) >> 8)) + data)
+
+    def _link_frame(self, command: int, value: int) -> bytes:
+        return self._frame(barracuda.Family.LINK, bytes((command, value)))
+
+    def notification(self, register: int, value: int) -> bytes:
+        """The frame the headset sends unasked when `register` changes."""
+        return self._frame(barracuda.Family.CUSTOMER, bytes((register, 0x02, 0x01, value)))
+
+    @staticmethod
+    def report(chunk: bytes) -> bytes:
+        """One input report carrying `chunk` of the stream."""
+        return (bytes((barracuda.REPORT_ID, 0x80, len(chunk))) + chunk).ljust(
+            barracuda.REPORT_SIZE, b'\x00')
+
+    def _reports(self, frames: list) -> list:
+        reports = list(self.before_reply) if frames else []
+        for frame in frames:
+            if self.split:
+                # Inside the header, where a careless reader would trip.
+                reports.append(self.report(frame[:7]))
+                reports.extend(self.inside_reply)
+                reports.append(self.report(frame[7:]))
+            else:
+                reports.append(self.report(frame))
+        return reports
+
+    # -- answering -----------------------------------------------------------
+    def answer(self, data: bytes) -> None:
+        """A SET_REPORT, which the real receiver lets go by unanswered."""
+        raise HidError('the Barracuda X takes its reports on the interrupt endpoint')
+
+    def write(self, data: bytes) -> list:
+        """The input reports that `data`, written to the interrupt endpoint, draws."""
+        if (len(data) != barracuda.REPORT_SIZE or data[0] != barracuda.REPORT_ID
+                or data[1] != 0x80 or data[3:5] != b'\x50\x41'):
+            raise HidError('bad Barracuda report')
+        family, sequence = data[5], data[6]
+        start = 9 if family == barracuda.Family.DIAG else 8
+        length = data[7] | (data[8] << 8 if start == 9 else 0)
+        if data[2] != start + length - 3:
+            raise HidError('bad Barracuda report length')
+        payload = bytes(data[start:start + length])
+        self.requests.append((family, payload))
+        if not payload or (family, payload[0]) in self.silent:
+            return []
+        if family == barracuda.Family.LINK:
+            return self._reports(self._link(sequence, payload))
+        if family == barracuda.Family.DIAG:
+            good = payload == barracuda.READ_MAX_LEN
+            return self._reports([self._ack(family, sequence, 0 if good else 1,
+                                            self.read_length_result if good else b'')])
+        if family == barracuda.Family.CUSTOMER:
+            return self._reports(self._customer(payload))
+        return []
+
+    def _ack(self, family: int, sequence: int, status: int = 0, result: bytes = b'') -> bytes:
+        if self.force_status is not None:
+            status, result = self.force_status, b''
+        return self._frame(barracuda.Family.ACK,
+                           bytes((family, sequence | 0x80, status)) + result)
+
+    def _link(self, sequence: int, payload: bytes) -> list:
+        link = barracuda.Link
+        command = payload[0]
+        frames = [self._ack(barracuda.Family.LINK, sequence)]
+        if self.force_status:
+            return frames
+        if command == link.GET_LINK:
+            value = int(self._switched_on)
+        elif command == link.GET_TRANSPORT:
+            value = self.TRANSPORT if self._switched_on else 0x00
+        elif command == link.GET_ROUTE:
+            value = self.route
+        elif command == link.SET_ROUTE and len(payload) == 2:
+            if not self.stuck_route:
+                self.route = payload[1]
+            value = payload[1]
+        else:
+            return frames
+        frames.append(self._link_frame(command, value))
+        return frames
+
+    def _customer(self, payload: bytes) -> list:
+        # Nothing answers unless the receiver passes it on and there is a
+        # headset to pass it to; and the headset is never acknowledged.
+        if self.route != barracuda.ROUTE_REMOTE or not self._switched_on:
+            return []
+        if len(payload) < 3 or payload[1] != 0 or len(payload) != 3 + payload[2]:
+            return []
+        register, value = payload[0], payload[3:]
+        if not register & barracuda.WRITE:
+            if register not in self.registers or value:
+                return []
+            body = self.registers[register]
+        else:
+            body = bytes((0 if self._store(register & ~barracuda.WRITE, value) else 1,))
+        return [self._frame(barracuda.Family.CUSTOMER,
+                            bytes((register, 0x01, len(body))) + body)]
+
+    def _store(self, register: int, value: bytes) -> bool:
+        names = barracuda.Register
+        allowed = {
+            names.EQ_PRESET: len(value) == 1 and value[0] in barracuda.EQ_PRESETS.values(),
+            names.EQ_BANDS: len(value) == 10 and all(byte <= 10 for byte in value),
+            names.DO_NOT_DISTURB: len(value) == 1 and value[0] <= 1,
+            names.IDLE_MINUTES: len(value) == 1 and value[0] in barracuda.IDLE_MINUTES,
+        }
+        if not allowed.get(register, False):
+            return False
+        if register not in self.forgetful:
+            self.registers[register] = bytes(value)
+        return True
 
 
 class FakeDeviceState:
@@ -350,6 +534,16 @@ class FakeHidHandle:
             return
         self._device.handle_output_report(bytes(data))
 
+    def write_output_report(self, data: bytes) -> None:
+        """What goes to the interrupt OUT endpoint, which few devices have."""
+        if self._closed:
+            raise HidError('handle is closed')
+        if self.info is self._device.headset_info and hasattr(self._device.headset, 'write'):
+            for report in self._device.headset.write(bytes(data)):
+                self._device.input_reports.put(report)
+            return
+        raise HidError('no interrupt OUT endpoint on this collection')
+
     def get_feature_report(self, length: int, report_id: int = 0x00) -> bytes:
         if self._closed:
             raise HidError('handle is closed')
@@ -429,14 +623,17 @@ class FakeRazerDevice:
             product=name,
         ) if keys else None
         #: A BlackShark's one vendor collection.  The V2 HyperSpeed's has no
-        #: feature reports; the V3 X's is where its feature report is.
+        #: feature reports; the V3 X's is where its feature report is.  The
+        #: Barracuda X's is on interface 3 like the V2's; its usage page is a
+        #: guess, as nobody has read the descriptor out on Windows.
         v3x = product_id in blackshark_v3x.PRODUCT_IDS
+        tunnel = product_id in barracuda.PRODUCT_IDS
         self.headset_info = HidDeviceInfo(
             path=self.info.path + '&headset',
             vendor_id=vendor_id,
             product_id=product_id,
             interface=0 if v3x else blackshark.INTERFACE,
-            usage_page=0xFF82 if v3x else blackshark.USAGE_PAGE,
+            usage_page=0xFF82 if v3x else 0xFF00 if tunnel else blackshark.USAGE_PAGE,
             usage=0x0001,
             feature_length=blackshark_v3x.REPORT_SIZE if v3x else 0,
             input_length=blackshark.REPORT_SIZE,
@@ -455,6 +652,8 @@ class FakeRazerDevice:
         if headset and v3x:
             self.headset = FakeHeadsetV3X(self.state.serial,
                                           product_id == blackshark_v3x.PID_WIRED)
+        elif headset and tunnel:
+            self.headset = FakeBarracuda(self.input_reports.put)
         elif headset:
             self.headset = FakeHeadset(self.state.serial,
                                        product_id == blackshark.PID_WIRED)

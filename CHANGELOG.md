@@ -15,9 +15,101 @@ uses [semantic versioning](https://semver.org/).
   and restore a profile's bindings. A rebind is read back from the mouse and
   undone if the mouse kept something else. Bindings the port has no name for
   are shown as raw bytes and carried through a backup unchanged. The macros
-  Synapse stored on the mouse are read too, with what each one types. Studio
-  has a Buttons tab for all of it, where a key combo can be recorded by
-  pressing it. Only the Basilisk V3 is offered it so far.
+  Synapse stored on the mouse are read too, with what each one types. Unlike
+  the side-button reassignment of 1.6.5, which is done on the PC, these live in
+  the mouse and work with nothing running. The classic control panel
+  (`openrazer-win-gui`) has a Buttons tab for all of it, where a key combo can
+  be recorded by pressing it. Only the Basilisk V3 is offered it so far.
+
+## [1.6.5] - 2026-11-17
+
+### Added
+
+- **Mouse side buttons can be reassigned**, as in Synapse: a key or a
+  shortcut (held for as long as the button is), a macro from the library,
+  text, a program, another mouse button, or nothing. Under *Buttons* in
+  Studio, or `openrazer-win macro set MOUSE4 --keys "ctrl+c"`. Razer's mice
+  have no command for this, so it is done on the PC, by a mouse hook that is
+  only installed while a connected mouse has a side button reassigned.
+  Windows does not say which mouse a button came from: while that mouse is
+  connected, its bindings apply to the side buttons of every mouse
+  ([#20](https://github.com/Ar4ikov/openrazer-win/issues/20)).
+- **`openrazer-win headset trace`** prints the last requests a Barracuda X
+  was sent and what came back, for a bug report.
+
+### Fixed
+
+- **Razer Barracuda X: settings failed with "did not answer" or "unexpected
+  answer 00000000 to the read length".** Before asking for settings, Razer's
+  software asks the receiver for longer reads. The receiver it was tried on
+  answered with a length of 0, or not at all, where the reference project's
+  answered 240, and 1.6.4 stopped there. The answer is now only noted, and a
+  receiver that does not answer it is not asked again. A register that goes
+  unanswered is named in the error
+  ([#21](https://github.com/Ar4ikov/openrazer-win/issues/21)).
+- **Razer BlackShark V3 X HyperSpeed: the sleep timer starts at 5 minutes.**
+  The headset refuses anything shorter, as it refuses 0
+  ([#17](https://github.com/Ar4ikov/openrazer-win/issues/17)).
+- **`--wave-speed` takes 1 to 255 and says so.** 0 and 256 were taken and
+  quietly sent as 1 and 255
+  ([#22](https://github.com/Ar4ikov/openrazer-win/issues/22)).
+
+## [1.6.4] - 2026-11-16
+
+### Added
+
+- **Razer Barracuda X (2022)**, on its USB-C receiver (`1532:0552`): battery
+  level and charging, the sleep timer (never, 5, 15, 30, 45 or 60 minutes),
+  the equalizer's presets and its custom curve, and do not disturb, under
+  *Sound* and *Power* in Studio and with `openrazer-win headset`. The headset
+  has the registers of the BlackShark V2 HyperSpeed behind a transport of its
+  own, which follows the MIT-licensed
+  [leag/razer-barracuda](https://github.com/leag/razer-barracuda). It has
+  only run against an emulator here
+  ([#21](https://github.com/Ar4ikov/openrazer-win/issues/21)).
+- **Razer DeathAdder 2000, retail edition** (`1532:005F`): DPI, polling rate,
+  and the logo and scroll wheel lights with their brightness and breathing.
+  It is the DeathAdder 2000 already supported under a second product id, as
+  [openrazer/openrazer#2931](https://github.com/openrazer/openrazer/pull/2931)
+  found on the mouse itself
+  ([#20](https://github.com/Ar4ikov/openrazer-win/issues/20)).
+- **A speed for the device's own wave**, experimental: `openrazer-win effect
+  wave --wave-speed 1-255` on devices with the newer lighting commands (the
+  Mouse Dock Pro among them). It sets the one byte of that command the
+  driver always sends as 40; which way is faster has not been seen on a
+  device here ([#22](https://github.com/Ar4ikov/openrazer-win/issues/22)).
+
+### Fixed
+
+- **Razer Mouse Dock Pro: effects failed with "device replied timeout".** The
+  dock answers only commands sent with transaction id `0xFF`. Its effects
+  were, but the mode command every effect starts with went out as `0x3F`, as
+  it does upstream, and the dock refused it. Static, spectrum, wave,
+  breathing, off and what the daemon draws itself now all go through
+  ([#22](https://github.com/Ar4ikov/openrazer-win/issues/22)).
+- **Studio: keys painted a moment ago went back to what they were.** Click
+  several keys quickly and an earlier one could lose its colour again: Studio
+  took the daemon's copy of the layers while the last edit was still on its
+  way there, and the next click was then made on that older copy. It now
+  waits until the daemon has what was sent
+  ([#19](https://github.com/Ar4ikov/openrazer-win/issues/19)).
+- **Razer BlackWidow V4 Pro: the lights round the wrist rest are in their
+  places.** Three down each side, one in each corner (LED 7·4 and LED 7·17)
+  and twelve along the front, as their owner found them
+  ([#19](https://github.com/Ar4ikov/openrazer-win/issues/19)).
+- **Reactive effects answer the macro keys and the dial.** In driver mode a
+  keyboard reports M1–M5 and its dial to the daemon alone, so Reactive, Ripple
+  and reactive layers never saw them. They do now, and on the BlackWidow V4
+  and V4 Pro the media keys and the volume roller light up too
+  ([#19](https://github.com/Ar4ikov/openrazer-win/issues/19)).
+- **Studio: a light that is off keeps an outline.** Underglow lights and
+  other round spots vanished from the drawing once nothing lit them, and
+  could no longer be found to click on.
+- **Razer BlackShark V3 X HyperSpeed: the sleep timer no longer offers 0.**
+  The headset has no way of staying on and refuses 0, which Studio showed as
+  "command 0x03 failed". The timer now starts at 1 minute, and
+  `openrazer-win headset sleep` takes up to 1092 minutes
+  ([#17](https://github.com/Ar4ikov/openrazer-win/issues/17)).
 
 ## [1.6.3] - 2026-11-13
 

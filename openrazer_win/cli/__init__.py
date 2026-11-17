@@ -12,12 +12,14 @@ from .._version import UPSTREAM_VERSION, __version__
 from ..client import DaemonUnavailable, DeviceManager
 from ..client.rpc import RpcClient, is_daemon_running
 from ..core.device import DeviceError
-from ..core.transport import is_blackshark_interface, is_blackshark_v3x_interface
+from ..core.transport import (
+    is_barracuda_interface, is_blackshark_interface, is_blackshark_v3x_interface,
+)
 from ..daemon.protocol import RpcError, endpoint_path
 from ..devices.database import get_database
 from ..devices.recipes import NotSupported
 from ..hid.base import HidError
-from ..protocol import blackshark_v3x
+from ..protocol import barracuda, blackshark_v3x
 
 COLOURS = {
     'red': (255, 0, 0), 'green': (0, 255, 0), 'blue': (0, 0, 255),
@@ -94,8 +96,8 @@ Examples:
 
 HEADSET_HELP = """\
 For headsets that keep their sound settings themselves: the BlackShark V2
-HyperSpeed and the BlackShark V3 X HyperSpeed.  They do not have all the same
-settings, and one that a headset lacks says so.
+HyperSpeed, the BlackShark V3 X HyperSpeed and the Barracuda X.  They do not
+have all the same settings, and one that a headset lacks says so.
 
 Examples:
   openrazer-win headset                  show what it is set to
@@ -107,12 +109,17 @@ Examples:
   openrazer-win headset eq -3,0,0,0,0,0,0,2,3,3
                                          your own curve: ten bands, -9 to 6 dB;
                                          on the V3 X it is the curve of the preset
-                                         chosen, -6 to 6 dB
+                                         chosen, -6 to 6 dB; on the Barracuda X
+                                         steps of its own, -5 to 5
   openrazer-win headset dnd on           do not disturb
   openrazer-win headset led battery      off, link, battery or warning
   openrazer-win headset nc on            the microphone's noise cancelling
   openrazer-win headset saving on        power saving on the radio
-  openrazer-win headset sleep 30         minutes before it turns off, 0 for never"""
+  openrazer-win headset trace            the Barracuda X: the last requests and
+                                         answers, for a bug report
+  openrazer-win headset sleep 30         minutes before it turns off, 0 for never;
+                                         the V3 X has no never and starts at 5, the
+                                         Barracuda X takes 0, 5, 15, 30, 45 or 60"""
 
 ZONES_HELP = """\
 Examples:
@@ -313,7 +320,7 @@ def _apply_effect(fx, effect: str, colour, colour2, colour3, args) -> None:
     elif effect == 'wave_soft':
         fx.wave_soft(*colour)
     elif effect == 'wave':
-        fx.wave(args.direction)
+        fx.wave(args.direction, speed=getattr(args, 'wave_speed', None))
     elif effect == 'wheel':
         fx.wheel(args.direction)
     elif effect == 'reactive':
@@ -430,6 +437,15 @@ hotkeys can use.  Bound, it plays its macro instead:
 On the keyboard itself, Fn+F9 records a macro: press it, press a macro key,
 type, then Fn+F9 again.  "macro watch" prints the raw key reports, for
 working out a keyboard that does not respond.
+
+A mouse's side buttons are MOUSE4 (back) and MOUSE5 (forward), reassigned on
+the PC while the daemon runs.  A single key or shortcut is held for as long as
+the button is.  Windows does not say which mouse a button came from, so a
+binding applies to that button on every mouse while this one is connected:
+
+  openrazer-win macro set MOUSE4 --keys "ctrl+c" -d deathadder
+  openrazer-win macro set MOUSE5 --button middle -d deathadder
+  openrazer-win macro clear MOUSE4 -d deathadder   back and forward again
 """
 
 
@@ -456,7 +472,7 @@ def _macro_devices(client, selector) -> list:
         if info['keys'] or info['bindings']:
             listed.append(device)
     if not listed:
-        raise CliError('no keyboard with macro keys is connected')
+        raise CliError('no keyboard with macro keys, and no mouse, is connected')
     return listed
 
 
@@ -488,16 +504,19 @@ def cmd_macro(args) -> int:
                         what = 'text: {0!r}'.format(action['text'])
                     elif action['type'] == 'launch':
                         what = 'launch: {0}'.format(action['target'])
+                    elif action['type'] == 'button':
+                        what = 'mouse button: {0}'.format(action['button'])
                     else:
                         what = 'disabled'
                     print('  {0:<6} {1}'.format(key, what))
             return 0
 
         if not args.key:
-            raise CliError('"macro {0}" needs a key, such as M1'.format(args.action))
+            raise CliError('"macro {0}" needs a key, such as M1, or a mouse\'s MOUSE4 or '
+                           'MOUSE5'.format(args.action))
         key = args.key.upper()
         if len(devices) > 1:
-            raise CliError('several keyboards match; pick one with --device')
+            raise CliError('several devices match; pick one with --device')
         serial = devices[0]['serial']
 
         if args.action == 'clear':
@@ -514,10 +533,13 @@ def cmd_macro(args) -> int:
                 action = {'type': 'text', 'text': args.text}
             elif args.launch:
                 action = {'type': 'launch', 'target': args.launch}
+            elif args.button:
+                action = {'type': 'button', 'button': args.button}
             elif args.disable:
                 action = {'type': 'disabled'}
             else:
-                raise CliError('say what the key does: --keys, --text, --launch or --disable')
+                raise CliError('say what the key does: --keys, --text, --launch, --button '
+                               'or --disable')
             client.call('macro.set', serial=serial, key=key, action=action)
             print('{0}: bound'.format(key))
             return 0
@@ -826,7 +848,12 @@ def cmd_headset(args) -> int:
         failures = 0
         for device in headsets:
             try:
-                if args.setting:
+                if args.setting == 'trace':
+                    lines = device._call('get_trace')
+                    print('{0}: the last {1} requests and answers'.format(device.name, len(lines)))
+                    for line in lines:
+                        print('  ' + line)
+                elif args.setting:
                     _set_headset(device, args.setting, args.value)
                 else:
                     _show_headset(device)
@@ -847,10 +874,11 @@ def _show_headset(device) -> None:
     # Not every headset has every setting: one it lacks is not in what it reports.
     if 'microphone_muted' in audio:
         print('  microphone  {0}'.format('muted' if audio['microphone_muted'] else 'on'))
-    print('  sidetone    {0}'.format(
-        'level {0}'.format(audio['sidetone_level']) if audio['sidetone'] else 'off'))
+    if 'sidetone' in audio:
+        print('  sidetone    {0}'.format(
+            'level {0}'.format(audio['sidetone_level']) if audio['sidetone'] else 'off'))
     print('  equalizer   {0}'.format(
-        audio['equalizer_preset'] if audio['equalizer'] else 'off'))
+        audio['equalizer_preset'] if audio.get('equalizer', True) else 'off'))
     per_preset = device.capabilities['audio'].get('equalizer_curve_per_preset')
     print('  {0}   {1}'.format('its curve' if per_preset else 'custom EQ',
                              ' '.join(str(g) for g in audio['equalizer_bands'])))
@@ -899,6 +927,17 @@ def _set_headset(device, setting: str, value: Optional[str]) -> None:
             device.idle_time = int(value) * 60
     except ValueError as error:
         raise CliError('cannot read {0!r} as a number'.format(value)) from error
+
+
+def _byte_from_one(text: str) -> int:
+    """A number 1-255, for argparse: the device would take 0 and 256 as something else."""
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError('{0!r} is not a number'.format(text)) from None
+    if not 1 <= value <= 255:
+        raise argparse.ArgumentTypeError('{0} is outside 1-255'.format(value))
+    return value
 
 
 def cmd_supported(args) -> int:
@@ -1185,6 +1224,8 @@ def cmd_doctor(args) -> int:
         if info.product_id in blackshark_v3x.PRODUCT_IDS:
             # Two of its collections take 64-byte reports; one has the feature report.
             return is_blackshark_v3x_interface(info)
+        if info.product_id in barracuda.PRODUCT_IDS:
+            return is_barracuda_interface(info)
         return info.feature_length == FEATURE_BUFFER_SIZE or is_blackshark_interface(info)
 
     for info in collections:
@@ -1338,6 +1379,9 @@ def build_parser() -> argparse.ArgumentParser:
     effect.add_argument('--zone', '-z')
     effect.add_argument('--speed', type=int, default=1, choices=(1, 2, 3, 4))
     effect.add_argument('--direction', type=int, default=1, choices=(0, 1, 2))
+    effect.add_argument('--wave-speed', type=_byte_from_one, metavar='1-255',
+                        help="experimental: the speed byte of the device's own wave "
+                             '(its usual is 40), on devices whose wave takes one')
 
     zones = add('zones', cmd_zones,
                 "colour each zone separately (the headset's two ears)",
@@ -1360,12 +1404,15 @@ def build_parser() -> argparse.ArgumentParser:
                 formatter_class=argparse.RawDescriptionHelpFormatter, epilog=MACRO_HELP)
     macro.add_argument('action', nargs='?', default='list',
                        choices=('list', 'set', 'clear', 'record', 'play', 'watch'))
-    macro.add_argument('key', nargs='?', help='M1-M5, or another macro key the keyboard has')
+    macro.add_argument('key', nargs='?', help="M1-M5, another macro key the keyboard has, "
+                       "or a mouse's MOUSE4 or MOUSE5")
     macro.add_argument('--device', '-d')
     what = macro.add_mutually_exclusive_group()
     what.add_argument('--keys', help='keys to press, e.g. "ctrl+c" or "win+e, enter"')
     what.add_argument('--text', help='text to type')
     what.add_argument('--launch', help='a program, document or URL to open')
+    what.add_argument('--button', choices=('left', 'right', 'middle', 'back', 'forward'),
+                      help='click a mouse button instead')
     what.add_argument('--disable', action='store_true', help='make the key do nothing')
 
     brightness = add('brightness', cmd_brightness, 'get or set brightness')
@@ -1395,7 +1442,8 @@ def build_parser() -> argparse.ArgumentParser:
                   formatter_class=argparse.RawDescriptionHelpFormatter,
                   epilog=HEADSET_HELP)
     headset.add_argument('setting', nargs='?',
-                         choices=('sidetone', 'eq', 'dnd', 'led', 'nc', 'saving', 'sleep'))
+                         choices=('sidetone', 'eq', 'dnd', 'led', 'nc', 'saving', 'sleep',
+                                  'trace'))
     headset.add_argument('value', nargs='?')
     headset.add_argument('--device', '-d')
 

@@ -38,7 +38,8 @@ from .codes import (
 )
 from .hook import FilterHook, KeyEvent
 from .inject import Injector
-from .macros import MacroError, MacroStore
+from .macros import MacroError, MacroStore, held_keys
+from .mouse import BUTTON_KEYS, ButtonHook
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,11 @@ FN_MACRO_DEFAULTS = {'M1': 'KEY_F13', 'M2': 'KEY_F14', 'M3': 'KEY_F15', 'M4': 'K
 def load_key_data() -> dict:
     with open(KEYS_PATH, encoding='utf-8') as handle:
         return json.load(handle)
+
+
+def is_mouse(device) -> bool:
+    """Whether `device` is a mouse, whose side buttons can be reassigned."""
+    return getattr(device, 'type', None) == 'mouse' and bool(getattr(device, 'serial', None))
 
 
 def is_event_collection(info) -> bool:
@@ -129,7 +135,7 @@ class KeyService:
 
     def __init__(self, backend, macros: Optional[MacroStore] = None, injector=None,
                  hook=None, launcher: Optional[Callable[[str], None]] = None,
-                 data: Optional[dict] = None):
+                 data: Optional[dict] = None, mouse_hook=None):
         self.backend = backend
         self.data = data or load_key_data()
         self.macros = macros if macros is not None else MacroStore()
@@ -146,6 +152,17 @@ class KeyService:
         #: Sees what the Fn layer lets through, on this same hook: a second
         #: hook could not know what this one had swallowed.
         self.snap_tap = None
+        #: Told the name of every macro key pressed (``M1``, ``DIAL``), for
+        #: the effects that answer key presses: no keyboard hook sees these.
+        self.on_press: Optional[Callable[[str], None]] = None
+        #: Mice connected, by serial, whose side buttons may be reassigned.
+        self._mice: dict = {}
+        #: What each side button does now: name -> (serial, binding).  Read
+        #: by the mouse hook with every press, so replaced whole, never changed.
+        self._buttons: dict = {}
+        #: Side buttons held down, and what was pressed for them.
+        self._button_held: dict = {}
+        self.mouse_hook = mouse_hook if mouse_hook is not None else ButtonHook(self.handle_button)
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> bool:
@@ -165,8 +182,10 @@ class KeyService:
     def stop(self) -> None:
         with self._lock:
             bindings = list(self._bindings.values())
+            self._mice.clear()
         for binding in bindings:
             self.detach(binding.device)
+        self.refresh_buttons()
         self.hook.stop()
         if self._worker is not None:
             self._work.put(None)
@@ -196,7 +215,16 @@ class KeyService:
         return dict(self.data['tables'].get(name, []))
 
     def attach(self, device) -> bool:
-        """Start handling `device`'s keys.  True if they are now handled here."""
+        """Start handling `device`'s keys.  True if they are now handled here.
+
+        A mouse is only noted: its side buttons are reassigned on the PC, by a
+        hook, and only while one of them has something to do.
+        """
+        if is_mouse(device):
+            with self._lock:
+                self._mice[device.serial] = device
+            self.refresh_buttons()
+            return False
         if not self.running or not self.wants(device):
             return False
         serial = device.serial
@@ -228,6 +256,12 @@ class KeyService:
         return True
 
     def detach(self, device) -> None:
+        with self._lock:
+            mice = [serial for serial, mouse in self._mice.items() if mouse is device]
+            for serial in mice:
+                del self._mice[serial]
+        if mice:
+            self.refresh_buttons()
         with self._lock:
             binding = None
             for serial, candidate in list(self._bindings.items()):
@@ -297,6 +331,11 @@ class KeyService:
             if sent is not None:
                 self.injector.key(sent, False)
             return
+        if self.on_press is not None:
+            try:
+                self.on_press(name)
+            except Exception:  # noqa: BLE001 - a light must not cost the key
+                logger.debug('could not report %s as pressed', name, exc_info=True)
         with self._lock:
             recording = self._recording
             if recording is not None and recording.binding is binding:
@@ -460,6 +499,76 @@ class KeyService:
             with self._lock:
                 self._playing.discard((serial, key))
 
+    # -- mouse side buttons --------------------------------------------------
+    def refresh_buttons(self) -> None:
+        """Take up the side buttons' bindings again, and hook the mouse only if one has one.
+
+        Windows does not say which mouse a press came from, so a binding of
+        any mouse connected applies to the button on every mouse; with two
+        that disagree, the first by serial wins.
+        """
+        with self._lock:
+            buttons: dict = {}
+            for serial in sorted(self._mice):
+                bindings = self.macros.bindings(serial)
+                for name in BUTTON_KEYS:
+                    if name in bindings and name not in buttons:
+                        buttons[name] = (serial, bindings[name])
+            self._buttons = buttons
+        if buttons:
+            if not self.mouse_hook.start():
+                logger.info('the mouse button hook is not available; side buttons '
+                            'keep what they do')
+        else:
+            self.mouse_hook.stop()
+            self._release_buttons()
+
+    def buttons_handled(self) -> bool:
+        return bool(getattr(self.mouse_hook, 'running', False))
+
+    def handle_button(self, name: str, down: bool) -> bool:
+        """Decide one side button event, on the hook's thread.  True swallows it."""
+        bound = self._buttons.get(name)
+        if bound is None:
+            return False
+        serial, action = bound
+        kind = action.get('type')
+        if kind == 'disabled':
+            return True
+        if down:
+            if name in self._button_held:
+                return True             # Windows repeats nothing, but be sure
+            keys = held_keys(action)
+            if kind == 'button':
+                self._button_held[name] = ('button', action['button'])
+                self._work.put(lambda: self.injector.mouse_button(action['button'], True))
+            elif keys is not None:
+                self._button_held[name] = ('keys', keys)
+                self._work.put(lambda: [self.injector.raw(vk, scan, ext, True)
+                                        for vk, scan, ext in keys])
+            else:
+                self._button_held[name] = ('played', None)
+                self._work.put(lambda: self._play_async(serial, name, action))
+            return True
+        held = self._button_held.pop(name, None)
+        if held is not None:
+            self._work.put(lambda: self._let_go(held))
+        return True
+
+    def _let_go(self, held: tuple) -> None:
+        kind, what = held
+        if kind == 'button':
+            self.injector.mouse_button(what, False)
+        elif kind == 'keys':
+            for vk, scan, ext in reversed(what):
+                self.injector.raw(vk, scan, ext, False)
+
+    def _release_buttons(self) -> None:
+        """Let go of whatever a side button still holds: the hook is going."""
+        held, self._button_held = self._button_held, {}
+        for what in held.values():
+            self._work.put(lambda what=what: self._let_go(what))
+
     def play(self, action: dict) -> None:
         kind = action.get('type')
         if kind == 'keys':
@@ -482,6 +591,9 @@ class KeyService:
             self.injector.text(action['text'])
         elif kind == 'launch':
             self.launcher(action['target'])
+        elif kind == 'button':
+            self.injector.mouse_button(action['button'], True)
+            self.injector.mouse_button(action['button'], False)
 
     # -- for the RPC layer -------------------------------------------------
     def _binding_for(self, serial: str) -> _Binding:
@@ -493,6 +605,8 @@ class KeyService:
 
     def macro_keys(self, device) -> list:
         """The bindable keys `device` has, as far as is known."""
+        if is_mouse(device):
+            return list(BUTTON_KEYS)
         keys = []
         if getattr(device.info, 'dedicated_macro_keys', False):
             keys.extend(['M1', 'M2', 'M3', 'M4', 'M5'])
