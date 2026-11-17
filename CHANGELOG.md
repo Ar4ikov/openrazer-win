@@ -6,6 +6,19 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Onboard button remapping and profile reading (Razer Basilisk V3).** The
+  daemon can list the profiles stored on the mouse, with their names and which
+  one is active, read what every button does on both the normal and the
+  Hypershift layer, rebind a button into the mouse's own memory, and back up
+  and restore a profile's bindings. A rebind is read back from the mouse and
+  undone if the mouse kept something else. Bindings the port has no name for
+  are shown as raw bytes and carried through a backup unchanged. The macros
+  Synapse stored on the mouse are read too, with what each one types. Studio
+  has a Buttons tab for all of it, where a key combo can be recorded by
+  pressing it. Only the Basilisk V3 is offered it so far.
+
 ## [1.6.3] - 2026-11-13
 
 ### Fixed

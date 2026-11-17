@@ -29,6 +29,7 @@ pub enum Tab {
     Lighting,
     Performance,
     Power,
+    Buttons,
     Macros,
     Profiles,
     Info,
@@ -40,6 +41,7 @@ impl Tab {
             Tab::Lighting => "Lighting",
             Tab::Performance => "Performance",
             Tab::Power => "Power",
+            Tab::Buttons => "Buttons",
             Tab::Macros => "Macro keys",
             Tab::Profiles => "Profiles",
             Tab::Info => "About",
@@ -87,6 +89,9 @@ pub struct App {
     pub settings: GuiSettings,
     pub autostart: bool,
     pub macro_edit: Option<super::macros::MacroEdit>,
+    pub button_edit: Option<super::buttons::ButtonEdit>,
+    /// "normal" or "hypershift", on the Buttons page.
+    pub buttons_layer: String,
     pub profile_name: String,
     tray_ok: bool,
     capture: Option<Capture>,
@@ -146,6 +151,8 @@ impl App {
             settings: GuiSettings::load(),
             autostart: crate::daemon::autostart_enabled(),
             macro_edit: None,
+            button_edit: None,
+            buttons_layer: "normal".into(),
             profile_name: String::new(),
             tray_ok,
             hide_frames: if background && tray_ok { 4 } else { 0 },
@@ -268,6 +275,7 @@ impl App {
                 self.tab = match tab {
                     "performance" => Tab::Performance,
                     "power" => Tab::Power,
+                    "buttons" => Tab::Buttons,
                     "macros" => Tab::Macros,
                     "profiles" => Tab::Profiles,
                     "info" => Tab::Info,
@@ -351,6 +359,7 @@ impl App {
                 if self.device_row(ui, device, snap, selected).clicked() {
                     self.view = Some(View::Device(device.serial.clone()));
                     self.macro_edit = None;
+                    self.button_edit = None;
                     // Re-read what may have changed on the device itself.
                     self.send(Command::LoadDevice(device.serial.clone()));
                 }
@@ -468,6 +477,7 @@ impl App {
                 Tab::Lighting => super::lighting::page(self, ui, &device, snap),
                 Tab::Performance => super::device_pages::performance(self, ui, &device, snap),
                 Tab::Power => super::device_pages::power(self, ui, &device, snap),
+                Tab::Buttons => super::buttons::page(self, ui, &device, snap),
                 Tab::Macros => super::macros::page(self, ui, &device, snap),
                 Tab::Profiles => super::profiles::page(self, ui, &device, snap),
                 Tab::Info => super::device_pages::info(self, ui, &device, snap),
@@ -489,6 +499,9 @@ impl App {
             }
             if caps["battery"] == true || caps["idle_time"] == true {
                 tabs.push(Tab::Power);
+            }
+            if caps["onboard_buttons"] == true {
+                tabs.push(Tab::Buttons);
             }
         }
         if let Some(macros) = detail.and_then(|d| d.macros.as_ref()) {
@@ -557,6 +570,7 @@ impl App {
                 if response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                     self.tab = *tab;
                     self.macro_edit = None;
+                    self.button_edit = None;
                 }
             }
         });

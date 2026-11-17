@@ -224,6 +224,44 @@ class FakeHeadsetV3X:
         return True
 
 
+def _onboard_seed() -> dict:
+    """Onboard memory as read from a real Basilisk V3 (fw 1.x, 2026-11-16).
+
+    Bindings are ``(profile, button, layer) -> (fn, size, data)``.  Profile 0 is
+    the live copy of the active one, so every profile starts out the same.
+    """
+    buttons = [1, 2, 3, 5, 4, 0x34, 0x35, 0x60, 0x0F, 0x0E, 0x6A, 9, 10]
+    special = {
+        (3, 1): (0x03, 3, (0x16, 0x15, 0x01)),
+        (0x34, 0): (0x03, 3, (0x3C, 0xAE, 0x01)), (0x34, 1): (0x0E, 3, (0x68, 0x00, 0x14)),
+        (0x35, 0): (0x03, 3, (0x03, 0x6D, 0x01)), (0x35, 1): (0x0E, 3, (0x69, 0x00, 0x14)),
+        (0x60, 0): (0x06, 1, (0x06,)), (0x60, 1): (0x06, 1, (0x06,)),
+        (0x0F, 0): (0x02, 2, (0x00, 0xE0)), (0x0F, 1): (0x06, 5, (0x05, 0x01, 0x90, 0x01, 0x90)),
+        (0x0E, 0): (0x07, 1, (0x04,)), (0x0E, 1): (0x07, 1, (0x04,)),
+        (0x6A, 0): (0x12, 1, (0x01,)), (0x6A, 1): (0x12, 1, (0x01,)),
+    }
+    bindings = {}
+    for profile in range(5):
+        for button in buttons:
+            for layer in (0, 1):
+                fn, size, data = special.get((button, layer), (0x01, 1, (button,)))
+                bindings[(profile, button, layer)] = (fn, size, bytes(data).ljust(5, b'\0'))
+    macros = {  # id -> (name, event bytes), as the same mouse stores them
+        0x1615: ('Macro 6', bytes.fromhex('01e3012b022b02e31114')),
+        0x3CAE: ('Macro 2', bytes.fromhex('01e001e30150025002e3110302e01114')),
+        0x036D: ('Macro 4', bytes.fromhex('01e001e3014f024f02e3110302e01114')),
+    }
+    return {'max': 5, 'active': 1, 'profiles': [1, 2, 3, 4],
+            'names': {2: '1', 3: '2', 4: 'TEJAS-LOQ-Default'},
+            'buttons': buttons, 'bindings': bindings, 'macros': macros}
+
+
+#: Onboard-memory commands (class 0x02 bindings, class 0x05 profiles).
+ONBOARD_COMMANDS = frozenset(((0x02, 0x84), (0x02, 0x8C), (0x02, 0x0C),
+                              (0x05, 0x81), (0x05, 0x84), (0x05, 0x88), (0x05, 0x04),
+                              (0x06, 0x8B), (0x06, 0x8C), (0x06, 0x88), (0x06, 0x89)))
+
+
 class FakeDeviceState:
     """Mutable state a fake device remembers between reports."""
 
@@ -249,6 +287,14 @@ class FakeDeviceState:
         self.low_battery_threshold = 0x0C
         self.frames: dict = {}
         self.sent: list = []
+        self.onboard = _onboard_seed()
+        #: Upcoming onboard reads answered BUSY, as a slow mouse does; the
+        #: transport hands that reply back as if it were the answer.
+        self.busy_reads = 0
+        #: Upcoming binding writes the mouse stores wrongly.
+        self.corrupt_writes = 0
+        #: A mouse that acknowledges a profile switch and stays where it was.
+        self.ignore_profile_switch = False
 
 
 class FakeInputReader:
@@ -471,6 +517,8 @@ class FakeRazerDevice:
         cls, cmd = request.command_class, request.command_id
         state = self.state
         args = request.arguments
+        if (cls, cmd) in ONBOARD_COMMANDS:
+            return self._respond_onboard(request, response)
 
         if (cls, cmd) == (0x00, 0x82):  # get serial
             response.set_arguments(0, state.serial.encode('ascii')[:22].ljust(22, b'\x00'))
@@ -573,6 +621,87 @@ class FakeRazerDevice:
         elif (cls, cmd) in ((0x03, 0x0B), (0x0F, 0x03), (0x03, 0x0C)):
             state.frames[len(state.frames)] = bytes(request.arguments)
         return response
+
+    def _respond_onboard(self, request: RazerReport, response: RazerReport) -> RazerReport:
+        cls, cmd, args = request.command_class, request.command_id, request.arguments
+        onboard = self.state.onboard
+        if cmd & 0x80 and self.state.busy_reads:
+            self.state.busy_reads -= 1
+            response.status = Status.BUSY  # arguments stay an echo of the request
+            return response
+        if (cls, cmd) == (0x05, 0x81):
+            response.set_arguments(0, bytes([onboard['max'], *onboard['profiles']]))
+        elif (cls, cmd) == (0x05, 0x84):
+            if onboard['active'] is None:
+                response.status = Status.NOT_SUPPORTED
+            else:
+                response.set_argument(0, onboard['active'])
+        elif (cls, cmd) == (0x05, 0x04):
+            profile = args[0]
+            if profile not in onboard['profiles']:
+                response.status = Status.FAILURE
+            elif not self.state.ignore_profile_switch:
+                onboard['active'] = profile
+                for (slot, button, layer), binding in list(onboard['bindings'].items()):
+                    if slot == profile:  # profile 0 becomes a copy of the new one
+                        onboard['bindings'][(0, button, layer)] = binding
+        elif (cls, cmd) == (0x05, 0x88):
+            slot, offset = args[0], (args[1] << 8) | args[2]
+            meta = bytearray(0xFA)
+            name = onboard['names'].get(slot, '').encode('ascii')
+            meta[0x10:0x10 + len(name)] = name
+            response.set_arguments(5, bytes(meta[offset:offset + 75]))
+        elif (cls, cmd) == (0x02, 0x84):
+            response.set_arguments(0, bytes([len(onboard['buttons']), *onboard['buttons']]))
+        elif cls == 0x06:
+            self._respond_macro(cmd, args, response)
+        elif (cls, cmd) == (0x02, 0x8C):
+            key = (args[0], args[1], args[2])
+            if key not in onboard['bindings']:
+                response.status = Status.FAILURE
+            else:
+                fn, size, data = onboard['bindings'][key]
+                response.set_arguments(3, bytes([fn, size]) + data)
+        elif (cls, cmd) == (0x02, 0x0C):
+            key = (args[0], args[1], args[2])
+            if key[1] not in onboard['buttons'] or key[2] not in (0, 1):
+                response.status = Status.FAILURE
+                return response
+            data = bytes(args[5:10])
+            if self.state.corrupt_writes:
+                self.state.corrupt_writes -= 1
+                data = bytes((data[0] ^ 0xFF,)) + data[1:]  # a byte the write did not ask for
+            onboard['bindings'][key] = (args[3], args[4], data)
+            if key[0] == onboard['active']:  # profile 0 mirrors the active one
+                onboard['bindings'][(0,) + key[1:]] = (args[3], args[4], data)
+        return response
+
+    def _respond_macro(self, cmd: int, args, response: RazerReport) -> None:
+        """Class 0x06 reads: the id list, a name block, a data size, a data chunk."""
+        macros = self.state.onboard['macros']
+        if cmd == 0x8B:
+            offset = args[0] << 8 | args[1]
+            ids = sorted(macros)[offset:offset + 32]
+            payload = bytes((args[0], args[1], len(ids) >> 8, len(ids) & 0xFF))
+            response.set_arguments(0, payload + b''.join(i.to_bytes(2, 'big') for i in ids))
+            return
+        macro_id = args[0] << 8 | args[1]
+        if macro_id not in macros:
+            response.status = Status.FAILURE
+            return
+        name, data = macros[macro_id]
+        if cmd == 0x8C:
+            block = bytearray(250)
+            block[16:20] = len(data).to_bytes(4, 'little')
+            block[20:20 + len(name)] = name.encode('utf-8')
+            offset = args[3]
+            response.set_arguments(4, bytes((0, 250)) + bytes(block[offset:offset + 64]))
+        elif cmd == 0x88:
+            response.set_arguments(2, len(data).to_bytes(4, 'big'))
+        elif cmd == 0x89:
+            offset, length = int.from_bytes(bytes(args[2:6]), 'big'), args[6]
+            chunk = data[offset:offset + length]
+            response.set_arguments(6, bytes((len(chunk),)) + chunk)
 
 
 class FakeHidBackend:

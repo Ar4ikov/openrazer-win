@@ -19,7 +19,9 @@ from ..devices.database import DeviceInfo
 from ..devices.recipes import (
     Environment, NotSupported, RecipeError, RecipeTable, execute, get_recipes,
 )
-from ..protocol.report import RazerReport, RazerReportError
+from ..protocol import buttons
+from ..protocol import macros as macros_protocol
+from ..protocol.report import RazerReport, RazerReportError, Status
 from .persistence import Persistence
 from .transport import Transport
 
@@ -134,7 +136,23 @@ KEYSWITCH_TYPING_MARKER = 0x14
 
 
 class DeviceError(Exception):
-    """A device operation failed."""
+    """A device operation failed; ``status`` is the reply's status byte when one came."""
+
+    def __init__(self, message: str, status: Optional[int] = None):
+        super().__init__(message)
+        self.status = status
+
+
+#: Product ids whose onboard button memory has been read and written on real
+#: hardware.  The commands are not in upstream OpenRazer, so nothing else is
+#: offered them until someone checks.
+ONBOARD_BUTTON_PIDS = frozenset({0x0099})  # Basilisk V3
+
+#: Metadata block of an onboard profile: 250 bytes, read 75 at a time, with the
+#: profile's name as ASCII from 0x10 to 0x73.
+_PROFILE_META_LENGTH = 0xFA
+_PROFILE_META_CHUNK = 75
+_PROFILE_NAME = slice(0x10, 0x74)
 
 
 def _clamp(value, low, high):
@@ -693,6 +711,228 @@ class RazerDevice:
         self.run('write:scroll_smart_reel', str(value).encode('ascii'),
                  smart_reel=value)
 
+    # -- mouse: onboard button memory --------------------------------------
+    def _onboard_txid(self) -> int:
+        """The transaction id this device's own recipes use, 0x1F if none say."""
+        try:
+            steps, _ = self.recipes.lookup(self.driver, 'read:dpi', self.info.pid)
+        except (NotSupported, RecipeError):
+            return 0x1F
+        for step in steps:
+            if step.get('op') == 'txid' and step['value'].get('k') == 'const':
+                return int(step['value']['value']) & 0xFF
+        return 0x1F
+
+    def _require_onboard(self) -> None:
+        if self.info.pid not in ONBOARD_BUTTON_PIDS:
+            raise NotSupported('{0} has no verified onboard button memory'.format(self.name))
+
+    def _onboard(self, command_class: int, command_id: int, size: int,
+                 args: bytes = b'') -> bytes:
+        """Send one onboard-memory command; returns the reply's full argument block.
+
+        The full block, not ``payload``: the reply's data size may only echo the
+        request's.  A read that is still BUSY is an error -- the transport hands
+        BUSY back as success, and its arguments are then just our own request.
+        """
+        self._require_onboard()
+        request = RazerReport(command_class, command_id, size)
+        request.transaction_id = self._onboard_txid()
+        request.set_arguments(0, args)
+        try:
+            response = self.transport.send_payload(request)
+        except RazerReportError as error:
+            raise DeviceError(str(error), status=error.status) from error
+        if command_id & 0x80 and response.status != Status.SUCCESSFUL:
+            raise DeviceError('{0} replied {1} to 0x{2:02x},0x{3:02x}'.format(
+                self.name, Status.name(response.status), command_class, command_id),
+                status=response.status)
+        return bytes(response.arguments)
+
+    @staticmethod
+    def _onboard_ids(profile, button, layer) -> tuple:
+        """Check ids before any report goes out; ``layer`` is a name or 0/1.
+
+        Strict about types: these arrive as JSON, where ``1.0`` or ``true``
+        would otherwise slip past a range check and fail half-way through.
+        """
+        layer_id = buttons.LAYERS.get(layer) if isinstance(layer, str) else layer
+        if type(layer_id) is not int or layer_id not in buttons.LAYERS.values():
+            raise ValueError('unknown layer {0!r}: use normal or hypershift'.format(layer))
+        if type(profile) is not int or not 0 <= profile <= 0xFF:
+            raise ValueError('profile must be 0..255, got {0!r}'.format(profile))
+        if type(button) is not int or not 0 < button <= 0xFF:
+            raise ValueError('button must be 1..255, got {0!r}'.format(button))
+        return profile, button, layer_id
+
+    def get_onboard_profiles(self) -> dict:
+        """Profiles stored on the mouse: ``{active, max, profiles: [{id, name}]}``."""
+        self._require_onboard()
+        with self._lock:
+            inventory = self._onboard(0x05, 0x81, 0x00)
+            active = self.get_active_onboard_profile()
+            profiles = [{'id': pid, 'name': self._onboard_profile_name(pid)}
+                        for pid in inventory[1:] if pid]
+        return {'active': active, 'max': inventory[0], 'profiles': profiles}
+
+    def get_active_onboard_profile(self) -> Optional[int]:
+        """The profile the mouse is on -- one read, cheap enough to poll for the
+        profile button.  ``None`` on firmware that cannot tell."""
+        try:
+            return self._onboard(0x05, 0x84, 0x00)[0]
+        except DeviceError as error:
+            if error.status not in (Status.FAILURE, Status.NOT_SUPPORTED):
+                raise  # busy or timed out: say so rather than guess
+            return None
+
+    def set_active_onboard_profile(self, profile: int) -> None:
+        """Switch the mouse to one of its stored profiles, as its profile button does.
+
+        Read back afterwards: a mouse that did not switch says so.
+        """
+        self._require_onboard()
+        if type(profile) is not int:
+            raise ValueError('profile must be a number, got {0!r}'.format(profile))
+        with self._lock:
+            inventory = self._onboard(0x05, 0x81, 0x00)
+            if profile not in [p for p in inventory[1:] if p]:
+                raise ValueError('{0} has no profile {1}'.format(self.name, profile))
+            self._onboard(0x05, 0x04, 0x01, bytes((profile,)))
+            now = self.get_active_onboard_profile()
+            if now != profile:
+                raise DeviceError('{0} is still on profile {1}'.format(self.name, now))
+
+    def _onboard_profile_name(self, profile: int) -> Optional[str]:
+        meta = bytearray(_PROFILE_META_LENGTH)
+        try:
+            for offset in range(0, _PROFILE_NAME.stop, _PROFILE_META_CHUNK):
+                args = bytes((profile, offset >> 8, offset & 0xFF, 0x00, _PROFILE_META_LENGTH))
+                reply = self._onboard(0x05, 0x88, 0x50, args)
+                meta[offset:offset + _PROFILE_META_CHUNK] = reply[5:5 + _PROFILE_META_CHUNK]
+        except DeviceError:
+            return None
+        raw = bytes(meta[_PROFILE_NAME]).split(b'\0', 1)[0]
+        if raw and all(0x20 <= c <= 0x7E for c in raw):
+            return raw.decode('ascii')
+        return None
+
+    def get_buttons(self) -> list:
+        """The buttons the mouse can bind, in its own order: ``[{id, name}]``."""
+        reply = self._onboard(0x02, 0x84, 0x50)
+        return [{'id': i, 'name': buttons.button_name(i)} for i in reply[1:1 + reply[0]]]
+
+    def _read_binding(self, profile: int, button: int, layer: int) -> buttons.Binding:
+        reply = self._onboard(0x02, 0x8C, 0x0A, bytes((profile, button, layer)))
+        return buttons.Binding.from_raw(reply[3], reply[4], reply[5:10])
+
+    def get_button_binding(self, profile: int, button: int, layer='normal') -> dict:
+        """``{action, fn, size, data}`` for one button; unknown functions keep their bytes."""
+        self._require_onboard()
+        profile, button, layer = self._onboard_ids(profile, button, layer)
+        return buttons.binding_to_dict(self._read_binding(profile, button, layer))
+
+    def _write_binding(self, profile: int, button: int, layer: int,
+                       binding: buttons.Binding) -> None:
+        self._onboard(0x02, 0x0C, 0x0A,
+                      bytes((profile, button, layer, binding.fn, binding.size)) + binding.data)
+
+    def _set_binding(self, profile: int, button: int, layer: int,
+                     new: buttons.Binding) -> buttons.Binding:
+        """Write, read back, and put the old binding back if the mouse disagrees."""
+        old = self._read_binding(profile, button, layer)
+        self._write_binding(profile, button, layer, new)
+        got = self._read_binding(profile, button, layer)
+        if got != new:
+            self._write_binding(profile, button, layer, old)
+            back = self._read_binding(profile, button, layer)
+            outcome = ('old binding restored' if back == old else
+                       'restore FAILED, it is now {0} (was {1})'.format(
+                           buttons.describe(back), buttons.describe(old)))
+            raise DeviceError('{0} kept {1} instead of {2} on {3}; {4}'.format(
+                self.name, buttons.describe(got), buttons.describe(new),
+                buttons.button_name(button), outcome))
+        return old
+
+    def set_button_binding(self, profile: int, button: int, action: str,
+                           layer='normal') -> dict:
+        """Rebind one button in onboard memory; returns what it was bound to."""
+        self._require_onboard()
+        profile, button, layer = self._onboard_ids(profile, button, layer)
+        new = buttons.parse_action(str(action))
+        with self._lock:
+            return buttons.binding_to_dict(self._set_binding(profile, button, layer, new))
+
+    def backup_button_bindings(self, profile: int) -> dict:
+        """Every binding of one profile, both layers, in razerbind's file format."""
+        self._require_onboard()
+        profile = self._onboard_ids(profile, 1, 0)[0]
+        rows = []
+        with self._lock:
+            for entry in self.get_buttons():
+                for layer in buttons.LAYERS.values():
+                    binding = self._read_binding(profile, entry['id'], layer)
+                    rows.append({'button': entry['id'], 'layer': layer, 'fn': binding.fn,
+                                 'size': binding.size, 'data': list(binding.data)})
+        return {'profile': profile, 'bindings': rows}
+
+    def restore_button_bindings(self, doc: dict) -> int:
+        """Write back a backup; returns how many bindings changed.
+
+        The whole document is checked before the first report goes out, so a
+        bad row cannot leave a profile half restored.
+        """
+        self._require_onboard()
+        rows = []
+        try:
+            for row in doc['bindings']:
+                profile, button, layer = self._onboard_ids(doc['profile'], row['button'],
+                                                           row['layer'])
+                rows.append((profile, button, layer, buttons.binding_from_dict(row)))
+        except KeyError as error:
+            # A missing field is a bad document, not a bug in the daemon.
+            raise ValueError('backup is missing {0}'.format(error)) from None
+        written = 0
+        with self._lock:
+            for profile, button, layer, want in rows:
+                if self._read_binding(profile, button, layer) != want:
+                    self._set_binding(profile, button, layer, want)
+                    written += 1
+        return written
+
+    def get_onboard_macros(self) -> list:
+        """Macros stored on the mouse: ``[{id, name, summary, events}]``. Read only."""
+        self._require_onboard()
+        macros = []
+        with self._lock:
+            for macro_id in self._onboard_macro_ids():
+                key = bytes((macro_id >> 8, macro_id & 0xFF))
+                meta = b''.join(self._onboard(0x06, 0x8C, 0x50, key + bytes((0, offset)))[6:6 + 64]
+                                for offset in (0, 64))
+                name = bytes(meta[20:120]).split(b'\0', 1)[0].decode('utf-8', 'replace')
+                reply = self._onboard(0x06, 0x88, 0x06, key)
+                size = int.from_bytes(reply[2:6], 'big')
+                data = bytearray()
+                while len(data) < size:
+                    chunk = min(72, size - len(data))
+                    reply = self._onboard(0x06, 0x89, 0x50,
+                                          key + len(data).to_bytes(4, 'big') + bytes((chunk,)))
+                    if not reply[6]:
+                        break  # nothing more is coming; keep what was read
+                    data += reply[7:7 + reply[6]]
+                events = macros_protocol.decode_events(bytes(data))
+                macros.append({'id': macro_id, 'name': name, 'events': events,
+                               'summary': macros_protocol.summarize(events)})
+        return macros
+
+    def _onboard_macro_ids(self) -> list:
+        ids: list = []
+        while True:
+            reply = self._onboard(0x06, 0x8B, 0x50, bytes((len(ids) >> 8, len(ids) & 0xFF)))
+            count = min(reply[2] << 8 | reply[3], 38)  # 38 ids fill the 80-byte reply
+            ids += [reply[4 + 2 * i] << 8 | reply[5 + 2 * i] for i in range(count)]
+            if count < 32:  # Synapse reads 32 a time; fewer means that was the last
+                return ids
+
     # -- capability report -------------------------------------------------
     def _feature(self, attribute: str, *method_names: str) -> bool:
         """A feature is present when both the recipe and the device class agree."""
@@ -752,6 +992,7 @@ class RazerDevice:
                                                     'get_keyswitch_optimization'),
             'scroll_mode': self._feature('read:scroll_mode', 'get_scroll_mode'),
             'custom_frame': self._feature('write:matrix_custom_frame', 'set_key_row'),
+            'onboard_buttons': self.info.pid in ONBOARD_BUTTON_PIDS,
             'software_effects': self._software_effects_possible(),
             'transport': {
                 'path': self.transport.info.path,
