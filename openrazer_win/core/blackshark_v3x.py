@@ -54,7 +54,7 @@ class BlackSharkV3XDevice:
         self.info = info
         self.channel = channel
         self.persistence = persistence or Persistence()
-        self.wired = info.pid == protocol.PID_WIRED
+        self.wired = info.pid in protocol.WIRED_PRODUCT_IDS
         self._lock = threading.RLock()
         self._transaction = 0
         self._serial: Optional[str] = None

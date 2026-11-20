@@ -101,6 +101,9 @@ BLACKSHARK_METHODS = ['get_device_type_headset', 'get_battery', 'is_charging',
                       'get_idle_time', 'set_idle_time']
 #: The picture openrazer/openrazer#2899 gives it.
 BLACKSHARK_V3_X_IMAGE = 'https://dl.razerzone.com/src2/20181/20181-1-en-v3.png'
+BLACKSHARK_V3_X_PS_IMAGE = (
+    'https://apps.razer.com/synapse/products/4130/ui/4130_0/PluginImages/'
+    '4130_0_0_dashboard3x.png')
 
 #: Its settings are the BlackSharks'; its lights are none either.
 BARRACUDA_METHODS = BLACKSHARK_METHODS
@@ -214,6 +217,44 @@ LOCAL_DEVICES = [
         'poll_rates': None,
         'dpi_max': None,
         'image': BLACKSHARK_V3_X_IMAGE,
+        'methods': BLACKSHARK_METHODS,
+        'transport': 'hid',
+    },
+    {
+        # PlayStation edition of the BlackShark V3 X HyperSpeed: same 64-byte
+        # feature report protocol and features on both its HyperSpeed receiver
+        # (1532:1021, "BlackShark V3 X PS") and its USB cable (1532:1022,
+        # "BlackShark V3 X PS USB").
+        'class_name': 'RazerBlackSharkV3XPSWireless',
+        'name': 'Razer BlackShark V3 X HyperSpeed for PlayStation (Wireless)',
+        'vid': 0x1532,
+        'pid': 0x1021,
+        'type': 'headset',
+        'has_matrix': False,
+        'matrix_dims': None,
+        'dedicated_macro_keys': False,
+        'driver_mode': False,
+        'wave_dirs': [1, 2],
+        'poll_rates': None,
+        'dpi_max': None,
+        'image': BLACKSHARK_V3_X_PS_IMAGE,
+        'methods': BLACKSHARK_METHODS,
+        'transport': 'hid',
+    },
+    {
+        'class_name': 'RazerBlackSharkV3XPSUSB',
+        'name': 'Razer BlackShark V3 X HyperSpeed for PlayStation (Wired)',
+        'vid': 0x1532,
+        'pid': 0x1022,
+        'type': 'headset',
+        'has_matrix': False,
+        'matrix_dims': None,
+        'dedicated_macro_keys': False,
+        'driver_mode': False,
+        'wave_dirs': [1, 2],
+        'poll_rates': None,
+        'dpi_max': None,
+        'image': BLACKSHARK_V3_X_PS_IMAGE,
         'methods': BLACKSHARK_METHODS,
         'transport': 'hid',
     },

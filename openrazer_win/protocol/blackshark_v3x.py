@@ -22,10 +22,13 @@ from __future__ import annotations
 
 from typing import Sequence
 
-#: The headset on its cable, and its HyperSpeed receiver.
+#: The headset on its cable, and its HyperSpeed receiver (standard and PlayStation editions).
 PID_WIRED = 0x057C
 PID_WIRELESS = 0x057D
-PRODUCT_IDS = frozenset((PID_WIRED, PID_WIRELESS))
+PID_PS_WIRELESS = 0x1021
+PID_PS_WIRED = 0x1022
+WIRED_PRODUCT_IDS = frozenset((PID_WIRED, PID_PS_WIRED))
+PRODUCT_IDS = frozenset((PID_WIRED, PID_WIRELESS, PID_PS_WIRED, PID_PS_WIRELESS))
 
 REPORT_ID = 0x07
 REPORT_SIZE = 64
