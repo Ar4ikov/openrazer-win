@@ -12352,6 +12352,58 @@
     "set_wave_effect"
    ],
    "transport": "hid"
+  },
+  {
+   "class_name": "RazerBlackSharkV3XPSWireless",
+   "name": "Razer BlackShark V3 X HyperSpeed for PlayStation (Wireless)",
+   "vid": 5426,
+   "pid": 4129,
+   "type": "headset",
+   "has_matrix": false,
+   "matrix_dims": null,
+   "dedicated_macro_keys": false,
+   "driver_mode": false,
+   "wave_dirs": [
+    1,
+    2
+   ],
+   "poll_rates": null,
+   "dpi_max": null,
+   "image": "https://apps.razer.com/synapse/products/4130/ui/4130_0/PluginImages/4130_0_0_dashboard3x.png",
+   "methods": [
+    "get_device_type_headset",
+    "get_battery",
+    "is_charging",
+    "get_idle_time",
+    "set_idle_time"
+   ],
+   "transport": "hid"
+  },
+  {
+   "class_name": "RazerBlackSharkV3XPSUSB",
+   "name": "Razer BlackShark V3 X HyperSpeed for PlayStation (Wired)",
+   "vid": 5426,
+   "pid": 4130,
+   "type": "headset",
+   "has_matrix": false,
+   "matrix_dims": null,
+   "dedicated_macro_keys": false,
+   "driver_mode": false,
+   "wave_dirs": [
+    1,
+    2
+   ],
+   "poll_rates": null,
+   "dpi_max": null,
+   "image": "https://apps.razer.com/synapse/products/4130/ui/4130_0/PluginImages/4130_0_0_dashboard3x.png",
+   "methods": [
+    "get_device_type_headset",
+    "get_battery",
+    "is_charging",
+    "get_idle_time",
+    "set_idle_time"
+   ],
+   "transport": "hid"
   }
  ]
 }

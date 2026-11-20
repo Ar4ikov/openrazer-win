@@ -415,14 +415,14 @@ to have a backlight it does not have.
 | Headsets (Kraken protocol) | 8 |
 | Headsets (Bluetooth LE) | 1 |
 | Headsets (BlackShark V2 HyperSpeed) | 2 |
-| Headsets (BlackShark V3 X HyperSpeed) | 2 |
+| Headsets (BlackShark V3 X HyperSpeed) | 4 |
 | Headsets (Barracuda X) | 1 |
 | Mousepads | 8 |
 | Keypads | 7 |
 | eGPU enclosures | 2 |
-| **Total** | **281** |
+| **Total** | **285** |
 
-169 have addressable matrices; 83 report battery level. The full searchable list is
+169 have addressable matrices; 90 report battery level. The full searchable list is
 [on the documentation site](https://ar4ikov.github.io/openrazer-win/#devices), or run
 `openrazer-win supported`.
 
@@ -546,7 +546,7 @@ Studio only shows where it stands.
 
 ### BlackShark V3 X HyperSpeed
 
-`1532:057D` on its USB receiver, `1532:057C` on its cable. The same kind of headset as the one
+`1532:057D` on its USB receiver, `1532:057C` on its cable; and the PlayStation edition (`BlackShark V3 X PS`) uses `1532:1021` on its USB receiver and `1532:1022` on its cable with the same protocol and features. The same kind of headset as the one
 above, with its settings kept in itself, and another protocol again: 64-byte feature reports with
 a layout of their own. The same command sets it, and Studio shows it under *Sound* and *Power*:
 

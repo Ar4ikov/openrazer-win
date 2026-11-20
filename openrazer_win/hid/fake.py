@@ -651,7 +651,7 @@ class FakeRazerDevice:
             serial or 'FAKE{0:010d}'.format(next(_SERIAL_COUNTER)))
         if headset and v3x:
             self.headset = FakeHeadsetV3X(self.state.serial,
-                                          product_id == blackshark_v3x.PID_WIRED)
+                                          product_id in blackshark_v3x.WIRED_PRODUCT_IDS)
         elif headset and tunnel:
             self.headset = FakeBarracuda(self.input_reports.put)
         elif headset:
