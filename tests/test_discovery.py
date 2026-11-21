@@ -106,9 +106,9 @@ def test_doctor_explains_a_bluetooth_only_headset(capsys, monkeypatch):
     assert 'Razer Kraken Kitty V2 BT' in output
     # It has no USB data mode at all, so telling the user to find a better
     # cable would send them chasing a fault that is not there.
-    assert 'only charges it' in output
+    assert '只会充电' in output
     assert 'Bluetooth LE' in output
-    assert 'USB *data* cable' not in output
+    assert 'USB 数据线' not in output
 
 
 def test_doctor_says_how_to_install_the_bluetooth_support(capsys, monkeypatch):
@@ -138,8 +138,8 @@ def test_doctor_still_asks_for_a_data_cable_on_a_usb_device(capsys, monkeypatch)
     ])
     cli._report_devices_beyond_hid([], get_database())
     output = capsys.readouterr().out
-    assert 'Paired over Bluetooth' in output
-    assert 'USB *data* cable' in output
+    assert '已通过蓝牙配对' in output
+    assert 'USB 数据线' in output
 
 
 def test_doctor_does_not_ask_users_to_report_a_webcam(capsys, monkeypatch):
@@ -151,8 +151,8 @@ def test_doctor_does_not_ask_users_to_report_a_webcam(capsys, monkeypatch):
     ])
     cli._report_devices_beyond_hid([], get_database())
     output = capsys.readouterr().out
-    assert 'not a device openrazer-win controls' in output
-    assert 'reporting' not in output
+    assert '不是 openrazer-win 控制的设备' in output
+    assert '值得报告' not in output
 
 
 def test_doctor_does_ask_about_an_unknown_lighting_device(capsys, monkeypatch):
@@ -164,7 +164,7 @@ def test_doctor_does_ask_about_an_unknown_lighting_device(capsys, monkeypatch):
              product=0xABCD),
     ])
     cli._report_devices_beyond_hid([], get_database())
-    assert 'Worth reporting' in capsys.readouterr().out
+    assert '值得报告' in capsys.readouterr().out
 
 
 def test_doctor_stays_quiet_about_devices_already_listed(capsys, monkeypatch):

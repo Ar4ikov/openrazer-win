@@ -33,7 +33,11 @@ fn section<'a>(body: &'a str, language: &str) -> Option<&'a str> {
 /// out each one. English stands in for a translation not written, and the
 /// whole text for a release not made that way.
 pub fn for_language(body: &str, language: Lang) -> &str {
-    let wanted = if language == Lang::Ru { section(body, "ru") } else { None };
+    let wanted = match language {
+        Lang::Ru => section(body, "ru"),
+        Lang::Zh => section(body, "zh"),
+        _ => None,
+    };
     wanted.or_else(|| section(body, "en")).unwrap_or(body.trim())
 }
 

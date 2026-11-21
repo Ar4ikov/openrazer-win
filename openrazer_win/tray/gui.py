@@ -18,7 +18,7 @@ from ..client.rpc import is_daemon_running
 from ..daemon.protocol import RpcError
 from ..devices.recipes import NotSupported
 
-WINDOW_TITLE = 'OpenRazer for Windows'
+WINDOW_TITLE = 'OpenRazer Windows 版'
 
 #: Effects that take a colour, and how many.
 COLOUR_COUNTS = {
@@ -61,7 +61,7 @@ class ControlPanel(ttk.Frame):
 
     # -- layout ------------------------------------------------------------
     def _build_device_list(self) -> None:
-        frame = ttk.LabelFrame(self, text='Devices', padding=6)
+        frame = ttk.LabelFrame(self, text='设备', padding=6)
         frame.grid(row=0, column=0, sticky='nsw', padx=(0, 10))
         frame.rowconfigure(0, weight=1)
 
@@ -70,7 +70,7 @@ class ControlPanel(ttk.Frame):
         self.device_list.grid(row=0, column=0, sticky='nsew')
         self.device_list.bind('<<ListboxSelect>>', self._on_device_selected)
 
-        ttk.Button(frame, text='Rescan', command=self.reload).grid(
+        ttk.Button(frame, text='重新扫描', command=self.reload).grid(
             row=1, column=0, sticky='ew', pady=(6, 0))
 
     def _build_controls(self) -> None:
@@ -78,24 +78,24 @@ class ControlPanel(ttk.Frame):
         frame.grid(row=0, column=1, sticky='nsew')
         frame.columnconfigure(0, weight=1)
 
-        self.device_title = ttk.Label(frame, text='No device selected',
+        self.device_title = ttk.Label(frame, text='未选择设备',
                                       font=('Segoe UI', 12, 'bold'))
         self.device_title.grid(row=0, column=0, sticky='w')
         self.device_detail = ttk.Label(frame, text='', foreground='#666666')
         self.device_detail.grid(row=1, column=0, sticky='w', pady=(0, 8))
 
-        lighting = ttk.LabelFrame(frame, text='Lighting', padding=8)
+        lighting = ttk.LabelFrame(frame, text='灯效', padding=8)
         lighting.grid(row=2, column=0, sticky='ew')
         lighting.columnconfigure(1, weight=1)
 
-        ttk.Label(lighting, text='Zone').grid(row=0, column=0, sticky='w')
+        ttk.Label(lighting, text='区域').grid(row=0, column=0, sticky='w')
         self.zone_var = tk.StringVar()
         self.zone_box = ttk.Combobox(lighting, textvariable=self.zone_var,
                                      state='readonly', width=18)
         self.zone_box.grid(row=0, column=1, sticky='w', pady=2)
         self.zone_box.bind('<<ComboboxSelected>>', lambda _e: self._refresh_effects())
 
-        ttk.Label(lighting, text='Effect').grid(row=1, column=0, sticky='w')
+        ttk.Label(lighting, text='灯效').grid(row=1, column=0, sticky='w')
         self.effect_var = tk.StringVar()
         self.effect_box = ttk.Combobox(lighting, textvariable=self.effect_var,
                                        state='readonly', width=18)
@@ -112,21 +112,21 @@ class ControlPanel(ttk.Frame):
             self.colour_buttons.append(button)
         self._paint_colour_buttons()
 
-        self.speed_label = ttk.Label(lighting, text='Speed')
+        self.speed_label = ttk.Label(lighting, text='速度')
         self.speed_var = tk.IntVar(value=1)
         self.speed_box = ttk.Combobox(lighting, textvariable=self.speed_var,
                                       state='readonly', width=5,
                                       values=(1, 2, 3, 4))
-        self.direction_label = ttk.Label(lighting, text='Direction')
+        self.direction_label = ttk.Label(lighting, text='方向')
         self.direction_var = tk.StringVar(value='right')
         self.direction_box = ttk.Combobox(lighting, textvariable=self.direction_var,
                                           state='readonly', width=8,
                                           values=('left', 'right'))
 
-        ttk.Button(lighting, text='Apply effect', command=self.apply_effect).grid(
+        ttk.Button(lighting, text='应用灯效', command=self.apply_effect).grid(
             row=5, column=0, columnspan=2, sticky='w', pady=(8, 0))
 
-        ttk.Label(lighting, text='Brightness').grid(row=6, column=0, sticky='w',
+        ttk.Label(lighting, text='亮度').grid(row=6, column=0, sticky='w',
                                                     pady=(10, 0))
         self.brightness_var = tk.DoubleVar(value=75.0)
         self.brightness_scale = ttk.Scale(
@@ -137,7 +137,7 @@ class ControlPanel(ttk.Frame):
         self.brightness_value = ttk.Label(lighting, text='75%')
         self.brightness_value.grid(row=7, column=1, sticky='w')
 
-        self.performance = ttk.LabelFrame(frame, text='Performance', padding=8)
+        self.performance = ttk.LabelFrame(frame, text='性能', padding=8)
         self.performance.grid(row=3, column=0, sticky='ew', pady=(10, 0))
         self.performance.columnconfigure(1, weight=1)
 
@@ -151,14 +151,14 @@ class ControlPanel(ttk.Frame):
         self.dpi_value = ttk.Label(self.performance, text='1800')
         self.dpi_value.grid(row=1, column=1, sticky='w')
 
-        ttk.Label(self.performance, text='Poll rate').grid(row=2, column=0, sticky='w')
+        ttk.Label(self.performance, text='轮询率').grid(row=2, column=0, sticky='w')
         self.poll_var = tk.StringVar()
         self.poll_box = ttk.Combobox(self.performance, textvariable=self.poll_var,
                                      state='readonly', width=8)
         self.poll_box.grid(row=2, column=1, sticky='w', pady=(4, 0))
         self.poll_box.bind('<<ComboboxSelected>>', self._on_poll_rate)
 
-        self.keyswitch_label = ttk.Label(self.performance, text='Keyswitches')
+        self.keyswitch_label = ttk.Label(self.performance, text='按键开关')
         self.keyswitch_label.grid(row=3, column=0, sticky='w')
         self.keyswitch_var = tk.StringVar()
         self.keyswitch_box = ttk.Combobox(self.performance, textvariable=self.keyswitch_var,
@@ -169,13 +169,13 @@ class ControlPanel(ttk.Frame):
 
     def _build_status_bar(self) -> None:
         self.status_var = tk.StringVar(
-            value='openrazer-win {0}  (device data from openrazer {1})'.format(
+            value='openrazer-win {0}  （设备数据来自 openrazer {1}）'.format(
                 __version__, UPSTREAM_VERSION))
         ttk.Label(self, textvariable=self.status_var, foreground='#444444',
                   anchor='w').grid(row=1, column=0, sticky='ew', pady=(10, 0))
 
         self.autostart_var = tk.BooleanVar(value=_autostart_enabled())
-        ttk.Checkbutton(self, text='Start with Windows', variable=self.autostart_var,
+        ttk.Checkbutton(self, text='开机自启', variable=self.autostart_var,
                         command=self._on_autostart).grid(row=1, column=1, sticky='e',
                                                          pady=(10, 0))
 
@@ -184,10 +184,10 @@ class ControlPanel(ttk.Frame):
         try:
             if self.autostart_var.get():
                 autostart.enable()
-                self.status_var.set('The daemon will start when you sign in to Windows')
+                self.status_var.set('登录 Windows 后将启动后台服务')
             else:
                 autostart.disable()
-                self.status_var.set('The daemon will no longer start with Windows')
+                self.status_var.set('后台服务将不再随 Windows 启动')
         except autostart.AutostartError as error:
             self.status_var.set(str(error))
             self.autostart_var.set(_autostart_enabled())
@@ -208,8 +208,8 @@ class ControlPanel(ttk.Frame):
             self.device_list.selection_set(0)
             self._select(0)
         else:
-            self.device_title.config(text='No devices found')
-            self.device_detail.config(text='Is the daemon running?')
+            self.device_title.config(text='未找到设备')
+            self.device_detail.config(text='后台服务在运行吗？')
 
     def _on_device_selected(self, _event) -> None:
         selection = self.device_list.curselection()
@@ -220,7 +220,7 @@ class ControlPanel(ttk.Frame):
         self.current = self.devices[index]
         device = self.current
         self.device_title.config(text=device.name)
-        self.device_detail.config(text='{0}  |  serial {1}  |  firmware {2}'.format(
+        self.device_detail.config(text='{0}  |  序列号 {1}  |  固件 {2}'.format(
             device.type, device.serial, device.firmware_version or '?'))
 
         zones = device.zones
@@ -351,7 +351,7 @@ class ControlPanel(ttk.Frame):
                 fx.ripple_random()
             elif effect == 'custom':
                 fx.advanced.fill(first).draw()
-            return '{0}: {1} on {2}'.format(device.name, effect, zone)
+            return '{0}：{1} 已应用到 {2}'.format(device.name, effect, zone)
 
         self._run(action, self.status_var.set)
 
@@ -365,7 +365,7 @@ class ControlPanel(ttk.Frame):
         value = round(self.brightness_var.get(), 1)
         self._run(lambda: device._call('set_brightness', value, zone=zone),
                   lambda _r: self.status_var.set(
-                      '{0}: brightness {1}%'.format(device.name, value)))
+                      '{0}：亮度 {1}%'.format(device.name, value)))
 
     def _apply_brightness_readback(self, value) -> None:
         try:
@@ -384,7 +384,7 @@ class ControlPanel(ttk.Frame):
         value = int(self.dpi_var.get())
         self._run(lambda: setattr(device, 'dpi', (value, value)),
                   lambda _r: self.status_var.set(
-                      '{0}: DPI {1}'.format(device.name, value)))
+                      '{0}：DPI {1}'.format(device.name, value)))
 
     def _apply_dpi_readback(self, value) -> None:
         try:
@@ -400,7 +400,7 @@ class ControlPanel(ttk.Frame):
         rate = int(self.poll_var.get())
         self._run(lambda: setattr(device, 'poll_rate', rate),
                   lambda _r: self.status_var.set(
-                      '{0}: {1} Hz'.format(device.name, rate)))
+                      '{0}：{1} Hz'.format(device.name, rate)))
 
     def _on_keyswitch(self, _event) -> None:
         if self.current is None:
@@ -409,7 +409,7 @@ class ControlPanel(ttk.Frame):
         mode = self.keyswitch_var.get()
         self._run(lambda: setattr(device, 'keyswitch_optimization', mode),
                   lambda _r: self.status_var.set(
-                      '{0}: keyswitch optimization {1}'.format(device.name, mode)))
+                      '{0}：按键开关优化 {1}'.format(device.name, mode)))
 
     # -- background work ---------------------------------------------------
     def _run(self, action, on_success=None) -> None:
@@ -490,8 +490,8 @@ def _offer_to_restart_an_old_daemon(root: tk.Misc) -> None:
         return
     if not messagebox.askyesno(
             WINDOW_TITLE,
-            'The running daemon is version {0}, but this control panel is {1}.\n\n'
-            'Restart the daemon so they match?'.format(running, __version__)):
+            '正在运行的后台服务版本为 {0}，而此控制面板为 {1}。\n\n'
+            '要重启后台服务使版本一致吗？'.format(running, __version__)):
         return
     root.config(cursor='watch')
     root.update_idletasks()
@@ -511,8 +511,8 @@ def _offer_to_start_the_daemon(root: tk.Misc) -> None:
     """
     if not messagebox.askyesno(
             WINDOW_TITLE,
-            'The openrazer-win daemon is not running.\n\n'
-            'It owns the connection to your devices. Start it now?'):
+            'openrazer-win 后台服务未运行。\n\n'
+            '它负责与设备的连接。要现在启动吗？'):
         return
 
     from ..cli import start_daemon_detached
@@ -528,10 +528,10 @@ def _offer_to_start_the_daemon(root: tk.Misc) -> None:
     if not started:
         messagebox.showerror(
             WINDOW_TITLE,
-            'The daemon did not start.\n\n'
-            'Its log may say why:\n{0}\n\n'
-            'You can also run "openrazer-win daemon run" in a terminal to see '
-            'the error directly.'.format(log_path()))
+            '后台服务未能启动。\n\n'
+            '日志可能说明原因：\n{0}\n\n'
+            '也可以在终端中运行 "openrazer-win daemon run" 直接查看错误。'
+            .format(log_path()))
 
 
 def main(argv=None) -> int:

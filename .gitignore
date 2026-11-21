@@ -26,3 +26,6 @@ htmlcov/
 # Local scratch
 _upstream_openrazer/
 *.local.json
+
+# Local translation and build scratch
+work/

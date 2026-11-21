@@ -38,6 +38,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
 
 fn language_name(lang: Lang) -> &'static str {
     match lang {
+        Lang::Zh => "简体中文",
         Lang::Ru => "Русский",
         Lang::En => "English",
         Lang::System => t("As Windows"),
@@ -49,7 +50,7 @@ fn general(app: &mut App, ui: &mut egui::Ui) {
         let mut chosen = None;
         widgets::row(ui, t("Language"), "", |ui| {
             widgets::select(ui, "language", language_name(app.settings.language), 200.0, |ui| {
-                for lang in [Lang::Ru, Lang::En, Lang::System] {
+                for lang in [Lang::Zh, Lang::Ru, Lang::En, Lang::System] {
                     if widgets::option(ui, lang == app.settings.language, language_name(lang)).clicked() {
                         chosen = Some(lang);
                     }
@@ -59,6 +60,9 @@ fn general(app: &mut App, ui: &mut egui::Ui) {
         if let Some(language) = chosen {
             app.settings.language = language;
             openrazer_studio_core::i18n::set(language);
+            // Chinese needs a font with CJK glyphs, and the language may have
+            // just been switched to it.
+            openrazer_studio_core::theme::install_fonts(ui.ctx());
             app.save_settings();
         }
         widgets::divider(ui);
@@ -210,6 +214,7 @@ fn support(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
                     app.settings = Default::default();
                     app.save_settings();
                     openrazer_studio_core::i18n::set(app.settings.language);
+                    openrazer_studio_core::theme::install_fonts(ui.ctx());
                     app.toast(t("Studio's settings were reset"), false);
                 }
                 ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("reset-confirm"), !confirm));

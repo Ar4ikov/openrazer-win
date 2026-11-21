@@ -877,8 +877,8 @@ def daemon(tmp_path, monkeypatch, service):
 def test_the_cli_shows_where_things_stand(daemon, capsys):
     assert main(['snaptap']) == 0
     output = capsys.readouterr().out
-    assert 'off' in output and 'A + D' in output and 'cs2.exe' in output
-    assert 'applies to every keyboard' in output
+    assert '关' in output and 'A + D' in output and 'cs2.exe' in output
+    assert '对所有键盘生效' in output
 
 
 def test_the_cli_shows_the_warning_and_needs_an_answer(daemon, capsys, monkeypatch):
@@ -900,7 +900,7 @@ def test_the_cli_turns_it_on_and_off(daemon, capsys):
     assert main(['snaptap', 'on', '--accept']) == 0
     captured = capsys.readouterr()
     assert WARNING in captured.err
-    assert 'Some games forbid this' in captured.out and 'working' in captured.out
+    assert '部分游戏禁止此功能' in captured.out and '工作中' in captured.out
     assert daemon.rpc_snaptap_status()['enabled'] is True
     assert main(['snaptap', 'off']) == 0
     assert daemon.rpc_snaptap_status()['enabled'] is False

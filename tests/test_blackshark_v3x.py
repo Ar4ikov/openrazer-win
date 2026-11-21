@@ -581,14 +581,14 @@ def test_the_command_line_shows_and_sets_what_it_has(daemon, capsys):
     capsys.readouterr()
     assert main(['headset']) == 0
     output = capsys.readouterr().out
-    assert 'battery     85%' in output
-    assert 'sidetone    level 9' in output
-    assert 'equalizer   game' in output
-    assert 'its curve   1 2 3 4 5 6 0 -1 -2 -3' in output
-    assert 'noise cancelling  on' in output and 'power saving  on' in output
-    assert 'after 45 min' in output
+    assert '电量        85%' in output
+    assert '侧音        级别 9' in output
+    assert '均衡器      game' in output
+    assert '其曲线   1 2 3 4 5 6 0 -1 -2 -3' in output
+    assert '降噪  开' in output and '节能  开' in output
+    assert '45 分钟后' in output
     # Settings it does not have are not shown as if they were off.
-    assert 'microphone' not in output and 'do not disturb' not in output
+    assert '麦克风' not in output and '勿扰' not in output
 
 
 def test_the_command_line_says_what_it_lacks(daemon, capsys):

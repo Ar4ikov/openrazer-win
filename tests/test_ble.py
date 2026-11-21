@@ -517,7 +517,7 @@ def test_zones_command_rejects_the_wrong_count(headset_daemon, capsys):
     from openrazer_win.cli import main
 
     assert main(['zones', 'red', 'blue', 'green']) == 1
-    assert '2 zones' in capsys.readouterr().err
+    assert '2 个区域' in capsys.readouterr().err
 
 
 def test_the_effect_command_defaults_to_both_ears(headset_daemon, capsys):
@@ -525,7 +525,7 @@ def test_the_effect_command_defaults_to_both_ears(headset_daemon, capsys):
 
     assert main(['effect', 'static', 'red']) == 0
     assert headset_daemon.last == razer_ble.colour_command([RED, RED])
-    assert 'static on backlight' in capsys.readouterr().out
+    assert 'static 已应用到 backlight' in capsys.readouterr().out
 
 
 def test_info_names_the_bluetooth_address_not_a_hid_interface(headset_daemon, capsys):
@@ -533,8 +533,8 @@ def test_info_names_the_bluetooth_address_not_a_hid_interface(headset_daemon, ca
 
     assert main(['info']) == 0
     output = capsys.readouterr().out
-    assert 'bluetooth   445ECD583460' in output
-    assert 'interface' not in output
+    assert '蓝牙        445ECD583460' in output
+    assert '接口' not in output
 
 
 def test_the_effect_command_can_name_one_ear(headset_daemon, capsys):
@@ -542,7 +542,7 @@ def test_the_effect_command_can_name_one_ear(headset_daemon, capsys):
 
     assert main(['effect', 'static', 'red', '--zone', 'left']) == 0
     assert headset_daemon.last == razer_ble.colour_command([RED, (0, 0, 0)])
-    assert 'static on left' in capsys.readouterr().out
+    assert 'static 已应用到 left' in capsys.readouterr().out
 
 
 def test_spectrum_falls_back_to_the_host_renderer(headset_daemon_with_effects, capsys):
@@ -553,7 +553,7 @@ def test_spectrum_falls_back_to_the_host_renderer(headset_daemon_with_effects, c
     assert main(['effect', 'spectrum']) == 0
     output = capsys.readouterr().out
     assert 'spectrum' in output
-    assert 'host-rendered' in output
+    assert '主机渲染' in output
 
     client = RpcClient()
     try:
@@ -936,11 +936,11 @@ def test_profiles_round_trip_through_the_daemon(headset_daemon, capsys, tmp_path
     from openrazer_win.cli import main
 
     assert main(['profile']) == 0
-    assert 'no saved profiles' in capsys.readouterr().out
+    assert '没有已保存的配置文件' in capsys.readouterr().out
 
     assert main(['zones', 'red', 'blue']) == 0
     assert main(['profile', 'save', 'evening']) == 0
-    assert "'evening' saved" in capsys.readouterr().out
+    assert "'evening' 已保存" in capsys.readouterr().out
 
     # Saving makes a profile active, and changes go into the active one; a
     # second profile takes the green so 'evening' still holds red and blue.
@@ -949,7 +949,7 @@ def test_profiles_round_trip_through_the_daemon(headset_daemon, capsys, tmp_path
     capsys.readouterr()
 
     assert main(['profile', 'load', 'evening']) == 0
-    assert "'evening' applied" in capsys.readouterr().out
+    assert "'evening' 已应用" in capsys.readouterr().out
     assert headset_daemon.colour_writes[-1] == razer_ble.colour_command(
         [RED, BLUE])
 
@@ -959,7 +959,7 @@ def test_profiles_round_trip_through_the_daemon(headset_daemon, capsys, tmp_path
     assert main(['profile', 'delete', 'evening']) == 0
     assert main(['profile', 'delete', 'scratch']) == 0
     assert main(['profile']) == 0
-    assert 'no saved profiles' in capsys.readouterr().out
+    assert '没有已保存的配置文件' in capsys.readouterr().out
 
 
 def test_loading_a_profile_that_is_not_there_fails_cleanly(headset_daemon, capsys):
@@ -973,7 +973,7 @@ def test_save_without_a_name_is_refused(headset_daemon, capsys):
     from openrazer_win.cli import main
 
     assert main(['profile', 'save']) == 2
-    assert 'needs a profile name' in capsys.readouterr().err
+    assert '需要配置文件名称' in capsys.readouterr().err
 
 
 def test_the_stored_colour_reads_as_what_it_is(headset, persistence):
