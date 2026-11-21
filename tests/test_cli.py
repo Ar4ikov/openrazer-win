@@ -43,14 +43,14 @@ def test_parser_exposes_every_command():
 
 def test_no_command_prints_help(capsys):
     assert main([]) == 0
-    assert 'usage' in capsys.readouterr().out.lower()
+    assert '用法' in capsys.readouterr().out
 
 
 def test_supported_lists_the_database(capsys):
     assert main(['supported', 'viper']) == 0
     output = capsys.readouterr().out
     assert 'Razer Viper' in output
-    assert 'devices in total' in output
+    assert '个设备。' in output
 
 
 def test_supported_as_json(capsys):
@@ -63,7 +63,7 @@ def test_supported_as_json(capsys):
 def test_doctor_runs_without_hardware(capsys):
     main(['doctor'])
     output = capsys.readouterr().out
-    assert 'supported product ids' in output
+    assert '个受支持的产品 ID' in output
 
 
 # -- CLI against a live daemon ----------------------------------------------
@@ -101,13 +101,13 @@ def test_list_shows_the_demo_devices(demo_daemon, capsys):
 def test_info_reports_zones_and_settings(demo_daemon, capsys):
     assert main(['info', 'viper']) == 0
     output = capsys.readouterr().out
-    assert 'zone logo' in output
-    assert 'dpi' in output
+    assert '区域 logo' in output
+    assert 'DPI' in output
 
 
 def test_effect_applies_to_the_right_zone(demo_daemon, capsys):
     assert main(['effect', 'static', 'red', '--device', 'viper']) == 0
-    assert 'static on logo' in capsys.readouterr().out
+    assert 'static 已应用到 logo' in capsys.readouterr().out
 
 
 def test_effect_reports_failure_for_an_unsupported_effect(demo_daemon, capsys):
@@ -132,22 +132,22 @@ def test_keyswitch_round_trip_and_info(demo_daemon, capsys):
     assert main(['keyswitch', '--device', 'huntsman']) == 0
     assert 'typing' in capsys.readouterr().out
     assert main(['keyswitch', 'gaming', '--device', 'huntsman']) == 0
-    assert 'keyswitch optimization gaming' in capsys.readouterr().out
+    assert '按键开关优化 gaming' in capsys.readouterr().out
     assert main(['info', 'huntsman']) == 0
-    assert 'keyswitch   gaming' in capsys.readouterr().out
+    assert '按键开关    gaming' in capsys.readouterr().out
     assert main(['info', 'viper']) == 0
-    assert 'keyswitch' not in capsys.readouterr().out
+    assert '按键开关' not in capsys.readouterr().out
     assert main(['keyswitch', 'gaming', '--device', 'viper']) == 2
-    assert 'keyswitch optimization' in capsys.readouterr().err
+    assert '按键开关优化' in capsys.readouterr().err
 
 
 def test_headset_shows_what_it_is_set_to(demo_daemon, capsys):
     assert main(['headset']) == 0
     output = capsys.readouterr().out
     assert 'BlackShark' in output
-    assert 'level 5' in output
+    assert '级别 5' in output
     assert 'flat' in output
-    assert 'after 30 min' in output
+    assert '30 分钟后' in output
 
 
 def test_headset_settings_can_be_changed(demo_daemon, capsys):
@@ -159,9 +159,9 @@ def test_headset_settings_can_be_changed(demo_daemon, capsys):
     capsys.readouterr()
     assert main(['headset']) == 0
     output = capsys.readouterr().out
-    assert 'level 9' in output
+    assert '级别 9' in output
     assert 'game' in output
-    assert 'after 45 min' in output
+    assert '45 分钟后' in output
     assert 'battery' in output
 
 
@@ -178,8 +178,8 @@ def test_headset_turns_things_off(demo_daemon, capsys):
     capsys.readouterr()
     assert main(['headset']) == 0
     output = capsys.readouterr().out
-    assert 'sidetone    off' in output
-    assert 'equalizer   off' in output
+    assert '侧音        关' in output
+    assert '均衡器      关' in output
 
 
 def test_headset_says_what_it_cannot_do(demo_daemon, capsys):
@@ -189,12 +189,12 @@ def test_headset_says_what_it_cannot_do(demo_daemon, capsys):
 
 def test_headset_setting_without_a_value_is_a_clear_error(demo_daemon, capsys):
     main(['headset', 'dnd'])
-    assert 'needs a value' in capsys.readouterr().err
+    assert '需要一个值' in capsys.readouterr().err
 
 
 def test_a_device_with_no_sound_settings_has_no_headset_command(demo_daemon, capsys):
     assert main(['headset', '--device', 'viper']) == 1
-    assert 'No headset' in capsys.readouterr().out
+    assert '未连接带声音设置的耳机' in capsys.readouterr().out
 
 
 def test_an_effect_for_everything_passes_over_what_has_no_lights(demo_daemon, capsys):
@@ -212,12 +212,12 @@ def test_music_is_an_effect_of_the_daemon(demo_daemon, capsys):
 def test_integrations_are_switched_from_the_command_line(demo_daemon, capsys):
     assert main(['integration']) == 0
     output = capsys.readouterr().out
-    assert 'accent      off' in output and 'chroma      off' in output
+    assert '主题色      关' in output and 'Chroma      关' in output
     assert main(['integration', 'chroma', 'on']) == 0
-    assert 'answering games on port' in capsys.readouterr().out
+    assert '正在端口' in capsys.readouterr().out
     assert main(['integration', 'chroma', 'off']) == 0
     assert main(['integration', 'accent']) == 2
-    assert 'on or off' in capsys.readouterr().err
+    assert '要开还是关' in capsys.readouterr().err
 
 
 def test_the_accent_colour_is_an_effect_of_the_daemon(demo_daemon, capsys):
@@ -227,12 +227,12 @@ def test_the_accent_colour_is_an_effect_of_the_daemon(demo_daemon, capsys):
 
 def test_daemon_status(demo_daemon, capsys):
     assert main(['daemon', 'status']) == 0
-    assert 'running' in capsys.readouterr().out
+    assert '正在运行' in capsys.readouterr().out
 
 
 def test_unknown_device_is_a_clear_error(demo_daemon, capsys):
     assert main(['info', 'not-a-device']) == 2
-    assert 'no device matches' in capsys.readouterr().err
+    assert '没有匹配' in capsys.readouterr().err
 
 
 # -- frame buffer -----------------------------------------------------------
@@ -317,16 +317,16 @@ def test_autostart_round_trip(capsys):
 
     try:
         assert main(['autostart', 'enable']) == 0
-        assert 'autostart enabled' in capsys.readouterr().out
+        assert '开机自启已启用' in capsys.readouterr().out
 
         assert main(['autostart', 'status']) == 0
-        assert 'autostart: on' in capsys.readouterr().out
+        assert '开机自启：开' in capsys.readouterr().out
 
         assert main(['autostart', 'disable']) == 0
-        assert 'disabled' in capsys.readouterr().out
+        assert '已禁用' in capsys.readouterr().out
 
         assert main(['autostart', 'status']) == 1
-        assert 'autostart: off' in capsys.readouterr().out
+        assert '开机自启：关' in capsys.readouterr().out
     finally:
         autostart.disable()
 
@@ -422,5 +422,5 @@ def test_stopping_a_dead_daemon_clears_the_stale_endpoint(tmp_path, monkeypatch,
 
     assert main(['daemon', 'stop']) == 1
     output = capsys.readouterr().out
-    assert 'not running' in output
+    assert '未运行' in output
     assert not path.exists(), 'the stale endpoint file should have been removed'

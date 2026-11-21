@@ -34,7 +34,10 @@ fn date(published: &str) -> String {
     let [year, month, day] = parts.as_slice() else { return published.to_string() };
     let (Ok(month), Ok(day)) = (month.parse::<usize>(), day.parse::<u32>()) else { return published.to_string() };
     let Some(index) = month.checked_sub(1).filter(|i| *i < 12) else { return published.to_string() };
-    format!("{day} {} {year}", if i18n::current() == Lang::Ru { RU[index] } else { EN[index] })
+    match i18n::current() {
+        Lang::Zh => format!("{year}年{month}月{day}日"),
+        _ => format!("{day} {} {year}", if i18n::current() == Lang::Ru { RU[index] } else { EN[index] }),
+    }
 }
 
 fn ago(checked: u64) -> String {

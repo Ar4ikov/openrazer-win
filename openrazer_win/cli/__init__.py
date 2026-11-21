@@ -38,11 +38,11 @@ EFFECT_HELP = """\
 none, on, static, spectrum, wave, wheel, reactive, blinking, custom,
 breath_random, breath_single, breath_dual, breath_triple,
 starlight_random, starlight_single, starlight_dual,
-ripple, ripple_random, music, accent (host-rendered, need the daemon)
+ripple, ripple_random, music, accent（主机渲染，需要后台服务）
 
-accent lights a device in the colour Windows is set to, and follows it.
+accent 用 Windows 设定的颜色点亮设备，并跟随颜色变化。
 
-On a headset, --zone left or --zone right gives one ear an effect of its own:
+在耳机上，--zone left 或 --zone right 可让一只耳朵拥有独立的灯效：
   openrazer-win effect music red --zone left
   openrazer-win effect spectrum --zone right"""
 
@@ -57,75 +57,72 @@ HOST_RENDERED_FALLBACK = {
 }
 
 INTEGRATION_HELP = """\
-Examples:
-  openrazer-win integration                  what is on, and what it is doing
-  openrazer-win integration accent on        every device in the Windows accent
-                                             colour, following it when it changes
-  openrazer-win integration chroma on        games that support Razer Chroma light
-                                             your devices, as they do with Synapse
+示例：
+  openrazer-win integration                  开启了什么，以及它在做什么
+  openrazer-win integration accent on        所有设备使用 Windows 主题色，
+                                             并在颜色变化时跟随
+  openrazer-win integration chroma on        支持 Razer Chroma 的游戏点亮
+                                             你的设备，如同使用 Synapse 时一样
   openrazer-win integration chroma off"""
 
 SNAPTAP_HELP = """\
-Of two opposing keys, the one pressed last wins: the other is released for as
-long as it is overridden. Done on this PC, not in the keyboard, so it applies to
-every keyboard, and only while the daemon runs.
+在两个相对按键中，最后按下的生效：另一个在被覆盖期间保持松开。此功能在
+本机完成，不在键盘内，因此适用于所有键盘，且仅在后台服务运行时可用。
 
-Examples:
-  openrazer-win snaptap                  what is set, and what it is doing
-  openrazer-win snaptap on               asks you to read a warning the first time
-  openrazer-win snaptap on --accept      the same, having read it, for scripts
+示例：
+  openrazer-win snaptap                  查看当前设置及其运行状态
+  openrazer-win snaptap on               首次会要求你阅读一条警告
+  openrazer-win snaptap on --accept      已阅读警告时使用，适合脚本
   openrazer-win snaptap off
-  openrazer-win snaptap pair add a d     keys by position, whatever the layout
-  openrazer-win snaptap pair remove a d  "remove" works the same for deny and allow
-  openrazer-win snaptap deny add game.exe       stay out of this program
-  openrazer-win snaptap allow add game.exe      work only in the programs listed"""
+  openrazer-win snaptap pair add a d     按位置指定按键，与布局无关
+  openrazer-win snaptap pair remove a d  "remove" 对拒绝和允许列表同样适用
+  openrazer-win snaptap deny add game.exe       不在此程序中生效
+  openrazer-win snaptap allow add game.exe      仅在列出的程序中生效"""
 
-PROFILE_HELP = """A profile is a named snapshot of a device's settings: per-zone effect,
-colours and brightness, the keyswitch mode, DPI and polling rate, and on a
-keyboard Snap Tap. Devices do not store colours themselves -- the daemon holds
-them -- so a profile is kept here and re-applied on demand.
+PROFILE_HELP = """配置文件是设备设置的有名快照：各区域的灯效、颜色和亮度、
+按键开关模式、DPI 与轮询率，以及键盘上的 Snap Tap。设备本身不保存颜色——
+由后台服务保存——因此配置文件存在这里，并按需重新应用。
 
-The profile last saved or loaded is the device's active one, marked * in the
-list. While the daemon runs, every later change is saved into it.
+最后保存或加载的配置文件就是设备的当前配置文件，在列表中用 * 标记。
+后台服务运行期间，之后每次更改都会保存到其中。
 
-Examples:
-  openrazer-win profile                list saved profiles
-  openrazer-win profile save night     record what is set now; it becomes active
-  openrazer-win profile load night     put it back and make it active
+示例：
+  openrazer-win profile                列出已保存的配置文件
+  openrazer-win profile save night     记录当前设置；它将成为当前配置文件
+  openrazer-win profile load night     恢复它并设为当前配置文件
   openrazer-win profile delete night"""
 
 HEADSET_HELP = """\
-For headsets that keep their sound settings themselves: the BlackShark V2
-HyperSpeed, the BlackShark V3 X HyperSpeed and the Barracuda X.  They do not
-have all the same settings, and one that a headset lacks says so.
+适用于自行保存声音设置的耳机：BlackShark V2 HyperSpeed、BlackShark V3 X
+HyperSpeed 和 Barracuda X。它们并非拥有全部相同设置，缺少某项的耳机会说明。
 
-Examples:
-  openrazer-win headset                  show what it is set to
-  openrazer-win headset sidetone 8       hear your own voice, level 0-15
+示例：
+  openrazer-win headset                  显示当前设置
+  openrazer-win headset sidetone 8       听到自己的声音，级别 0-15
   openrazer-win headset sidetone off
-  openrazer-win headset eq game          flat, game, music, movie or custom;
-                                         on the V3 X: default, game, music, movie
+  openrazer-win headset eq game          flat、game、music、movie 或 custom；
+                                         V3 X 上为 default、game、music、movie
   openrazer-win headset eq off
   openrazer-win headset eq -3,0,0,0,0,0,0,2,3,3
-                                         your own curve: ten bands, -9 to 6 dB;
-                                         on the V3 X it is the curve of the preset
-                                         chosen, -6 to 6 dB; on the Barracuda X
-                                         steps of its own, -5 to 5
-  openrazer-win headset dnd on           do not disturb
-  openrazer-win headset led battery      off, link, battery or warning
-  openrazer-win headset nc on            the microphone's noise cancelling
-  openrazer-win headset saving on        power saving on the radio
-  openrazer-win headset trace            the Barracuda X: the last requests and
-                                         answers, for a bug report
-  openrazer-win headset sleep 30         minutes before it turns off, 0 for never;
-                                         the V3 X has no never and starts at 5, the
-                                         Barracuda X takes 0, 5, 15, 30, 45 or 60"""
+                                         自己的曲线：十个频段，-9 到 6 dB；
+                                         V3 X 上是所选预设的曲线，
+                                         -6 到 6 dB；Barracuda X 有自己的
+                                         步进，-5 到 5
+  openrazer-win headset dnd on           勿扰
+  openrazer-win headset led battery      off、link、battery 或 warning
+  openrazer-win headset nc on            麦克风降噪
+  openrazer-win headset saving on        无线节能
+  openrazer-win headset trace            Barracuda X：最近的请求与应答，
+                                         用于错误报告
+  openrazer-win headset sleep 30         关闭前的分钟数，0 表示永不；
+                                         V3 X 没有永不，从 5 开始；
+                                         Barracuda X 接受 0、5、15、30、45 或 60"""
 
 ZONES_HELP = """\
-Examples:
-  openrazer-win zones                  list the zones
-  openrazer-win zones red blue         left ear red, right ear blue
-  openrazer-win zones "#ff8800"        every zone the same"""
+示例：
+  openrazer-win zones                  列出区域
+  openrazer-win zones red blue         左耳红色，右耳蓝色
+  openrazer-win zones "#ff8800"        所有区域使用同一种颜色"""
 
 
 class CliError(Exception):
@@ -140,18 +137,18 @@ def parse_colour(text: str) -> tuple:
     if ',' in text:
         parts = [int(part) for part in text.split(',')]
         if len(parts) != 3:
-            raise CliError('colour needs three components: {0}'.format(text))
+            raise CliError('颜色需要三个分量：{0}'.format(text))
         return tuple(max(0, min(255, part)) for part in parts)
     hexed = text.lstrip('#')
     if len(hexed) == 3:
         hexed = ''.join(char * 2 for char in hexed)
     if len(hexed) != 6:
-        raise CliError('cannot parse colour {0!r}; try red, #ff0080 or 255,0,128'
+        raise CliError('无法解析颜色 {0!r}；请试试 red、#ff0080 或 255,0,128'
                        .format(text))
     try:
         value = int(hexed, 16)
     except ValueError as error:
-        raise CliError('cannot parse colour {0!r}'.format(text)) from error
+        raise CliError('无法解析颜色 {0!r}'.format(text)) from error
     return ((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF)
 
 
@@ -160,14 +157,14 @@ def open_manager(args) -> DeviceManager:
         return DeviceManager(direct=args.direct)
     except DaemonUnavailable as error:
         raise CliError(
-            '{0}\n\nStart it with:  openrazer-win daemon start\n'
-            'Or work without it:  openrazer-win --direct ...'.format(error)) from error
+            '{0}\n\n用以下命令启动：  openrazer-win daemon start\n'
+            '或者不使用后台服务：  openrazer-win --direct ...'.format(error)) from error
 
 
 def pick_devices(manager: DeviceManager, selector: Optional[str]) -> list:
     devices = manager.devices
     if not devices:
-        raise CliError('no supported Razer devices found')
+        raise CliError('未找到支持的 Razer 设备')
     if not selector or selector == 'all':
         return devices
     lowered = selector.lower()
@@ -177,7 +174,7 @@ def pick_devices(manager: DeviceManager, selector: Optional[str]) -> list:
         return exact
     matches = manager.by_name(selector)
     if not matches:
-        raise CliError('no device matches {0!r}; try: openrazer-win list'.format(selector))
+        raise CliError('没有匹配 {0!r} 的设备；试试：openrazer-win list'.format(selector))
     return matches
 
 
@@ -196,8 +193,8 @@ def cmd_list(args) -> int:
             } for d in devices], indent=2))
             return 0
         if not devices:
-            print('No supported Razer devices found.')
-            print('Run "openrazer-win doctor" to see what is attached.')
+            print('未找到支持的 Razer 设备。')
+            print('运行 "openrazer-win doctor" 查看已连接的设备。')
             return 1
         width = max(len(d.name) for d in devices)
         for device in devices:
@@ -236,38 +233,38 @@ def cmd_info(args) -> int:
         for entry in payload:
             capabilities = entry['capabilities']
             print('{0}  ({1})'.format(entry['name'], entry['type']))
-            print('  serial      {0}'.format(entry['serial']))
-            print('  product id  0x{0}'.format(entry['pid']))
-            print('  firmware    {0}'.format(entry['firmware'] or 'unknown'))
+            print('  序列号      {0}'.format(entry['serial']))
+            print('  产品 ID     0x{0}'.format(entry['pid']))
+            print('  固件        {0}'.format(entry['firmware'] or '未知'))
             transport = capabilities.get('transport') or {}
             if capabilities.get('protocol') == 'razer-ble':
                 # No HID interface to speak of; the address is what identifies it.
-                print('  bluetooth   {0}  (LE, vendor GATT service)'.format(
+                print('  蓝牙        {0}  （LE，厂商 GATT 服务）'.format(
                     transport.get('path') or '?'))
             elif transport:
-                print('  interface   mi_{0:02d}  ({1} us wait)'.format(
+                print('  接口        mi_{0:02d}  （{1} us 等待）'.format(
                     transport.get('interface') or 0, transport.get('wait_us')))
             dimensions = capabilities.get('matrix_dimensions')
             if dimensions:
-                print('  matrix      {0} rows x {1} columns'.format(*dimensions))
+                print('  矩阵        {0} 行 x {1} 列'.format(*dimensions))
             for zone, zone_caps in capabilities.get('zones', {}).items():
-                effects = ', '.join(zone_caps['effects']) or 'none'
-                print('  zone {0:<14} {1}'.format(zone, effects))
+                effects = ', '.join(zone_caps['effects']) or '无'
+                print('  区域 {0:<14} {1}'.format(zone, effects))
                 if zone_caps['brightness']:
-                    print('  {0:<19} brightness supported'.format(''))
+                    print('  {0:<19} 支持亮度'.format(''))
             if 'dpi' in entry:
-                print('  dpi         {0} (max {1})'.format(
+                print('  DPI         {0} （最大 {1}）'.format(
                     entry['dpi'], capabilities.get('max_dpi')))
             if 'poll_rate' in entry:
-                print('  poll rate   {0} Hz  (supported: {1})'.format(
+                print('  轮询率      {0} Hz  （支持：{1}）'.format(
                     entry['poll_rate'],
                     ', '.join(str(r) for r in capabilities.get(
                         'supported_poll_rates', []))))
             if entry.get('keyswitch_optimization'):
-                print('  keyswitch   {0}'.format(entry['keyswitch_optimization']))
+                print('  按键开关    {0}'.format(entry['keyswitch_optimization']))
             if 'battery' in entry and entry['battery'] is not None:
-                print('  battery     {0}%{1}'.format(
-                    entry['battery'], ' (charging)' if entry.get('charging') else ''))
+                print('  电量        {0}%{1}'.format(
+                    entry['battery'], '（充电中）' if entry.get('charging') else ''))
             print()
     return 0
 
@@ -300,9 +297,9 @@ def cmd_effect(args) -> int:
                 failures += 1
                 continue
             if not args.quiet:
-                print('{0}: {1} on {2}{3}'.format(
+                print('{0}：{1} 已应用到 {2}{3}'.format(
                     device.name, args.effect, zone,
-                    '  (host-rendered)' if rendered else ''))
+                    '  （主机渲染）' if rendered else ''))
     return 1 if failures else 0
 
 
@@ -356,7 +353,7 @@ def _apply_effect(fx, effect: str, colour, colour2, colour3, args) -> None:
     elif effect == 'custom':
         fx.advanced.fill(colour).draw()
     else:
-        raise CliError('unknown effect {0!r}\n\nAvailable:\n{1}'.format(
+        raise CliError('未知灯效 {0!r}\n\n可用灯效：\n{1}'.format(
             effect, EFFECT_HELP))
 
 
@@ -368,7 +365,7 @@ def cmd_zones(args) -> int:
         for device in pick_devices(manager, args.device):
             names = device.colour_zones()
             if not names:
-                print('{0}: no addressable lighting zones'.format(device.name),
+                print('{0}：没有可独立寻址的灯效区域'.format(device.name),
                       file=sys.stderr)
                 failures += 1
                 continue
@@ -377,7 +374,7 @@ def cmd_zones(args) -> int:
                 continue
             wanted = colours * len(names) if len(colours) == 1 else colours
             if len(wanted) != len(names):
-                print('{0} has {1} zones ({2}); give that many colours, or one'
+                print('{0} 有 {1} 个区域（{2}）；请给出同样数量的颜色，或只给一个'
                       .format(device.name, len(names), ', '.join(names)),
                       file=sys.stderr)
                 failures += 1
@@ -399,7 +396,7 @@ def cmd_profile(args) -> int:
     """Save, re-apply and remove named lighting profiles."""
     action = args.action
     if action in ('save', 'load', 'delete') and not args.name:
-        raise CliError('"{0}" needs a profile name'.format(action))
+        raise CliError('"{0}" 需要配置文件名称'.format(action))
 
     with open_manager(args) as manager:
         failures = 0
@@ -414,38 +411,36 @@ def cmd_profile(args) -> int:
                 failures += 1
                 continue
             if not args.quiet:
-                verb = {'save': 'saved', 'load': 'applied',
-                        'delete': 'deleted'}[action]
-                print('{0}: profile {1!r} {2}'.format(
+                verb = {'save': '已保存', 'load': '已应用',
+                        'delete': '已删除'}[action]
+                print('{0}：配置文件 {1!r} {2}'.format(
                     device.name, result.get('name', args.name), verb))
     return 1 if failures else 0
 
 
 MACRO_HELP = """\
-Macro keys -- M1-M5 on a BlackWidow and the like -- work while the daemon runs.
-Unbound, a macro key sends F13-F17 (M1-M5), which any program that takes
-hotkeys can use.  Bound, it plays its macro instead:
+宏按键——BlackWidow 等键盘上的 M1-M5——在后台服务运行期间可用。
+未绑定时，宏按键发送 F13-F17（M1-M5），任何接受热键的程序都能使用。
+绑定后，它改为播放自己的宏：
 
-  openrazer-win macro                              what is bound, per keyboard
+  openrazer-win macro                              每把键盘绑定了什么
   openrazer-win macro set M1 --keys "ctrl+shift+esc"
   openrazer-win macro set M2 --text "Hello"
   openrazer-win macro set M3 --launch "C:\\Windows\\notepad.exe"
-  openrazer-win macro set M4 --disable             make the key do nothing
-  openrazer-win macro record M5                    type the macro, then Enter
-  openrazer-win macro clear M1                     back to sending F13
+  openrazer-win macro set M4 --disable             让按键不执行任何操作
+  openrazer-win macro record M5                    输入宏，然后按 Enter
+  openrazer-win macro clear M1                     恢复为发送 F13
 
-On the keyboard itself, Fn+F9 records a macro: press it, press a macro key,
-type, then Fn+F9 again.  "macro watch" prints the raw key reports, for
-working out a keyboard that does not respond.
+在键盘本身上，Fn+F9 可录制宏：按下它，按一个宏按键，输入内容，
+再按一次 Fn+F9。macro watch 会打印原始按键报告，用于排查无响应的键盘。
 
-A mouse's side buttons are MOUSE4 (back) and MOUSE5 (forward), reassigned on
-the PC while the daemon runs.  A single key or shortcut is held for as long as
-the button is.  Windows does not say which mouse a button came from, so a
-binding applies to that button on every mouse while this one is connected:
+鼠标侧键是 MOUSE4（后退）和 MOUSE5（前进），在后台服务运行期间于
+本机重新分配。单键或快捷键会在按住按钮期间一直保持。Windows 不会说明
+按钮来自哪只鼠标，因此在此鼠标连接期间，绑定会应用到每只鼠标的该按钮：
 
   openrazer-win macro set MOUSE4 --keys "ctrl+c" -d deathadder
   openrazer-win macro set MOUSE5 --button middle -d deathadder
-  openrazer-win macro clear MOUSE4 -d deathadder   back and forward again
+  openrazer-win macro clear MOUSE4 -d deathadder   恢复后退和前进
 """
 
 
@@ -453,7 +448,7 @@ def _macro_client():
     try:
         return RpcClient(timeout=10.0)
     except DaemonUnavailable as error:
-        raise CliError('{0}\n\nMacro keys need the daemon:  openrazer-win daemon start'.format(
+        raise CliError('{0}\n\n宏按键需要后台服务：  openrazer-win daemon start'.format(
             error)) from error
 
 
@@ -464,7 +459,7 @@ def _macro_devices(client, selector) -> list:
         chosen = [d for d in devices if needle in (d['serial'].lower(), '{0:04x}'.format(d['pid']))
                   or needle in d['name'].lower()]
         if not chosen:
-            raise CliError('no device matches {0!r}'.format(selector))
+            raise CliError('没有匹配 {0!r} 的设备'.format(selector))
         return chosen
     listed = []
     for device in devices:
@@ -472,7 +467,7 @@ def _macro_devices(client, selector) -> list:
         if info['keys'] or info['bindings']:
             listed.append(device)
     if not listed:
-        raise CliError('no keyboard with macro keys, and no mouse, is connected')
+        raise CliError('未连接带宏按键的键盘，也没有鼠标')
     return listed
 
 
@@ -488,40 +483,40 @@ def cmd_macro(args) -> int:
             status = client.call('keys.status')
             for device in devices:
                 info = client.call('macro.list', serial=device['serial'])
-                state = 'handled' if info['handled'] else (
-                    'not handled -- keys are idle' if status['running'] else
-                    'not handled (the daemon runs with --no-keys)')
-                print('{0}  ({1})'.format(device['name'], state))
+                state = '已接管' if info['handled'] else (
+                    '未接管——按键处于空闲' if status['running'] else
+                    '未接管（后台服务以 --no-keys 运行）')
+                print('{0}  （{1}）'.format(device['name'], state))
                 for key in info['keys'] or sorted(info['bindings']):
                     action = info['bindings'].get(key)
                     if action is None:
-                        what = 'default'
+                        what = '默认'
                     elif action['type'] == 'keys':
                         downs = [describe_event(e) for e in action['events'] if e['down']]
-                        what = 'keys: {0}'.format(' '.join(downs[:12]) + (
+                        what = '按键：{0}'.format(' '.join(downs[:12]) + (
                             ' ...' if len(downs) > 12 else ''))
                     elif action['type'] == 'text':
-                        what = 'text: {0!r}'.format(action['text'])
+                        what = '文本：{0!r}'.format(action['text'])
                     elif action['type'] == 'launch':
-                        what = 'launch: {0}'.format(action['target'])
+                        what = '启动：{0}'.format(action['target'])
                     elif action['type'] == 'button':
-                        what = 'mouse button: {0}'.format(action['button'])
+                        what = '鼠标按键：{0}'.format(action['button'])
                     else:
-                        what = 'disabled'
+                        what = '已禁用'
                     print('  {0:<6} {1}'.format(key, what))
             return 0
 
         if not args.key:
-            raise CliError('"macro {0}" needs a key, such as M1, or a mouse\'s MOUSE4 or '
+            raise CliError('"macro {0}" 需要一个按键，例如 M1，或鼠标的 MOUSE4 或 '
                            'MOUSE5'.format(args.action))
         key = args.key.upper()
         if len(devices) > 1:
-            raise CliError('several devices match; pick one with --device')
+            raise CliError('匹配到多个设备；请用 --device 选择一个')
         serial = devices[0]['serial']
 
         if args.action == 'clear':
             client.call('macro.delete', serial=serial, key=key)
-            print('{0}: back to its default'.format(key))
+            print('{0}：已恢复默认'.format(key))
             return 0
         if args.action == 'set':
             if args.keys:
@@ -538,22 +533,22 @@ def cmd_macro(args) -> int:
             elif args.disable:
                 action = {'type': 'disabled'}
             else:
-                raise CliError('say what the key does: --keys, --text, --launch, --button '
-                               'or --disable')
+                raise CliError('请说明按键的作用：--keys、--text、--launch、--button '
+                               '或 --disable')
             client.call('macro.set', serial=serial, key=key, action=action)
-            print('{0}: bound'.format(key))
+            print('{0}：已绑定'.format(key))
             return 0
         if args.action == 'record':
             client.call('macro.record_start', serial=serial, key=key)
-            print('Recording {0}: type the macro, then press Enter here.'.format(key))
+            print('正在录制 {0}：输入宏内容，然后在此处按 Enter。'.format(key))
             try:
                 input()
             finally:
                 saved = client.call('macro.record_stop')
             if saved:
-                print('{0}: recorded {1} key events'.format(key, len(saved['events'])))
+                print('{0}：已录制 {1} 个按键事件'.format(key, len(saved['events'])))
             else:
-                print('{0}: nothing recorded; it is back to its default'.format(key))
+                print('{0}：未录制任何内容；已恢复默认'.format(key))
             return 0
         if args.action == 'play':
             client.call('macro.play', serial=serial, key=key)
@@ -581,14 +576,14 @@ def _macro_watch(args) -> int:
     for info in infos:
         try:
             readers.append(backend.open_input(info))
-            print('listening on {0}'.format(info.describe()))
+            print('正在监听 {0}'.format(info.describe()))
         except (HidError, OSError) as error:
-            print('cannot read {0}: {1}'.format(info.describe(), error))
+            print('无法读取 {0}：{1}'.format(info.describe(), error))
     if not readers:
-        print('No readable Razer key collections.  Is the keyboard plugged in?')
+        print('没有可读取的 Razer 按键集合。键盘插好了吗？')
         return 1
-    print('Press macro keys and Fn combinations; Ctrl+C to stop.  A keyboard only '
-          'reports these in driver mode, so keep the daemon running.')
+    print('请按宏按键和 Fn 组合键；按 Ctrl+C 停止。键盘只在驱动模式下报告这些'
+          '按键，因此请保持后台服务运行。')
     stop = threading.Event()
 
     def follow(reader):
@@ -601,8 +596,8 @@ def _macro_watch(args) -> int:
                 codes = parse_report(report)
                 print('{0:04x}  {1}  {2}'.format(
                     reader.info.product_id, report.hex(' '),
-                    '' if codes is None else 'held: ' + (
-                        ' '.join('{0:02x}'.format(c) for c in sorted(codes)) or 'nothing')))
+                    '' if codes is None else '按住：' + (
+                        ' '.join('{0:02x}'.format(c) for c in sorted(codes)) or '无')))
 
     threads = [threading.Thread(target=follow, args=(r,), daemon=True) for r in readers]
     for thread in threads:
@@ -623,15 +618,15 @@ def _print_profiles(device, args) -> None:
         print(json.dumps({'device': device.name, 'profiles': profiles}, indent=2))
         return
     if not profiles:
-        print('{0}: no saved profiles'.format(device.name))
-        print('  save one with:  openrazer-win profile save <name>')
+        print('{0}：没有已保存的配置文件'.format(device.name))
+        print('  保存一个：  openrazer-win profile save <name>')
         return
-    print('{0}:'.format(device.name))
+    print('{0}：'.format(device.name))
     width = max(len(entry['name']) for entry in profiles)
     for entry in profiles:
         print('  {0} {1:<{2}}  {3}  ({4})'.format(
             '*' if entry.get('active') else ' ', entry['name'], width, entry.get('saved') or '',
-            ', '.join(entry.get('zones') or []) or 'no zones'))
+            ', '.join(entry.get('zones') or []) or '无区域'))
 
 
 def cmd_brightness(args) -> int:
@@ -650,7 +645,7 @@ def cmd_brightness(args) -> int:
                 continue
             device._call('set_brightness', args.value, zone=fx_zone)
             if not args.quiet:
-                print('{0}: brightness {1}% on {2}'.format(
+                print('{0}：亮度 {1}% 已应用到 {2}'.format(
                     device.name, args.value, fx_zone))
     return 0
 
@@ -665,7 +660,7 @@ def cmd_dpi(args) -> int:
                 continue
             device.dpi = (args.x, args.y if args.y is not None else args.x)
             if not args.quiet:
-                print('{0}: dpi {1}'.format(device.name, device.dpi))
+                print('{0}：DPI {1}'.format(device.name, device.dpi))
     return 0
 
 
@@ -679,7 +674,7 @@ def cmd_poll_rate(args) -> int:
                 continue
             device.poll_rate = args.rate
             if not args.quiet:
-                print('{0}: poll rate {1} Hz'.format(device.name, device.poll_rate))
+                print('{0}：轮询率 {1} Hz'.format(device.name, device.poll_rate))
     return 0
 
 
@@ -695,11 +690,11 @@ def cmd_keyswitch(args) -> int:
                 continue
             device.keyswitch_optimization = args.mode
             if not args.quiet:
-                print('{0}: keyswitch optimization {1}'.format(
+                print('{0}：按键开关优化 {1}'.format(
                     device.name, device.keyswitch_optimization))
         if not found:
             # A mode that went nowhere must not look as if it was set.
-            raise CliError('no connected keyboard has keyswitch optimization')
+            raise CliError('没有已连接的键盘支持按键开关优化')
     return 0
 
 
@@ -710,28 +705,29 @@ def cmd_battery(args) -> int:
             if not device.has('battery'):
                 continue
             found = True
-            print('{0}: {1}%{2}'.format(
+            print('{0}：{1}%{2}'.format(
                 device.name, device.battery_level,
-                ' (charging)' if device.is_charging else ''))
+                '（充电中）' if device.is_charging else ''))
         if not found:
-            print('No battery-powered devices connected.')
+            print('未连接电池供电的设备。')
     return 0
 
 
 def _shown(enabled: bool) -> str:
-    return 'on ' if enabled else 'off'
+    return '开 ' if enabled else '关'
 
 
 def cmd_integration(args) -> int:
     try:
         client = RpcClient(timeout=10.0)
     except DaemonUnavailable as error:
-        raise CliError('{0}\n\nIntegrations need the daemon:  openrazer-win daemon start'.format(
+        raise CliError('{0}\n\n集成需要后台服务：  openrazer-win daemon start'.format(
             error)) from error
     try:
         if args.name:
             if args.state is None:
-                raise CliError('on or off?  openrazer-win integration {0} on'.format(args.name))
+                raise CliError('要开还是关？  openrazer-win integration {0} on'
+                               .format(args.name))
             status = client.call('integration.set', name=args.name, enabled=args.state == 'on')
         else:
             status = client.call('integration.status')
@@ -744,17 +740,18 @@ def cmd_integration(args) -> int:
         return 0
     accent = status['accent']
     colour = ('#{0:02X}{1:02X}{2:02X}'.format(*accent['colour'])
-              if accent.get('colour') else 'not available here')
-    print('accent      {0}   Windows accent colour {1}'.format(_shown(accent['enabled']), colour))
+              if accent.get('colour') else '此处不可用')
+    print('主题色      {0}   Windows 主题色 {1}'.format(_shown(accent['enabled']), colour))
     chroma = status['chroma']
-    line = 'chroma      {0}'.format(_shown(chroma['enabled']))
+    line = 'Chroma      {0}'.format(_shown(chroma['enabled']))
     if chroma.get('listening'):
-        line += '   answering games on port {0}'.format(chroma['port'])
+        line += '   正在端口 {0} 上响应游戏'.format(chroma['port'])
     elif chroma.get('error'):
         line += '   {0}'.format(chroma['error'])
     print(line)
     for app in chroma.get('apps') or []:
-        print('            {0}{1}'.format(app, '  (showing)' if app == chroma.get('showing') else ''))
+        print('            {0}{1}'.format(
+            app, '  （正在显示）' if app == chroma.get('showing') else ''))
     return 1 if chroma['enabled'] and not chroma.get('listening') else 0
 
 
@@ -771,7 +768,7 @@ def _snaptap_changes(args, status: dict) -> dict:
         wanted = {canonical_name(item) for item in args.items}
         left = [pair for pair in pairs if set(pair) != wanted]
         if len(left) == len(pairs):
-            raise CliError('no such pair: {0}'.format(' '.join(args.items)))
+            raise CliError('没有这样的按键对：{0}'.format(' '.join(args.items)))
         return {'pairs': left}
     if len(args.items) != 1:
         raise CliError('openrazer-win snaptap {0} add|remove PROGRAM.exe'.format(args.action))
@@ -780,7 +777,7 @@ def _snaptap_changes(args, status: dict) -> dict:
     if args.verb == 'add':
         return {args.action: programs + [name]}
     if name not in programs:
-        raise CliError('{0} is not on the {1} list'.format(name, args.action))
+        raise CliError('{0} 不在 {1} 列表中'.format(name, args.action))
     programs.remove(name)
     return {args.action: programs}
 
@@ -792,8 +789,8 @@ def cmd_snaptap(args) -> int:
     try:
         client = RpcClient(timeout=10.0)
     except DaemonUnavailable as error:
-        raise CliError('{0}\n\nSnap Tap needs the daemon:  openrazer-win daemon start'.format(
-            error)) from error
+        raise CliError('{0}\n\nSnap Tap 需要后台服务：  openrazer-win daemon start'
+                       .format(error)) from error
     try:
         status = client.call('snaptap.status')
         if args.action == 'on':
@@ -803,9 +800,9 @@ def cmd_snaptap(args) -> int:
                 print(WARNING, file=sys.stderr)
                 if not args.accept:
                     if not sys.stdin.isatty():
-                        raise CliError('nothing to answer with here; having read that, add --accept')
-                    if input('Turn Snap Tap on? [y/N] ').strip().lower() not in ('y', 'yes'):
-                        print('Left off.')
+                        raise CliError('此处无法作答；读完后请加上 --accept')
+                    if input('开启 Snap Tap？[y/N] ').strip().lower() not in ('y', 'yes'):
+                        print('保持关闭。')
                         return 0
                 changes['acknowledged'] = True
             status = client.call('snaptap.set', **changes)
@@ -820,21 +817,22 @@ def cmd_snaptap(args) -> int:
     if args.json:
         print(json.dumps(status, indent=2))
         return 0
-    print('snap tap    {0}   applies to every keyboard'.format(_shown(status['enabled'])))
+    print('Snap Tap    {0}   对所有键盘生效'.format(_shown(status['enabled'])))
     if status['enabled']:
-        print('            Some games forbid this. Turn it off in those games.')
+        print('            部分游戏禁止此功能。请在那些游戏中关闭。')
         if status['running']:
-            state = 'paused: {0}'.format(status['paused']) if status['paused'] else 'working'
-            print('state       {0}  (in front: {1})'.format(state, status['foreground'] or 'unknown'))
+            state = '已暂停：{0}'.format(status['paused']) if status['paused'] else '工作中'
+            print('状态        {0}  （前台：{1}）'.format(state, status['foreground'] or '未知'))
         else:
-            print('state       not working: see the daemon log')
-    print('pairs       {0}'.format(', '.join(
-        ' + '.join(key[4:] for key in pair) for pair in status['pairs']) or 'none'))
-    print('deny        {0}'.format(', '.join(status['deny']) or 'none'))
-    print('allow       {0}'.format(', '.join(status['allow']) or 'every program not denied'))
+            print('状态        未生效：请查看后台服务日志')
+    print('按键对      {0}'.format(', '.join(
+        ' + '.join(key[4:] for key in pair) for pair in status['pairs']) or '无'))
+    print('拒绝列表    {0}'.format(', '.join(status['deny']) or '无'))
+    print('允许列表    {0}'.format(', '.join(status['allow']) or '所有未被拒绝的程序'))
     latency = status['latency_us']
     if latency['samples']:
-        print('hook        p50 {p50} us, p99 {p99} us, max {max} us, {samples} keys'.format(**latency))
+        print('钩子        p50 {p50} us，p99 {p99} us，最大 {max} us，'
+              '{samples} 个按键'.format(**latency))
     return 1 if status['enabled'] and not status['running'] else 0
 
 
@@ -843,14 +841,14 @@ def cmd_headset(args) -> int:
         headsets = [device for device in pick_devices(manager, args.device)
                     if device.has('audio')]
         if not headsets:
-            print('No headset with sound settings connected.')
+            print('未连接带声音设置的耳机。')
             return 1
         failures = 0
         for device in headsets:
             try:
                 if args.setting == 'trace':
                     lines = device._call('get_trace')
-                    print('{0}: the last {1} requests and answers'.format(device.name, len(lines)))
+                    print('{0}：最近 {1} 条请求与应答'.format(device.name, len(lines)))
                     for line in lines:
                         print('  ' + line)
                 elif args.setting:
@@ -867,41 +865,41 @@ def _show_headset(device) -> None:
     audio = device.audio
     print(device.name)
     if not audio['connected']:
-        print('  switched off, or out of range of its receiver')
+        print('  已关闭，或超出接收器范围')
         return
-    print('  battery     {0}%{1}'.format(
-        device.battery_level, ' (charging)' if device.is_charging else ''))
+    print('  电量        {0}%{1}'.format(
+        device.battery_level, '（充电中）' if device.is_charging else ''))
     # Not every headset has every setting: one it lacks is not in what it reports.
     if 'microphone_muted' in audio:
-        print('  microphone  {0}'.format('muted' if audio['microphone_muted'] else 'on'))
+        print('  麦克风      {0}'.format('已静音' if audio['microphone_muted'] else '开'))
     if 'sidetone' in audio:
-        print('  sidetone    {0}'.format(
-            'level {0}'.format(audio['sidetone_level']) if audio['sidetone'] else 'off'))
-    print('  equalizer   {0}'.format(
-        audio['equalizer_preset'] if audio.get('equalizer', True) else 'off'))
+        print('  侧音        {0}'.format(
+            '级别 {0}'.format(audio['sidetone_level']) if audio['sidetone'] else '关'))
+    print('  均衡器      {0}'.format(
+        audio['equalizer_preset'] if audio.get('equalizer', True) else '关'))
     per_preset = device.capabilities['audio'].get('equalizer_curve_per_preset')
-    print('  {0}   {1}'.format('its curve' if per_preset else 'custom EQ',
+    print('  {0}   {1}'.format('其曲线' if per_preset else '自定义均衡',
                              ' '.join(str(g) for g in audio['equalizer_bands'])))
-    for key, label in (('do_not_disturb', 'do not disturb'),
-                       ('microphone_noise_cancelling', 'noise cancelling'),
-                       ('power_saving', 'power saving')):
+    for key, label in (('do_not_disturb', '勿扰'),
+                       ('microphone_noise_cancelling', '降噪'),
+                       ('power_saving', '节能')):
         if key in audio:
-            print('  {0}  {1}'.format(label, 'on' if audio[key] else 'off'))
+            print('  {0}  {1}'.format(label, '开' if audio[key] else '关'))
     if 'dongle_led' in audio:
-        print('  receiver    {0}'.format(audio['dongle_led']))
-    print('  turns off   {0}'.format(
-        'after {0} min'.format(device.idle_time // 60) if device.idle_time else 'never'))
+        print('  接收器      {0}'.format(audio['dongle_led']))
+    print('  关闭时间    {0}'.format(
+        '{0} 分钟后'.format(device.idle_time // 60) if device.idle_time else '永不'))
 
 
 def _on_off(value: Optional[str]) -> bool:
     if value in ('on', 'off'):
         return value == 'on'
-    raise CliError('say on or off')
+    raise CliError('请输入 on 或 off')
 
 
 def _set_headset(device, setting: str, value: Optional[str]) -> None:
     if value is None:
-        raise CliError('{0} needs a value; see openrazer-win headset --help'.format(setting))
+        raise CliError('{0} 需要一个值；请见 openrazer-win headset --help'.format(setting))
     try:
         if setting == 'sidetone':
             if value not in ('on', 'off'):
@@ -926,7 +924,7 @@ def _set_headset(device, setting: str, value: Optional[str]) -> None:
         elif setting == 'sleep':
             device.idle_time = int(value) * 60
     except ValueError as error:
-        raise CliError('cannot read {0!r} as a number'.format(value)) from error
+        raise CliError('无法将 {0!r} 读取为数字'.format(value)) from error
 
 
 def _byte_from_one(text: str) -> int:
@@ -934,9 +932,9 @@ def _byte_from_one(text: str) -> int:
     try:
         value = int(text)
     except ValueError:
-        raise argparse.ArgumentTypeError('{0!r} is not a number'.format(text)) from None
+        raise argparse.ArgumentTypeError('{0!r} 不是数字'.format(text)) from None
     if not 1 <= value <= 255:
-        raise argparse.ArgumentTypeError('{0} is outside 1-255'.format(value))
+        raise argparse.ArgumentTypeError('{0} 超出 1-255 范围'.format(value))
     return value
 
 
@@ -953,7 +951,7 @@ def cmd_supported(args) -> int:
         print('{0} ({1})'.format(device_type, len(by_type[device_type])))
         for entry in sorted(by_type[device_type], key=lambda e: e.name):
             print('  {0:04x}  {1}'.format(entry.pid, entry.name))
-    print('\n{0} devices in total.'.format(len(entries)))
+    print('\n共 {0} 个设备。'.format(len(entries)))
     return 0
 
 
@@ -987,18 +985,18 @@ def stop_daemon(report: bool = True, timeout: float = 10.0) -> bool:
         from ..daemon.protocol import Endpoint
         Endpoint.remove()
         if report:
-            print('daemon is not running ({0})'.format(error))
+            print('后台服务未运行（{0}）'.format(error))
         return False
     except RpcError as error:
         if report:
-            print('daemon refused the shutdown request ({0})'.format(error))
+            print('后台服务拒绝了关闭请求（{0}）'.format(error))
         return False
     import time
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline and is_daemon_running():
         time.sleep(0.2)
     if report:
-        print('daemon stopped')
+        print('后台服务已停止')
     return True
 
 
@@ -1026,29 +1024,29 @@ def _daemon_status(args) -> int:
         effects = client.call('effect.status')
         client.close()
     except (DaemonUnavailable, RpcError) as error:
-        print('daemon: not running ({0})'.format(error))
+        print('后台服务：未运行（{0}）'.format(error))
         return 1
     if args.json:
         print(json.dumps({'daemon': info, 'devices': devices, 'effects': effects},
                          indent=2))
         return 0
-    print('daemon      running (pid {0})'.format(info['pid']))
-    print('version     {0}  (openrazer {1})'.format(info['version'], info['upstream']))
+    print('后台服务  正在运行（pid {0}）'.format(info['pid']))
+    print('版本      {0}  （openrazer {1}）'.format(info['version'], info['upstream']))
     if info['version'] != __version__:
-        print('            not this version ({0}): openrazer-win daemon restart'.format(
+        print('            不是当前版本（{0}）：openrazer-win daemon restart'.format(
             __version__))
     if info.get('state') == 'starting':
-        print('state       still finding devices')
+        print('状态      仍在查找设备')
     for name in info.get('pending') or []:
-        print('waiting     {0} (found, not answering yet)'.format(name))
-    print('uptime      {0}s'.format(info['uptime']))
-    print('backend     {0}'.format(info['backend']))
-    print('devices     {0}'.format(len(devices)))
+        print('等待      {0}（已找到，尚未响应）'.format(name))
+    print('运行时间  {0}s'.format(info['uptime']))
+    print('后端      {0}'.format(info['backend']))
+    print('设备      {0}'.format(len(devices)))
     for device in devices:
         print('              {0}  {1}'.format(device['name'], device['serial']))
     active = effects.get('active') or {}
-    print('effects     {0}'.format(
-        ', '.join('{0}={1}'.format(k, v) for k, v in active.items()) or 'none active'))
+    print('灯效      {0}'.format(
+        ', '.join('{0}={1}'.format(k, v) for k, v in active.items()) or '无活动灯效'))
     return 0
 
 
@@ -1132,22 +1130,22 @@ def _daemon_start(args) -> int:
     except autostart.AutostartError:
         refreshed = None
     if refreshed:
-        print('autostart pointed at a program that no longer exists; now:\n  {0}'.format(
+        print('开机自启指向的程序已不存在；现在为：\n  {0}'.format(
             refreshed))
     if is_daemon_running():
-        print('daemon is already running')
+        print('后台服务已在运行')
         running = daemon_version_mismatch()
         if running:
-            print('it is version {0}, this is {1}; restart it to use this one:\n'
+            print('它是版本 {0}，当前版本是 {1}；请重启它以使用当前版本：\n'
                   '  openrazer-win daemon restart'.format(running, __version__))
         return 0
     if start_daemon_detached(getattr(args, 'no_effects', False),
                              no_keys=getattr(args, 'no_keys', False)):
-        print('daemon started')
+        print('后台服务已启动')
         return 0
     from ..daemon.logs import log_path
-    print('daemon did not come up. Its log is at:\n  {0}\n'
-          'Or run it in the foreground:  openrazer-win daemon run'.format(log_path()),
+    print('后台服务未能启动。其日志位于：\n  {0}\n'
+          '或在前台运行：  openrazer-win daemon run'.format(log_path()),
           file=sys.stderr)
     return 1
 
@@ -1163,25 +1161,25 @@ def cmd_autostart(args) -> int:
                                   'command': command}, indent=2))
                 return 0
             if command is None:
-                print('autostart: off')
-                print('Turn it on with:  openrazer-win autostart enable')
+                print('开机自启：关')
+                print('启用：  openrazer-win autostart enable')
                 return 1
-            print('autostart: on')
-            print('command:   {0}'.format(command))
+            print('开机自启：开')
+            print('命令：    {0}'.format(command))
             return 0
 
         if args.action == 'disable':
             if disable():
-                print('autostart disabled')
+                print('开机自启已禁用')
             else:
-                print('autostart was already off')
+                print('开机自启本来就是关的')
             return 0
 
         command = enable(args.no_effects)
-        print('autostart enabled; the daemon will start at logon')
-        print('command:   {0}'.format(command))
-        print('\nRemove it later with:  openrazer-win autostart disable')
-        print('It also shows up in Task Manager under Startup apps.')
+        print('开机自启已启用；登录时将启动后台服务')
+        print('命令：    {0}'.format(command))
+        print('\n以后可用以下命令移除：  openrazer-win autostart disable')
+        print('它也会出现在任务管理器的“启动应用”中。')
         return 0
     except AutostartError as error:
         raise CliError(str(error)) from error
@@ -1192,33 +1190,33 @@ def cmd_doctor(args) -> int:
     from ..protocol.report import VENDOR_ID
     from ..core.transport import FEATURE_BUFFER_SIZE
 
-    print('openrazer-win {0}  (device data from openrazer {1})'.format(
+    print('openrazer-win {0}  （设备数据来自 openrazer {1}）'.format(
         __version__, UPSTREAM_VERSION))
-    print('python       {0}'.format(sys.version.split()[0]))
-    print('platform     {0}'.format(sys.platform))
+    print('Python       {0}'.format(sys.version.split()[0]))
+    print('平台        {0}'.format(sys.platform))
     if not is_supported_platform():
-        print('\nThis is not Windows, so only the emulator backend is available.')
+        print('\n这不是 Windows，因此只有模拟器后端可用。')
 
     database = get_database()
-    print('database     {0} supported product ids'.format(len(database)))
-    print('endpoint     {0}{1}'.format(
-        endpoint_path(), '' if os.path.exists(endpoint_path()) else '  (absent)'))
+    print('数据库      {0} 个受支持的产品 ID'.format(len(database)))
+    print('端点        {0}{1}'.format(
+        endpoint_path(), '' if os.path.exists(endpoint_path()) else '  （缺失）'))
     from ..daemon.logs import log_path
-    print('daemon log   {0}{1}'.format(
-        log_path(), '' if os.path.exists(log_path()) else '  (absent)'))
-    print('daemon       {0}'.format(
-        'running' if is_daemon_running() else 'not running'))
+    print('服务日志    {0}{1}'.format(
+        log_path(), '' if os.path.exists(log_path()) else '  （缺失）'))
+    print('后台服务    {0}'.format(
+        '正在运行' if is_daemon_running() else '未运行'))
 
     try:
         backend = get_backend()
     except Exception as error:  # noqa: BLE001 - report, do not crash
-        print('\nHID backend unavailable: {0}'.format(error))
+        print('\nHID 后端不可用：{0}'.format(error))
         return 1
 
     collections = backend.enumerate(vendor_id=VENDOR_ID)
-    print('\nRazer HID collections ({0}):'.format(len(collections)))
+    print('\nRazer HID 集合（{0}）：'.format(len(collections)))
     if not collections:
-        print('  none -- is the device plugged in?')
+        print('  无——设备插好了吗？')
 
     def reachable(info) -> bool:
         if info.product_id in blackshark_v3x.PRODUCT_IDS:
@@ -1229,14 +1227,14 @@ def cmd_doctor(args) -> int:
         return info.feature_length == FEATURE_BUFFER_SIZE or is_blackshark_interface(info)
 
     for info in collections:
-        control = ' <- control interface' if reachable(info) else ''
+        control = ' <- 控制接口' if reachable(info) else ''
         known = database.get(info.vendor_id, info.product_id)
         print('  {0}{1}'.format(info.describe(), control))
-        print('      {0}'.format(known.name if known else 'NOT IN DATABASE'))
+        print('      {0}'.format(known.name if known else '不在数据库中'))
 
     if collections and not any(reachable(info) for info in collections):
-        print('\nNo collection exposes the 90-byte feature report.')
-        print('Razer Synapse may be holding the device -- close it and retry.')
+        print('\n没有集合提供 90 字节的特性报告。')
+        print('Razer Synapse 可能占用了设备——请关闭它后重试。')
 
     _report_devices_beyond_hid(collections, database)
     _report_bluetooth_support()
@@ -1248,20 +1246,18 @@ def _report_bluetooth_device(known) -> None:
     from ..ble import is_available
 
     if known is not None and known.is_bluetooth:
-        print('      Bluetooth-only device -- plugging it in only charges it. '
-              'openrazer-win drives its lighting over Bluetooth LE.')
+        print('      仅支持蓝牙的设备——插线只会充电。'
+              'openrazer-win 通过 Bluetooth LE 驱动其灯效。')
         if is_available():
-            print('      Bluetooth support is installed. If it is powered on '
-                  'and not in the device list, run: openrazer-win list')
+            print('      已安装蓝牙支持。如果设备已开机但不在设备列表中，'
+                  '请运行：openrazer-win list')
         else:
-            print('      Bluetooth support is not installed. Add it with:')
+            print('      未安装蓝牙支持。请这样安装：')
             print('          pip install "openrazer-win[ble]"')
         return
 
-    print('      Paired over Bluetooth. Lighting for this model is driven '
-          'over USB HID.')
-    print('      Connect it with a USB *data* cable; many bundled cables '
-          'only carry power.')
+    print('      已通过蓝牙配对。此型号的灯效通过 USB HID 驱动。')
+    print('      请使用 USB 数据线连接；许多随附线缆只能供电。')
 
 
 def _report_bluetooth_support() -> None:
@@ -1270,18 +1266,17 @@ def _report_bluetooth_support() -> None:
     from ..protocol import razer_ble
 
     if not is_available():
-        print('\nBluetooth LE: support not installed '
-              '(pip install "openrazer-win[ble]")')
+        print('\nBluetooth LE：未安装支持 '
+              '（pip install "openrazer-win[ble]"）')
         return
-    print('\nBluetooth LE: listening for Razer advertisements ...')
+    print('\nBluetooth LE：正在监听 Razer 广播…')
     try:
         advertisers = scan(seconds=4.0)
     except Exception as error:  # noqa: BLE001 - report, do not crash
-        print('  scan failed: {0}'.format(error))
+        print('  扫描失败：{0}'.format(error))
         return
     if not advertisers:
-        print('  nothing advertising -- power the device on and keep it '
-              'near the machine')
+        print('  没有设备广播——请打开设备并靠近本机')
         return
     database = get_database()
     from ..protocol.report import VENDOR_ID
@@ -1293,16 +1288,16 @@ def _report_bluetooth_support() -> None:
                 VENDOR_ID, razer_ble.ADVERTISED_NAMES[advertiser.name][0])
         print('  {0:012X}  {1:>4} dBm  {2}'.format(
             advertiser.address, advertiser.rssi,
-            advertiser.name or '<no name>'))
+            advertiser.name or '<无名称>'))
         if advertiser.product_id is not None:
-            print('      advertises product id {0:04x}{1}'.format(
+            print('      广播产品 ID {0:04x}{1}'.format(
                 advertiser.product_id,
                 '  ({0})'.format(known.name) if known else
-                '  -- not in the database'))
+                '  —— 不在数据库中'))
         elif known is not None:
             print('      {0}'.format(known.name))
         else:
-            print('      not a Razer model this port knows')
+            print('      不是此移植版已知的 Razer 型号')
 
 
 def _report_devices_beyond_hid(collections, database) -> None:
@@ -1322,7 +1317,7 @@ def _report_devices_beyond_hid(collections, database) -> None:
     if not others:
         return
 
-    print('\nOther Razer devices Windows can see ({0}):'.format(len(others)))
+    print('\nWindows 能看到的其他 Razer 设备（{0}）：'.format(len(others)))
     for entry in others:
         product_id = entry['product_id']
         known = database.get(VENDOR_ID, product_id) if product_id else None
@@ -1333,29 +1328,55 @@ def _report_devices_beyond_hid(collections, database) -> None:
         if entry['transport'].startswith('Bluetooth'):
             _report_bluetooth_device(known)
         elif known is not None:
-            print('      Attached, but exposing no lighting control interface.')
+            print('      已连接，但未提供灯效控制接口。')
         elif NON_LIGHTING_CLASSES.intersection(entry['classes']):
-            print('      {0} -- not a device openrazer-win controls.'.format(
+            print('      {0}——不是 openrazer-win 控制的设备。'.format(
                 ', '.join(entry['classes'])))
         else:
-            print('      Not in the database. Worth reporting this product id.')
+            print('      不在数据库中。这个产品 ID 值得报告。')
 
 
 # ---------------------------------------------------------------------------
 
+#: argparse's own words, which it looks up through `argparse._`.
+_ARGPARSE_TEXT = {
+    'usage: ': '用法：',
+    'positional arguments': '位置参数',
+    'options': '选项',
+    'optional arguments': '可选参数',
+    'show this help message and exit': '显示此帮助信息并退出',
+    "show program's version number and exit": '显示程序版本号并退出',
+    '%(prog)s: error: %(message)s\n': '%(prog)s：错误：%(message)s\n',
+}
+
+
+def _localise_argparse() -> None:
+    """Translate the words argparse adds to the help and to error messages."""
+    original = argparse._
+    if getattr(original, '_openrazer_localised', False):
+        return
+
+    def gettext(text):
+        return _ARGPARSE_TEXT.get(text, original(text))
+
+    gettext._openrazer_localised = True
+    argparse._ = gettext
+
+
 def build_parser() -> argparse.ArgumentParser:
+    _localise_argparse()
     parser = argparse.ArgumentParser(
         prog='openrazer-win',
-        description='Control Razer devices on Windows.',
+        description='在 Windows 上控制 Razer 设备。',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='Effects:\n' + EFFECT_HELP)
+        epilog='灯效：\n' + EFFECT_HELP)
     parser.add_argument('--version', action='version',
                         version='openrazer-win {0} (openrazer {1})'.format(
                             __version__, UPSTREAM_VERSION))
     parser.add_argument('--direct', action='store_true',
-                        help='talk to the hardware directly instead of via the daemon')
-    parser.add_argument('--json', action='store_true', help='machine-readable output')
-    parser.add_argument('--quiet', '-q', action='store_true', help='suppress progress output')
+                        help='直接与硬件通信，不经过后台服务')
+    parser.add_argument('--json', action='store_true', help='机器可读输出')
+    parser.add_argument('--quiet', '-q', action='store_true', help='不显示进度输出')
     subparsers = parser.add_subparsers(dest='command')
 
     def add(name, handler, help_text, **kwargs):
@@ -1363,16 +1384,16 @@ def build_parser() -> argparse.ArgumentParser:
         sub.set_defaults(handler=handler)
         return sub
 
-    add('list', cmd_list, 'list connected devices')
+    add('list', cmd_list, '列出已连接的设备')
 
-    info = add('info', cmd_info, 'show everything known about a device')
-    info.add_argument('device', nargs='?', help='serial, product id or name fragment')
+    info = add('info', cmd_info, '显示设备的全部已知信息')
+    info.add_argument('device', nargs='?', help='序列号、产品 ID 或名称片段')
 
-    effect = add('effect', cmd_effect, 'apply a lighting effect',
+    effect = add('effect', cmd_effect, '应用灯效',
                  formatter_class=argparse.RawDescriptionHelpFormatter,
-                 epilog='Effects:\n' + EFFECT_HELP)
+                 epilog='灯效：\n' + EFFECT_HELP)
     effect.add_argument('effect')
-    effect.add_argument('colour', nargs='?', help='name, #rrggbb or r,g,b')
+    effect.add_argument('colour', nargs='?', help='名称、#rrggbb 或 r,g,b')
     effect.add_argument('--colour2', '--color2', dest='colour2')
     effect.add_argument('--colour3', '--color3', dest='colour3')
     effect.add_argument('--device', '-d')
@@ -1380,19 +1401,19 @@ def build_parser() -> argparse.ArgumentParser:
     effect.add_argument('--speed', type=int, default=1, choices=(1, 2, 3, 4))
     effect.add_argument('--direction', type=int, default=1, choices=(0, 1, 2))
     effect.add_argument('--wave-speed', type=_byte_from_one, metavar='1-255',
-                        help="experimental: the speed byte of the device's own wave "
-                             '(its usual is 40), on devices whose wave takes one')
+                        help='实验性：设备自身波浪灯效的速度字节'
+                             '（通常为 40），仅用于波浪灯效接受该参数的设备')
 
     zones = add('zones', cmd_zones,
-                "colour each zone separately (the headset's two ears)",
+                '为每个区域单独设置颜色（耳机的左右耳）',
                 formatter_class=argparse.RawDescriptionHelpFormatter,
                 epilog=ZONES_HELP)
     zones.add_argument('colours', nargs='*',
-                       help='one colour per zone, in the order "zones" lists them')
+                       help='每个区域一个颜色，顺序与 zones 列出的一致')
     zones.add_argument('--device', '-d')
 
     profile = add('profile', cmd_profile,
-                  'save and re-apply named lighting profiles',
+                  '保存并重新应用命名的灯效配置文件',
                   formatter_class=argparse.RawDescriptionHelpFormatter,
                   epilog=PROFILE_HELP)
     profile.add_argument('action', nargs='?', default='list',
@@ -1400,45 +1421,45 @@ def build_parser() -> argparse.ArgumentParser:
     profile.add_argument('name', nargs='?')
     profile.add_argument('--device', '-d')
 
-    macro = add('macro', cmd_macro, 'bind, record and test macro keys',
+    macro = add('macro', cmd_macro, '绑定、录制和测试宏按键',
                 formatter_class=argparse.RawDescriptionHelpFormatter, epilog=MACRO_HELP)
     macro.add_argument('action', nargs='?', default='list',
                        choices=('list', 'set', 'clear', 'record', 'play', 'watch'))
-    macro.add_argument('key', nargs='?', help="M1-M5, another macro key the keyboard has, "
-                       "or a mouse's MOUSE4 or MOUSE5")
+    macro.add_argument('key', nargs='?', help='M1-M5、键盘上的其他宏按键，'
+                       '或鼠标的 MOUSE4 / MOUSE5')
     macro.add_argument('--device', '-d')
     what = macro.add_mutually_exclusive_group()
-    what.add_argument('--keys', help='keys to press, e.g. "ctrl+c" or "win+e, enter"')
-    what.add_argument('--text', help='text to type')
-    what.add_argument('--launch', help='a program, document or URL to open')
+    what.add_argument('--keys', help='要按下的键，例如 "ctrl+c" 或 "win+e, enter"')
+    what.add_argument('--text', help='要输入的文本')
+    what.add_argument('--launch', help='要打开的程序、文档或 URL')
     what.add_argument('--button', choices=('left', 'right', 'middle', 'back', 'forward'),
-                      help='click a mouse button instead')
-    what.add_argument('--disable', action='store_true', help='make the key do nothing')
+                      help='改为点击鼠标按键')
+    what.add_argument('--disable', action='store_true', help='让按键不执行任何操作')
 
-    brightness = add('brightness', cmd_brightness, 'get or set brightness')
+    brightness = add('brightness', cmd_brightness, '获取或设置亮度')
     brightness.add_argument('value', nargs='?', type=float)
     brightness.add_argument('--device', '-d')
     brightness.add_argument('--zone', '-z')
 
-    dpi = add('dpi', cmd_dpi, 'get or set mouse DPI')
+    dpi = add('dpi', cmd_dpi, '获取或设置鼠标 DPI')
     dpi.add_argument('x', nargs='?', type=int)
     dpi.add_argument('y', nargs='?', type=int)
     dpi.add_argument('--device', '-d')
 
-    poll = add('poll-rate', cmd_poll_rate, 'get or set the polling rate in Hz')
+    poll = add('poll-rate', cmd_poll_rate, '获取或设置轮询率（Hz）')
     poll.add_argument('rate', nargs='?', type=int)
     poll.add_argument('--device', '-d')
 
     keyswitch = add('keyswitch', cmd_keyswitch,
-                    'get or set keyswitch optimization: typing keeps a debounce '
-                    'delay, gaming has none')
+                    '获取或设置按键开关优化：typing 保留去抖延迟，'
+                    'gaming 没有延迟')
     keyswitch.add_argument('mode', nargs='?', choices=('typing', 'gaming'))
     keyswitch.add_argument('--device', '-d')
 
-    battery = add('battery', cmd_battery, 'show battery level')
+    battery = add('battery', cmd_battery, '显示电量')
     battery.add_argument('--device', '-d')
 
-    headset = add('headset', cmd_headset, "show or change a headset's sound settings",
+    headset = add('headset', cmd_headset, '查看或更改耳机的声音设置',
                   formatter_class=argparse.RawDescriptionHelpFormatter,
                   epilog=HEADSET_HELP)
     headset.add_argument('setting', nargs='?',
@@ -1448,7 +1469,7 @@ def build_parser() -> argparse.ArgumentParser:
     headset.add_argument('--device', '-d')
 
     integration = add('integration', cmd_integration,
-                      'turn integrations on and off: the Windows accent colour, Chroma games',
+                      '开/关集成：Windows 主题色、Chroma 游戏',
                       formatter_class=argparse.RawDescriptionHelpFormatter,
                       epilog=INTEGRATION_HELP)
     integration.add_argument('name', nargs='?', choices=('accent', 'chroma'))
@@ -1456,37 +1477,36 @@ def build_parser() -> argparse.ArgumentParser:
     integration.add_argument('--json', action='store_true')
 
     snaptap = add('snaptap', cmd_snaptap,
-                  'of two opposing keys, the one pressed last wins; on every keyboard',
+                  '在两个相对按键中，最后按下的生效；适用于所有键盘',
                   formatter_class=argparse.RawDescriptionHelpFormatter,
                   epilog=SNAPTAP_HELP)
     snaptap.add_argument('action', nargs='?', choices=('on', 'off', 'pair', 'deny', 'allow'))
     snaptap.add_argument('verb', nargs='?', choices=('add', 'remove'))
     snaptap.add_argument('items', nargs='*', metavar='item')
     snaptap.add_argument('--accept', action='store_true',
-                         help='you have read the warning shown by the first "on"')
+                         help='你已阅读首次执行 "on" 时显示的警告')
     snaptap.add_argument('--json', action='store_true')
 
-    supported = add('supported', cmd_supported, 'list every device the port knows')
+    supported = add('supported', cmd_supported, '列出此移植版已知的所有设备')
     supported.add_argument('search', nargs='?', default='')
 
-    daemon = add('daemon', cmd_daemon, 'start, stop or inspect the daemon')
+    daemon = add('daemon', cmd_daemon, '启动、停止或检查后台服务')
     daemon.add_argument('action', nargs='?', default='start',
                         choices=('start', 'stop', 'restart', 'status', 'run'))
     daemon.add_argument('--no-effects', action='store_true',
-                        help='disable host-rendered effects and the keyboard hook')
+                        help='禁用主机渲染灯效和键盘钩子')
     daemon.add_argument('--no-keys', action='store_true',
-                        help='leave keyboards in normal mode: no macro keys, Fn handled '
-                             'by the keyboard itself')
+                        help='让键盘保持普通模式：不使用宏按键，Fn 由键盘自身处理')
     daemon.add_argument('--verbose', '-v', action='store_true')
 
     autostart = add('autostart', cmd_autostart,
-                    'run the daemon automatically at logon')
+                    '登录时自动运行后台服务')
     autostart.add_argument('action', nargs='?', default='status',
                            choices=('enable', 'disable', 'status'))
     autostart.add_argument('--no-effects', action='store_true',
-                           help='start it without host-rendered effects')
+                           help='启动时不启用主机渲染灯效')
 
-    add('doctor', cmd_doctor, 'diagnose device detection problems')
+    add('doctor', cmd_doctor, '诊断设备检测问题')
     return parser
 
 
@@ -1499,10 +1519,10 @@ def main(argv: Optional[list] = None) -> int:
     try:
         return args.handler(args)
     except CliError as error:
-        print('error: {0}'.format(error), file=sys.stderr)
+        print('错误：{0}'.format(error), file=sys.stderr)
         return 2
     except (RpcError, NotSupported) as error:
-        print('error: {0}'.format(error), file=sys.stderr)
+        print('错误：{0}'.format(error), file=sys.stderr)
         return 3
     except KeyboardInterrupt:
         return 130
