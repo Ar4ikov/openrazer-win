@@ -761,14 +761,16 @@ class RazerDevice:
             raise NotSupported('{0} has no verified onboard button memory'.format(self.name))
 
     def _onboard(self, command_class: int, command_id: int, size: int,
-                 args: bytes = b'') -> bytes:
+                 args: bytes = b'', probe: bool = False) -> bytes:
         """Send one onboard-memory command; returns the reply's full argument block.
 
         The full block, not ``payload``: the reply's data size may only echo the
         request's.  A read that is still BUSY is an error -- the transport hands
         BUSY back as success, and its arguments are then just our own request.
+        `probe` lets a read through to a mouse not yet known to have the memory.
         """
-        self._require_onboard()
+        if not (probe and command_id & 0x80):
+            self._require_onboard()
         request = RazerReport(command_class, command_id, size)
         request.transaction_id = self._onboard_txid()
         request.set_arguments(0, args)
@@ -781,6 +783,47 @@ class RazerDevice:
                 self.name, Status.name(response.status), command_class, command_id),
                 status=response.status)
         return bytes(response.arguments)
+
+    def probe_onboard_buttons(self) -> dict:
+        """What any mouse keeps in onboard button memory, read and never written.
+
+        For a mouse not yet known to have the Basilisk V3's memory (issue #24):
+        only commands that read are sent, so one that does not take them
+        answers with an error and is left as it was.  Each step that fails is
+        listed in ``errors``; the bindings are of the active profile.
+        """
+        if self.info.type != 'mouse':
+            raise NotSupported('{0} is not a mouse'.format(self.name))
+        found: dict = {'verified': self.info.pid in ONBOARD_BUTTON_PIDS, 'errors': [],
+                       'profiles': [], 'active': None, 'bindings': []}
+
+        def read(what, command_class, command_id, size, args=b''):
+            try:
+                return self._onboard(command_class, command_id, size, args, probe=True)
+            except DeviceError as error:
+                found['errors'].append('{0}: {1}'.format(what, error))
+                return None
+
+        with self._lock:
+            inventory = read('profiles', 0x05, 0x81, 0x00)
+            if inventory is not None:
+                found['profiles'] = [p for p in inventory[1:] if p]
+            active = read('active profile', 0x05, 0x84, 0x00)
+            found['active'] = active[0] if active is not None else None
+            profile = found['active'] or 1
+            listed = read('buttons', 0x02, 0x84, 0x50)
+            ids = [i for i in listed[1:1 + listed[0]] if i] if listed is not None else []
+            for button in ids[:32]:
+                for layer_name, layer in buttons.LAYERS.items():
+                    reply = read('button 0x{0:02x} {1}'.format(button, layer_name),
+                                 0x02, 0x8C, 0x0A, bytes((profile, button, layer)))
+                    if reply is None:
+                        return found        # the rest would fail the same way
+                    binding = buttons.Binding.from_raw(reply[3], reply[4], reply[5:10])
+                    found['bindings'].append(dict(buttons.binding_to_dict(binding),
+                                                  button=button, layer=layer_name,
+                                                  name=buttons.button_name(button)))
+        return found
 
     @staticmethod
     def _onboard_ids(profile, button, layer) -> tuple:

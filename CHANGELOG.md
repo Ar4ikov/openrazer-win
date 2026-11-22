@@ -6,6 +6,44 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.7] - 2026-11-22
+
+### Added
+
+- **Razer BlackShark V3 X HyperSpeed for PlayStation**, on its receiver
+  (`1532:1021`) and its cable (`1532:1022`): the same headset and settings
+  as the BlackShark V3 X HyperSpeed, tested on both by its contributor
+  ([#25](https://github.com/Ar4ikov/openrazer-win/pull/25), thanks @iamydp).
+- **Studio in Simplified Chinese**, with Windows' language followed and the
+  fonts Windows has for it; and `README.zh-CN.md`
+  ([#26](https://github.com/Ar4ikov/openrazer-win/pull/26), thanks
+  @IppearPeng). The command line stays in English.
+- **`openrazer-win buttons`** reads what a mouse keeps in its own button
+  memory, on any mouse, without writing anything: the first step to
+  remapping all four side buttons of the Viper Ultimate on the mouse itself
+  ([#24](https://github.com/Ar4ikov/openrazer-win/issues/24)).
+
+### Fixed
+
+- **Studio's per-key preview missed half the keys.** Shift, Ctrl, Alt, Win,
+  the brackets, the quote, Insert, Delete, Page Up and Down, the numpad's
+  operators, Num Lock, Print Screen, Scroll Lock and Pause did nothing; a
+  digit lit the numpad's too; and Tab moved the focus, after which no key
+  did anything until a click. The preview now asks Windows which keys went
+  down, while its window has the focus
+  ([#19](https://github.com/Ar4ikov/openrazer-win/issues/19)).
+- **Razer BlackWidow V4 and V4 Pro: the macro keys are listed from the
+  start.** M1 appeared alone, once pressed, and looked like a binding nobody
+  made. An unbound key now reads "Not set: sends F13"
+  ([#19](https://github.com/Ar4ikov/openrazer-win/issues/19)).
+- **Studio said it was the newest version when it was not.** The list of
+  releases was read once a day, so right after an update it knew nothing
+  newer. While the version running is the newest it knows, it now looks
+  again every six hours
+  ([#19](https://github.com/Ar4ikov/openrazer-win/issues/19)).
+- The documentation site's device list was left empty by #25, and is
+  rebuilt.
+
 ## [1.6.6] - 2026-11-18
 
 ### Added

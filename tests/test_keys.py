@@ -305,6 +305,24 @@ def test_the_daemon_lists_a_keyboard_s_macro_keys(rig):
     assert status['running'] and status['devices'][0]['handled']
 
 
+@pytest.mark.parametrize('pid, last', [(0x028D, 'DIAL'), (0x0287, 'M6')])
+def test_a_blackwidow_v4_lists_its_macro_keys_before_any_is_pressed(tmp_path, pid, last):
+    # Issue #19: upstream does not say these boards have macro keys, and M1
+    # showed up alone, once pressed, looking like a binding nobody made.
+    fake = FakeRazerDevice(pid, 'Razer BlackWidow V4', interface=2, keys=True)
+    backend = FakeHidBackend([fake])
+    keys = KeyService(backend, macros=MacroStore(str(tmp_path / 'macros.json')),
+                      injector=RecordingInjector(), hook=FakeHook())
+    service = DaemonService(backend=backend, persistence=Persistence(str(tmp_path / 'p.json')),
+                            enable_effects=False, keys=keys, macros=keys.macros)
+    service.start()
+    try:
+        listed = service.rpc_macro_list(service.manager.devices[0].serial)['keys']
+        assert listed[:5] == ['M1', 'M2', 'M3', 'M4', 'M5'] and last in listed
+    finally:
+        service.stop()
+
+
 def test_a_malformed_binding_is_refused(rig):
     service, _, device, _, _, _ = rig
     with pytest.raises(RpcError) as raised:

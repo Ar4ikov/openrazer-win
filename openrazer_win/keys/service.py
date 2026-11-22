@@ -41,6 +41,13 @@ from .inject import Injector
 from .macros import MacroError, MacroStore, held_keys
 from .mouse import BUTTON_KEYS, ButtonHook
 
+#: Macro keys of boards that upstream does not say have them: the BlackWidow
+#: V4 has M1-M6, the V4 Pro M1-M5 and the dial where the V4 has M6.
+BOARD_MACRO_KEYS = {
+    0x0287: ('M1', 'M2', 'M3', 'M4', 'M5', 'M6'),
+    0x028D: ('M1', 'M2', 'M3', 'M4', 'M5', 'DIAL'),
+}
+
 logger = logging.getLogger(__name__)
 
 KEYS_PATH = os.path.join(DATA_DIR, 'keys.json')
@@ -610,6 +617,10 @@ class KeyService:
         keys = []
         if getattr(device.info, 'dedicated_macro_keys', False):
             keys.extend(['M1', 'M2', 'M3', 'M4', 'M5'])
+        # Upstream does not mark the BlackWidow V4 and V4 Pro as having macro
+        # keys, so they were listed only once pressed (issue #19).
+        keys.extend(k for k in BOARD_MACRO_KEYS.get(getattr(device, 'pid', None), ())
+                    if k not in keys)
         table = self.table_for(device.pid) if self.wants(device) else {}
         for target in table.values():
             name = MACRO_TARGETS.get(target)

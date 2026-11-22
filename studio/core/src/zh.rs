@@ -399,7 +399,7 @@ pub const ZH: &[(&str, &str)] = &[
     ("The library is empty", "宏库为空"),
     ("Copy into the library", "复制到宏库"),
     ("Copied into the library", "已复制到宏库"),
-    ("Sends {}", "发送{}"),
+    ("Not set: sends {}", "未设置：发送 {}"),
     ("Presses {}", "按下{}"),
     ("Types “{}”", "输入“{}”"),
     ("Opens {}", "打开{}"),

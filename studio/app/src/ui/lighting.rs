@@ -53,11 +53,15 @@ struct Stack {
     slot: usize,
     /// The profile the device followed when the layers were last read.
     profile: Option<String>,
+    /// Keys held at the last frame, to tell a new press from a held key.
+    down: Vec<u16>,
+    /// Whether a layer's name was being typed at the last frame.
+    typing: bool,
 }
 
 impl Default for Stack {
     fn default() -> Self {
-        Stack { layers: Vec::new(), current: 0, generation: u64::MAX, dirty: false, sent: None, started: Instant::now(), presses: Vec::new(), slot: 0, profile: None }
+        Stack { layers: Vec::new(), current: 0, generation: u64::MAX, dirty: false, sent: None, started: Instant::now(), presses: Vec::new(), slot: 0, profile: None, down: Vec::new(), typing: false }
     }
 }
 
@@ -517,42 +521,134 @@ fn groups(art: &Art) -> Vec<(&'static str, Vec<(u8, u8)>)> {
 }
 
 /// The cell of the key labelled like the key just pressed in this window.
-fn pressed_cells(ui: &egui::Ui, art: &Art) -> Vec<(u8, u8)> {
+/// Which of two keys drawn with the same label a press is: the main block's
+/// (or the left one), or the numpad's (or the right one).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Side {
+    Left,
+    Right,
+}
+
+/// The label drawn on the key a Windows virtual-key code stands for.
+///
+/// Fn, the macro keys and the dial never reach Windows as keys, so they have
+/// none; nor does the volume roller, which has no light.
+pub fn vk_label(vk: u16) -> Option<(&'static str, Side)> {
+    use Side::{Left as L, Right as R};
+    const LETTERS: [&str; 26] = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"];
+    const DIGITS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+    const F: [&str; 12] = ["F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"];
+    Some(match vk {
+        0x08 => ("Backspace", L),
+        0x09 => ("Tab", L),
+        0x0D => ("Enter", L),
+        0x13 => ("Pause", L),
+        0x14 => ("Caps", L),
+        0x1B => ("Esc", L),
+        0x20 => ("", L),
+        0x21 => ("PgUp", L),
+        0x22 => ("PgDn", L),
+        0x23 => ("End", L),
+        0x24 => ("Home", L),
+        0x25 => ("←", L),
+        0x26 => ("↑", L),
+        0x27 => ("→", L),
+        0x28 => ("↓", L),
+        0x2C => ("PrtSc", L),
+        0x2D => ("Ins", L),
+        0x2E => ("Del", L),
+        0x30..=0x39 => (DIGITS[(vk - 0x30) as usize], L),
+        0x41..=0x5A => (LETTERS[(vk - 0x41) as usize], L),
+        0x5B => ("Win", L),
+        0x5C => ("Win", R),
+        0x5D => ("Menu", L),
+        0x60..=0x69 => (DIGITS[(vk - 0x60) as usize], R),
+        0x6A => ("*", R),
+        0x6B => ("+", R),
+        0x6D => ("-", R),
+        0x6E => (".", R),
+        0x6F => ("/", R),
+        0x70..=0x7B => (F[(vk - 0x70) as usize], L),
+        0x90 => ("Num", L),
+        0x91 => ("ScrLk", L),
+        0xA0 => ("Shift", L),
+        0xA1 => ("Shift", R),
+        0xA2 => ("Ctrl", L),
+        0xA3 => ("Ctrl", R),
+        0xA4 => ("Alt", L),
+        0xA5 => ("Alt", R),
+        0xAD => ("Mute", L),
+        0xB0 => ("Next", L),
+        0xB1 => ("Prev", L),
+        0xB3 => ("Play", L),
+        0xBA => (";", L),
+        0xBB => ("=", L),
+        0xBC => (",", L),
+        0xBD => ("-", L),
+        0xBE => (".", L),
+        0xBF => ("/", L),
+        0xC0 => ("`", L),
+        0xDB => ("[", L),
+        0xDC => ("\\", L),
+        0xDD => ("]", L),
+        0xDE => ("'", L),
+        _ => return None,
+    })
+}
+
+/// The cell of the key drawn with `label`: of two, the left one or the right.
+fn cell_for(art: &Art, label: &str, side: Side) -> Option<(u8, u8)> {
+    let keys = art.shapes.iter().filter(|s| s.label == label).filter_map(|s| match s.region {
+        Region::Cell(r, c) => Some((s.bounds(art).center().x, (r, c))),
+        _ => None,
+    });
+    let pick = |a: &(f32, (u8, u8)), b: &(f32, (u8, u8))| a.0.total_cmp(&b.0);
+    match side {
+        Side::Left => keys.min_by(pick),
+        Side::Right => keys.max_by(pick),
+    }
+    .map(|(_, cell)| cell)
+}
+
+/// Keys pressed since the last frame, while the window has the focus.
+///
+/// Asked of Windows rather than taken from egui's events: those have no
+/// Shift, Ctrl, Alt or Win, no names for half the keys, and no difference
+/// between a digit and the numpad's (issue #19).
+#[cfg(windows)]
+fn keys_pressed(down: &mut Vec<u16>) -> Vec<u16> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+    let now: Vec<u16> = (1u16..=0xFE).filter(|vk| unsafe { GetAsyncKeyState(*vk as i32) } as u16 & 0x8000 != 0).collect();
+    let pressed = now.iter().copied().filter(|vk| !down.contains(vk)).collect();
+    *down = now;
+    pressed
+}
+
+#[cfg(not(windows))]
+fn keys_pressed(down: &mut Vec<u16>) -> Vec<u16> {
+    down.clear();
+    Vec::new()
+}
+
+fn pressed_cells(ui: &egui::Ui, art: &Art, down: &mut Vec<u16>, typing: &mut bool) -> Vec<(u8, u8)> {
+    // Tab moves the focus, and could land it in a layer's name: a key played
+    // on the keyboard must not leave the preview deaf until the next click.
+    let tabbed = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::Tab, pressed: true, .. })));
+    if tabbed && !*typing && ui.ctx().wants_keyboard_input() {
+        ui.ctx().memory_mut(|m| {
+            if let Some(id) = m.focused() {
+                m.surrender_focus(id);
+            }
+        });
+    }
     // Typing a layer's name is not playing the keyboard.
-    if ui.ctx().wants_keyboard_input() {
+    *typing = ui.ctx().wants_keyboard_input() && !tabbed;
+    let focused = ui.input(|i| i.focused);
+    let pressed = keys_pressed(down);
+    if *typing || !focused {
         return Vec::new();
     }
-    let names: Vec<String> = ui.input(|i| {
-        i.events
-            .iter()
-            .filter_map(|e| match e {
-                egui::Event::Key { key, pressed: true, repeat: false, .. } => Some(*key),
-                _ => None,
-            })
-            .map(|key| match key {
-                egui::Key::Space => String::new(),
-                egui::Key::Escape => "Esc".into(),
-                egui::Key::Enter => "Enter".into(),
-                egui::Key::Tab => "Tab".into(),
-                egui::Key::Backspace => "Backspace".into(),
-                egui::Key::ArrowLeft => "←".into(),
-                egui::Key::ArrowRight => "→".into(),
-                egui::Key::ArrowUp => "↑".into(),
-                egui::Key::ArrowDown => "↓".into(),
-                egui::Key::Minus => "-".into(),
-                egui::Key::Equals => "=".into(),
-                egui::Key::Comma => ",".into(),
-                egui::Key::Period => ".".into(),
-                egui::Key::Slash => "/".into(),
-                egui::Key::Semicolon => ";".into(),
-                other => {
-                    let name = other.name();
-                    name.strip_prefix("Num").map(str::to_string).unwrap_or_else(|| name.to_string())
-                }
-            })
-            .collect()
-    });
-    art.shapes.iter().filter(|s| names.contains(&s.label)).filter_map(|s| if let Region::Cell(r, c) = s.region { Some((r, c)) } else { None }).collect()
+    pressed.into_iter().filter_map(vk_label).filter_map(|(label, side)| cell_for(art, label, side)).collect()
 }
 
 fn studio(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value, snap: &Snapshot, art: Arc<Art>) {
@@ -574,7 +670,7 @@ fn studio(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value, snap:
 
     // Typing in the window shows what reactive layers will do.
     let now = Instant::now();
-    for cell in pressed_cells(ui, &art) {
+    for cell in pressed_cells(ui, &art, &mut stack.down, &mut stack.typing) {
         stack.presses.push((now, cell));
     }
     stack.presses.retain(|(at, _)| at.elapsed() < Duration::from_secs(2));
@@ -994,6 +1090,21 @@ mod tests {
 
     fn base() -> Layer {
         layer(Color32::WHITE)
+    }
+
+    #[test]
+    fn keys_light_the_cap_they_are_drawn_on() {
+        assert_eq!(vk_label(0xA0), Some(("Shift", Side::Left)));
+        assert_eq!(vk_label(0xA3), Some(("Ctrl", Side::Right)));
+        // A digit and the numpad's are different keys with the same label.
+        assert_eq!(vk_label(0x31), Some(("1", Side::Left)));
+        assert_eq!(vk_label(0x61), Some(("1", Side::Right)));
+        assert_eq!((vk_label(0xBF), vk_label(0x6F)), (Some(("/", Side::Left)), Some(("/", Side::Right))));
+        for (vk, label) in [(0x2D, "Ins"), (0x2E, "Del"), (0x21, "PgUp"), (0x22, "PgDn"), (0x2C, "PrtSc"), (0x91, "ScrLk"), (0x13, "Pause"), (0x90, "Num"), (0xDB, "["), (0xDD, "]"), (0xDE, "'"), (0x5B, "Win"), (0xA4, "Alt")] {
+            assert_eq!(vk_label(vk).map(|(l, _)| l), Some(label), "{vk:#x}");
+        }
+        // The volume roller has no light.
+        assert_eq!((vk_label(0xAE), vk_label(0xAF)), (None, None));
     }
 
     #[test]

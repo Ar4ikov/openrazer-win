@@ -863,6 +863,40 @@ def cmd_headset(args) -> int:
     return 1 if failures else 0
 
 
+def cmd_buttons(args) -> int:
+    with open_manager(args) as manager:
+        mice = [device for device in pick_devices(manager, args.device)
+                if device.type == 'mouse']
+        if not mice:
+            print('No mouse connected.')
+            return 1
+        failures = 0
+        for device in mice:
+            try:
+                found = device._call('probe_onboard_buttons')
+            except (RpcError, NotSupported, DeviceError) as error:
+                print('{0}: {1}'.format(device.name, error), file=sys.stderr)
+                failures += 1
+                continue
+            _show_buttons(device.name, found)
+    return 1 if failures else 0
+
+
+def _show_buttons(name: str, found: dict) -> None:
+    print(name)
+    if not found['verified']:
+        print("  (read only: the port has not changed this mouse's buttons yet)")
+    if found['profiles']:
+        print('  profiles    {0}, active {1}'.format(
+            ', '.join(str(p) for p in found['profiles']), found['active']))
+    for row in found['bindings']:
+        print('  {0:<12} {1:<10} {2}'.format(row['name'], row['layer'], row['action']))
+    for error in found['errors']:
+        print('  ! ' + error)
+    if not found['bindings'] and not found['errors']:
+        print('  no buttons listed')
+
+
 def _show_headset(device) -> None:
     audio = device.audio
     print(device.name)
@@ -1446,6 +1480,10 @@ def build_parser() -> argparse.ArgumentParser:
                                   'trace'))
     headset.add_argument('value', nargs='?')
     headset.add_argument('--device', '-d')
+
+    buttons = add('buttons', cmd_buttons,
+                  "show what a mouse's buttons are set to in its own memory (read only)")
+    buttons.add_argument('--device', '-d')
 
     integration = add('integration', cmd_integration,
                       'turn integrations on and off: the Windows accent colour, Chroma games',

@@ -398,3 +398,57 @@ def test_other_mice_say_not_supported_over_rpc(client):
         client.call('device.call', serial=_serial(client, 0x0078), method='set_button_binding',
                     args=[1, 5, 'middle'], kwargs={})
     assert raised.value.code == NOT_SUPPORTED
+
+
+# -- reading any mouse's memory (issue #24) -----------------------------------
+
+def test_any_mouse_can_be_read_and_nothing_is_written(persistence):
+    viper, fake = make_device(0x007B, persistence)          # Viper Ultimate, receiver
+    try:
+        found = viper.probe_onboard_buttons()
+        assert found['verified'] is False and found['errors'] == []
+        assert found['active'] == 1 and found['profiles'] == [1, 2, 3, 4]
+        rows = {(r['name'], r['layer']): r['action'] for r in found['bindings']}
+        assert rows[('forward', 'normal')] == 'forward' and len(rows) == 13 * 2
+        assert all(r.command_id & 0x80 for r in onboard_reports(fake))
+        # Writing is still for mice it has been checked on.
+        with pytest.raises(NotSupported):
+            viper.set_button_binding(1, 5, 'middle')
+    finally:
+        viper.transport.close()
+
+
+def test_a_mouse_without_the_memory_says_so_and_stops(persistence, monkeypatch):
+    viper, fake = make_device(0x007B, persistence)
+    try:
+        monkeypatch.setattr(fake, '_respond_onboard', _refuse)
+        found = viper.probe_onboard_buttons()
+        assert found['bindings'] == [] and len(found['errors']) == 3
+        assert len(onboard_reports(fake)) == 3
+    finally:
+        viper.transport.close()
+
+
+def _refuse(request, response):
+    from openrazer_win.protocol.report import Status
+    response.status = Status.NOT_SUPPORTED
+    return response
+
+
+def test_a_keyboard_is_not_probed(persistence):
+    keyboard, fake = make_device(0x0203, persistence)
+    try:
+        with pytest.raises(NotSupported):
+            keyboard.probe_onboard_buttons()
+        assert not onboard_reports(fake)
+    finally:
+        keyboard.transport.close()
+
+
+def test_the_cli_prints_what_the_mouse_holds(client, capsys):
+    from openrazer_win.cli import _show_buttons
+    found = client.call('device.call', serial=_serial(client, 0x0078),
+                        method='probe_onboard_buttons', args=[], kwargs={})
+    _show_buttons('Mouse', found)
+    out = capsys.readouterr().out
+    assert 'read only' in out and 'forward' in out

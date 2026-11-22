@@ -735,7 +735,7 @@ pub fn summary(action: Option<&Value>, key: &str) -> (String, bool) {
             "MOUSE5" => return (t("Goes forward, as it came").to_string(), false),
             _ => "—",
         };
-        return (tf("Sends {}", &[&default]), false);
+        return (tf("Not set: sends {}", &[&default]), false);
     };
     let text = match action["type"].as_str().unwrap_or_default() {
         "keys" => {
@@ -812,7 +812,7 @@ mod tests {
     #[test]
     fn an_unbound_key_says_what_it_sends() {
         set_english();
-        assert_eq!(summary(None, "M1"), ("Sends F13".to_string(), false));
+        assert_eq!(summary(None, "M1"), ("Not set: sends F13".to_string(), false));
         assert!(!summary(None, "MOUSE4").1);
         assert_eq!(summary(Some(&json!({ "type": "button", "button": "middle" })), "MOUSE5").0, "Acts as middle click");
     }

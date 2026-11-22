@@ -183,6 +183,9 @@ the profiles stored on the mouse, what every button does on the normal and the H
 and the macros Synapse saved there. A button changed here is written into the mouse and works on
 any computer with nothing running; a profile's buttons can be backed up to a file and restored.
 
+Other mice may have the same memory. `openrazer-win buttons` reads what one keeps there, and
+never writes, so that support for it can be checked before anything is changed on it.
+
 ### Python
 
 The API mirrors upstream's `openrazer.client`, so scripts written for Linux usually port by changing

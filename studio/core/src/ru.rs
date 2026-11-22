@@ -411,7 +411,7 @@ pub const RU: &[(&str, &str)] = &[
     ("The library is empty", "Библиотека пуста"),
     ("Copy into the library", "Скопировать в библиотеку"),
     ("Copied into the library", "Скопировано в библиотеку"),
-    ("Sends {}", "Отправляет {}"),
+    ("Not set: sends {}", "Не задано: отправляет {}"),
     ("Presses {}", "Нажимает {}"),
     ("Types “{}”", "Печатает «{}»"),
     ("Opens {}", "Открывает {}"),

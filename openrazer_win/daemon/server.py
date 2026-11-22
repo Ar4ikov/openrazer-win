@@ -62,6 +62,7 @@ DEVICE_METHODS = {
     'get_onboard_profiles', 'get_active_onboard_profile', 'set_active_onboard_profile',
     'get_buttons', 'get_button_binding', 'set_button_binding',
     'backup_button_bindings', 'restore_button_bindings', 'get_onboard_macros',
+    'probe_onboard_buttons',
     # power
     'get_battery_level', 'is_charging', 'get_idle_time', 'set_idle_time',
     'get_low_battery_threshold', 'set_low_battery_threshold',

@@ -40,6 +40,9 @@ const WAKE: Duration = Duration::from_secs(3600);
 const DAY: u64 = 86_400;
 /// After a look that failed.
 const RETRY: u64 = 6 * 3600;
+/// Between looks while the version running is the newest one known: a list
+/// read before it was installed says nothing of what came after (issue #19).
+const RECHECK: u64 = 6 * 3600;
 
 pub fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
@@ -199,7 +202,12 @@ impl Saved {
 
     /// Whether to look now. A date far ahead means the clock was wrong when it was set.
     fn due(&self, now: u64) -> bool {
-        now >= self.next || self.next > now + 2 * DAY
+        self.due_for(now, CURRENT)
+    }
+
+    fn due_for(&self, now: u64, running: &str) -> bool {
+        let nothing_newer = !self.releases.iter().any(|r| newer(&r.version, running));
+        now >= self.next || self.next > now + 2 * DAY || (nothing_newer && now >= self.checked.saturating_add(RECHECK))
     }
 }
 
@@ -621,6 +629,23 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn a_list_with_nothing_newer_is_read_again_within_the_day() {
+        let saved = |versions: &[&str]| Saved {
+            releases: versions.iter().map(|v| read_release(&release(&format!("v{v}"))).unwrap()).collect(),
+            checked: 1_000_000,
+            next: 1_000_000 + DAY,
+            ..Default::default()
+        };
+        // Just updated to the newest it knew: it looks again after six hours.
+        let known = saved(&["1.6.5", "1.6.4"]);
+        assert!(!known.due_for(1_000_000 + 3600, "1.6.5"));
+        assert!(known.due_for(1_000_000 + RECHECK, "1.6.5"));
+        // With a newer one already known, once a day is enough.
+        assert!(!known.due_for(1_000_000 + RECHECK, "1.6.4"));
+        assert!(known.due_for(1_000_000 + DAY, "1.6.4"));
+    }
+
+    #[test]
     fn versions_compare_as_numbers() {
         assert!(newer("v1.10.0", "1.9.3"));
         assert!(newer("1.5.1", "1.5.0"));
@@ -716,7 +741,7 @@ mod tests {
 
     #[test]
     fn a_look_is_due_when_its_time_comes_or_the_clock_was_wrong() {
-        let saved = Saved { next: 1_000_000, ..Default::default() };
+        let saved = Saved { next: 1_000_000, checked: 990_000, ..Default::default() };
         assert!(!saved.due(999_999));
         assert!(saved.due(1_000_000));
         assert!(saved.due(1_000_000 - 3 * DAY));
