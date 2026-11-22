@@ -2,6 +2,8 @@
 
 # OpenRazer for Windows
 
+**English** · [简体中文](README.zh-CN.md)
+
 **Control your Razer keyboard, mouse and mousepad on Windows 10 / 11 — without Synapse, without a kernel driver, without a single third-party package.**
 
 [![CI](https://github.com/Ar4ikov/openrazer-win/actions/workflows/ci.yml/badge.svg)](https://github.com/Ar4ikov/openrazer-win/actions/workflows/ci.yml)
@@ -239,7 +241,7 @@ DeviceManager(direct=True)
 ### OpenRazer Studio
 
 The app most people want: everything Synapse does for these devices, laid out the way Synapse taught
-Razer owners to look for it, in English or Russian.
+Razer owners to look for it, in English, Russian or Simplified Chinese.
 
 - **Home** — a tile per device, drawn in its own light as it is lit right now, with what you change
   most beside it: effect, colour, brightness, DPI stage, game mode. *All lights off* puts every
@@ -261,7 +263,7 @@ Razer owners to look for it, in English or Russian.
 - **Integrations** — what works today, with its switches: **games with Razer Chroma**, the
   **Windows accent colour** on every device, *Music*, and the local API; and what is planned, to
   vote on.
-- **Updates** — what changed in each version, in English or Russian, and a new one downloaded and
+- **Updates** — what changed in each version, in English, Russian or Simplified Chinese, and a new one downloaded and
   installed when you say so. Studio looks about once a day and never interrupts; a new version is a
   small mark in the navigation. It can be skipped, and the checks turned off.
 - **Settings** — language, starting with Windows, the tray, update checks, the daemon, a report to
@@ -645,13 +647,13 @@ python tools/simulate_devices.py    # every capability of all 276 USB devices
 ```
 
 OpenRazer Studio and its installer are a Rust workspace in `studio/` — `core` (the daemon's
-protocol, the look, English and Russian), `app` and `setup`:
+protocol, the look, English, Russian and Simplified Chinese), `app` and `setup`:
 
 ```bash
 cd studio
 cargo run -p openrazer-studio      # talks to whichever daemon is running
 cargo clippy --workspace -- -D warnings && cargo test --workspace
-python tools/check_translations.py # every string has its Russian
+python tools/check_translations.py # every string has its Russian and Chinese
 ```
 
 The installer carries what it installs: set `OPENRAZER_STUDIO_PAYLOAD` to a folder holding
