@@ -126,6 +126,11 @@ pub fn pairs() -> impl Iterator<Item = (&'static str, &'static str)> {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+    use std::sync::Mutex;
+
+    /// The language is one for the whole process, and tests run side by side:
+    /// a test that sets it holds this, or another's choice lands mid-test.
+    static LANGUAGE: Mutex<()> = Mutex::new(());
 
     #[test]
     fn placeholders_match_in_every_translation() {
@@ -158,12 +163,14 @@ mod tests {
 
     #[test]
     fn arguments_fill_the_placeholders_in_order() {
+        let _language = LANGUAGE.lock().unwrap_or_else(|e| e.into_inner());
         set(Lang::En);
         assert_eq!(tf("{} of {}", &[&1, &2]), "1 of 2");
     }
 
     #[test]
     fn chinese_and_russian_are_looked_up() {
+        let _language = LANGUAGE.lock().unwrap_or_else(|e| e.into_inner());
         set(Lang::Zh);
         assert_eq!(t("Settings"), "设置");
         set(Lang::Ru);
