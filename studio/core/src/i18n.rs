@@ -1,4 +1,4 @@
-//! English and Russian.
+//! English, Russian and Simplified Chinese.
 //!
 //! Strings are written in English in the code and looked up in a table here,
 //! gettext-style, so the code reads plainly and a missing translation falls
@@ -11,6 +11,8 @@ use std::sync::OnceLock;
 
 #[path = "ru.rs"]
 mod ru;
+#[path = "zh.rs"]
+mod zh;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -20,9 +22,15 @@ pub enum Lang {
     System,
     En,
     Ru,
+    Zh,
 }
 
-static CURRENT: AtomicU8 = AtomicU8::new(0);
+/// What `CURRENT` holds: the language in force, `System` resolved.
+const EN: u8 = 0;
+const RU: u8 = 1;
+const ZH: u8 = 2;
+
+static CURRENT: AtomicU8 = AtomicU8::new(EN);
 
 /// Use `lang` from now on.
 pub fn set(lang: Lang) {
@@ -30,14 +38,21 @@ pub fn set(lang: Lang) {
         Lang::System => system(),
         other => other,
     };
-    CURRENT.store(if resolved == Lang::Ru { 1 } else { 0 }, Ordering::Relaxed);
+    CURRENT.store(
+        match resolved {
+            Lang::Ru => RU,
+            Lang::Zh => ZH,
+            _ => EN,
+        },
+        Ordering::Relaxed,
+    );
 }
 
 pub fn current() -> Lang {
-    if CURRENT.load(Ordering::Relaxed) == 1 {
-        Lang::Ru
-    } else {
-        Lang::En
+    match CURRENT.load(Ordering::Relaxed) {
+        RU => Lang::Ru,
+        ZH => Lang::Zh,
+        _ => Lang::En,
     }
 }
 
@@ -46,24 +61,38 @@ pub fn system() -> Lang {
     #[cfg(windows)]
     {
         let id = unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() };
-        if id & 0x3FF == 0x19 {
-            return Lang::Ru;
+        match id & 0x3FF {
+            0x19 => return Lang::Ru,
+            0x04 => return Lang::Zh,
+            _ => {}
         }
     }
     Lang::En
 }
 
-fn table() -> &'static HashMap<&'static str, &'static str> {
-    static TABLE: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
-    TABLE.get_or_init(|| ru::RU.iter().copied().collect())
+fn table(lang: Lang) -> &'static [(&'static str, &'static str)] {
+    match lang {
+        Lang::Ru => ru::RU,
+        Lang::Zh => zh::ZH,
+        _ => &[],
+    }
+}
+
+fn map(lang: Lang) -> &'static HashMap<&'static str, &'static str> {
+    static RU_MAP: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
+    static ZH_MAP: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
+    static EMPTY: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
+    match lang {
+        Lang::Ru => RU_MAP.get_or_init(|| ru::RU.iter().copied().collect()),
+        Lang::Zh => ZH_MAP.get_or_init(|| zh::ZH.iter().copied().collect()),
+        _ => EMPTY.get_or_init(HashMap::new),
+    }
 }
 
 /// `english`, in the current language.
 pub fn t(english: &'static str) -> &'static str {
-    if current() == Lang::Ru {
-        if let Some(russian) = table().get(english) {
-            return russian;
-        }
+    if let Some(translated) = map(current()).get(english) {
+        return translated;
     }
     english
 }
@@ -84,28 +113,46 @@ pub fn tf(english: &'static str, args: &[&dyn std::fmt::Display]) -> String {
     out
 }
 
-/// Every English string with a translation, for the test that checks the
-/// placeholders agree.
-pub fn pairs() -> &'static [(&'static str, &'static str)] {
-    ru::RU
+/// Every English string with a translation, in every language, for the tests
+/// that check the placeholders agree and that each translation is complete.
+pub fn pairs() -> impl Iterator<Item = (&'static str, &'static str)> {
+    table(Lang::Ru)
+        .iter()
+        .chain(table(Lang::Zh).iter())
+        .copied()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn placeholders_match_in_every_translation() {
-        for (english, russian) in pairs() {
-            assert_eq!(english.matches("{}").count(), russian.matches("{}").count(), "{english:?} / {russian:?}");
+        for (english, translated) in pairs() {
+            assert_eq!(english.matches("{}").count(), translated.matches("{}").count(), "{english:?} / {translated:?}");
         }
     }
 
     #[test]
     fn no_string_is_translated_twice() {
-        let mut seen = std::collections::HashSet::new();
-        for (english, _) in pairs() {
-            assert!(seen.insert(*english), "translated twice: {english:?}");
+        for lang in [Lang::Ru, Lang::Zh] {
+            let mut seen = HashSet::new();
+            for (english, _) in table(lang) {
+                assert!(seen.insert(*english), "translated twice in {lang:?}: {english:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_language_covers_the_same_strings() {
+        let english: HashSet<&str> = table(Lang::Ru).iter().map(|(key, _)| *key).collect();
+        for lang in [Lang::Ru, Lang::Zh] {
+            let translated: HashSet<&str> = table(lang).iter().map(|(key, _)| *key).collect();
+            let missing: Vec<_> = english.difference(&translated).take(5).collect();
+            assert!(missing.is_empty(), "{lang:?} is missing {missing:?}");
+            let extra: Vec<_> = translated.difference(&english).take(5).collect();
+            assert!(extra.is_empty(), "{lang:?} has extra strings {extra:?}");
         }
     }
 
@@ -113,5 +160,15 @@ mod tests {
     fn arguments_fill_the_placeholders_in_order() {
         set(Lang::En);
         assert_eq!(tf("{} of {}", &[&1, &2]), "1 of 2");
+    }
+
+    #[test]
+    fn chinese_and_russian_are_looked_up() {
+        set(Lang::Zh);
+        assert_eq!(t("Settings"), "设置");
+        set(Lang::Ru);
+        assert_eq!(t("Settings"), "Настройки");
+        set(Lang::En);
+        assert_eq!(t("Settings"), "Settings");
     }
 }

@@ -87,6 +87,31 @@ pub fn logo(painter: &egui::Painter, centre: egui::Pos2, size: f32) {
     painter.circle_filled(centre, size * 0.13, Color32::from_rgb(0xC8, 0xFF, 0xB8));
 }
 
+/// Chinese needs glyphs neither Segoe UI nor egui's own fonts have, and egui
+/// draws a box for every character it cannot find. Microsoft YaHei ships with
+/// Windows wherever Chinese is shown at all; DengXian, SimHei and SimSun are
+/// the fallbacks, and the last two cover installations that keep only the
+/// older fonts.
+fn add_cjk(fonts: &mut FontDefinitions, load: &dyn Fn(&str) -> Option<Vec<u8>>) {
+    const FILES: &[&str] = &["msyh.ttc", "Deng.ttf", "simhei.ttf", "NotoSansSC-VF.ttf", "simsun.ttc", "msjh.ttc"];
+    let Some((file, bytes)) = FILES.iter().find_map(|name| load(name).map(|bytes| (*name, bytes))) else {
+        return;
+    };
+    let key = format!("cjk-{file}");
+    fonts.font_data.insert(key.clone(), Arc::new(FontData::from_owned(bytes)));
+    for family in [
+        FontFamily::Proportional,
+        FontFamily::Monospace,
+        FontFamily::Name("bold".into()),
+        FontFamily::Name("heavy".into()),
+        FontFamily::Name("light".into()),
+    ] {
+        if let Some(chain) = fonts.families.get_mut(&family) {
+            chain.push(key.clone());
+        }
+    }
+}
+
 /// Segoe UI if Windows has it, with egui's own fonts behind for anything it
 /// lacks (Cyrillic included); an icon family from Segoe's symbol fonts.
 pub fn install_fonts(ctx: &egui::Context) {
@@ -122,6 +147,9 @@ pub fn install_fonts(ctx: &egui::Context) {
         fonts.families.insert(FontFamily::Name("icons".into()), vec!["icons".into()]);
     } else {
         fonts.families.insert(FontFamily::Name("icons".into()), proportional.clone());
+    }
+    if crate::i18n::current() == crate::i18n::Lang::Zh || crate::i18n::system() == crate::i18n::Lang::Zh {
+        add_cjk(&mut fonts, &load);
     }
     ctx.set_fonts(fonts);
 }
