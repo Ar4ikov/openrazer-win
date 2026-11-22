@@ -24,6 +24,8 @@ from openrazer_win.protocol.blackshark_v3x import Class, Command, Status
 
 WIRED = protocol.PID_WIRED
 WIRELESS = protocol.PID_WIRELESS
+PS_WIRED = protocol.PID_PS_WIRED
+PS_WIRELESS = protocol.PID_PS_WIRELESS
 SERIAL = 'PM2530H12345678'
 
 
@@ -183,13 +185,17 @@ def test_nothing_usable_is_nothing():
 def test_it_is_in_the_database_under_both_ids():
     database = get_database()
     wired, wireless = database.get(0x1532, WIRED), database.get(0x1532, WIRELESS)
+    ps_wired, ps_wireless = database.get(0x1532, PS_WIRED), database.get(0x1532, PS_WIRELESS)
     assert wired.name == 'Razer BlackShark V3 X HyperSpeed (Wired)'
     assert wireless.name == 'Razer BlackShark V3 X HyperSpeed (Wireless)'
-    assert wired.type == wireless.type == 'headset'
+    assert ps_wired.name == 'Razer BlackShark V3 X HyperSpeed for PlayStation (Wired)'
+    assert ps_wireless.name == 'Razer BlackShark V3 X HyperSpeed for PlayStation (Wireless)'
+    assert wired.type == wireless.type == ps_wired.type == ps_wireless.type == 'headset'
     assert wireless.image and not wireless.has_matrix
+    assert ps_wired.image and ps_wireless.image and not ps_wireless.has_matrix
 
 
-@pytest.mark.parametrize('pid', [WIRELESS, WIRED])
+@pytest.mark.parametrize('pid', [WIRELESS, WIRED, PS_WIRELESS, PS_WIRED])
 def test_the_manager_builds_it(pid, tmp_path):
     fake = FakeRazerDevice(pid, 'Razer BlackShark V3 X', headset=True)
     backend = FakeHidBackend([fake])
@@ -197,6 +203,7 @@ def test_the_manager_builds_it(pid, tmp_path):
                        bluetooth=False) as manager:
         device = manager.devices[0]
         assert isinstance(device, BlackSharkV3XDevice)
+        assert device.wired == (pid in protocol.WIRED_PRODUCT_IDS)
         assert manager.unsupported == []
         assert device.channel.info.feature_length == protocol.REPORT_SIZE
         assert device.get_battery_level() == 85
@@ -227,6 +234,14 @@ def test_the_receiver_goes_by_the_same_name_whether_the_headset_is_on_or_off(tmp
         # It never asked: the answer would depend on the headset being on.
         assert fake.headset.requests == []
     assert names == {'BSV3X057D'}
+
+
+def test_playstation_edition_distinguishes_cable_from_receiver(tmp_path):
+    ps_wired, _fake = build(PS_WIRED, tmp_path)
+    ps_wireless, fake_wireless = build(PS_WIRELESS, tmp_path)
+    assert ps_wired.wired and ps_wired.serial == SERIAL + '1022'
+    assert not ps_wireless.wired and ps_wireless.serial == 'BSV3X1021'
+    assert fake_wireless.headset.requests == []
 
 
 def test_a_firmware_version_the_receiver_does_not_know_yet_is_asked_for_again(headset):
