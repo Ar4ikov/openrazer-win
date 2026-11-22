@@ -121,7 +121,15 @@ struct Leds {
     macro_keys: bool,
     /// What is particular to this keyboard's matrix, if anything is.
     board: Option<&'static layout::Board>,
+    /// A mouse whose matrix starts with the logo, not the wheel, and runs
+    /// round the body the other way.
+    mirrored: bool,
 }
+
+/// Mice whose matrix is the other way round from the drawing's guess.
+const MIRRORED_MICE: [u64; 1] = [
+    0x0099, // Basilisk V3: left lit right and the wheel lit the logo
+];
 
 impl Leds {
     fn from(caps: &Value) -> Leds {
@@ -132,7 +140,8 @@ impl Leds {
         let mut zones: Vec<&'static str> = caps["zones"].as_object().map(|z| z.keys().filter_map(|k| zone_name(k)).collect()).unwrap_or_default();
         zones.sort_by_key(|z| ZONES.iter().position(|o| o == z));
         let board = caps["pid"].as_u64().and_then(layout::board);
-        Leds { rows, columns, zones, macro_keys: caps["dedicated_macro_keys"] == true, board }
+        let mirrored = caps["pid"].as_u64().is_some_and(|pid| MIRRORED_MICE.contains(&pid));
+        Leds { rows, columns, zones, macro_keys: caps["dedicated_macro_keys"] == true, board, mirrored }
     }
     fn cells(&self) -> usize {
         self.rows * self.columns
@@ -815,7 +824,12 @@ fn mouse_shapes(trace: &Trace, leds: &Leds) -> Vec<Shape> {
         let mut spots: Vec<(Geom, String)> = vec![(scroll_geom, "Scroll wheel".into()), (logo_geom, "Logo".into())];
         let (top, h) = (trace.bbox[1] as f32, trace.bbox_h());
         let run = contour_run(trace, |_, y| y > top + 0.18 * h);
-        for (k, p) in run_points(&run, n.saturating_sub(2)).into_iter().enumerate() {
+        let mut points = run_points(&run, n.saturating_sub(2));
+        if leds.mirrored {
+            spots.swap(0, 1);
+            points.reverse();
+        }
+        for (k, p) in points.into_iter().enumerate() {
             spots.push((Geom::Dot(p, w * 0.045), format!("LED {}", k + 3)));
         }
         for (index, (geom, label)) in spots.into_iter().take(n).enumerate() {
@@ -1219,6 +1233,22 @@ mod tests {
         assert!(art.shapes.iter().any(|s| s.region == Region::Zone("scroll")));
         assert!(art.shapes.iter().any(|s| s.region == Region::Zone("logo")));
         assert_eq!(art.shapes.iter().filter(|s| matches!(s.region, Region::Cell(..))).count(), 5);
+    }
+
+    #[test]
+    fn a_basilisk_v3_starts_with_its_logo_and_runs_the_other_way() {
+        let geom_of = |art: &Art, c: u8| art.shapes.iter().find(|s| s.region == Region::Cell(0, c)).unwrap().bounds(art).center();
+        let plain = Art::build("mouse", &caps("mouse", Some([1, 11]), &[]), None);
+        let mut v3 = caps("mouse", Some([1, 11]), &[]);
+        v3["pid"] = json!(0x0099);
+        let v3 = Art::build("mouse", &v3, None);
+        let label = |art: &Art, c: u8| art.shapes.iter().find(|s| s.region == Region::Cell(0, c)).unwrap().label.clone();
+        assert_eq!(label(&v3, 0), "Logo");
+        assert_eq!(geom_of(&v3, 0), geom_of(&plain, 1));
+        assert_eq!(geom_of(&v3, 1), geom_of(&plain, 0));
+        for c in 2..11 {
+            assert_eq!(geom_of(&v3, c), geom_of(&plain, 12 - c), "LED {c} is on the other side");
+        }
     }
 
     #[test]
