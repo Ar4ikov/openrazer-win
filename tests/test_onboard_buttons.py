@@ -403,7 +403,7 @@ def test_other_mice_say_not_supported_over_rpc(client):
 # -- reading any mouse's memory (issue #24) -----------------------------------
 
 def test_any_mouse_can_be_read_and_nothing_is_written(persistence):
-    viper, fake = make_device(0x007B, persistence)          # Viper Ultimate, receiver
+    viper, fake = make_device(0x0078, persistence)          # Viper, not yet checked
     try:
         found = viper.probe_onboard_buttons()
         assert found['verified'] is False and found['errors'] == []
@@ -419,7 +419,7 @@ def test_any_mouse_can_be_read_and_nothing_is_written(persistence):
 
 
 def test_a_mouse_without_the_memory_says_so_and_stops(persistence, monkeypatch):
-    viper, fake = make_device(0x007B, persistence)
+    viper, fake = make_device(0x0078, persistence)
     try:
         monkeypatch.setattr(fake, '_respond_onboard', _refuse)
         found = viper.probe_onboard_buttons()
@@ -452,3 +452,43 @@ def test_the_cli_prints_what_the_mouse_holds(client, capsys):
     _show_buttons('Mouse', found)
     out = capsys.readouterr().out
     assert 'read only' in out and 'forward' in out
+
+
+# -- a mouse with no profile list: the Viper Ultimate (issue #24) --------------
+
+@pytest.mark.parametrize('pid', [0x007A, 0x007B])
+def test_the_viper_ultimate_edits_profile_zero(persistence, pid):
+    viper, fake = make_device(pid, persistence)
+    try:
+        assert viper.capabilities()['onboard_buttons'] is True
+        assert viper.get_onboard_profiles() == {
+            'active': 0, 'max': 0, 'profiles': [{'id': 0, 'name': None}]}
+        assert viper.get_active_onboard_profile() == 0
+        names = [b['name'] for b in viper.get_buttons()]
+        assert 'rightback' in names and 'rightforward' in names
+        # The right-hand pair is rebound apart from the left-hand one.
+        assert viper.set_button_binding(0, 0x06, 'key:f13') == {
+            'action': 'back', 'fn': 1, 'size': 1, 'data': [4, 0, 0, 0, 0]}
+        assert viper.get_button_binding(0, 0x06)['action'] == 'key:f13'
+        assert viper.get_button_binding(0, 0x04)['action'] == 'back'
+    finally:
+        viper.transport.close()
+
+
+def test_the_probe_reads_profile_zero_on_a_mouse_with_no_list(persistence):
+    viper, fake = make_device(0x007B, persistence)
+    try:
+        found = viper.probe_onboard_buttons()
+        assert found['verified'] is True and found['profiles'] == []
+        rows = {(r['name'], r['layer']): r['action'] for r in found['bindings']}
+        assert rows[('rightforward', 'normal')] == 'forward'
+    finally:
+        viper.transport.close()
+
+
+def test_the_cli_names_an_old_daemon(monkeypatch, capsys):
+    from openrazer_win import cli
+    monkeypatch.setattr(cli, 'daemon_version_mismatch', lambda: '1.6.6')
+    cli._blame_old_daemon()
+    err = capsys.readouterr().err
+    assert '1.6.6' in err and 'daemon restart' in err

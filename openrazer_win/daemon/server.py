@@ -468,6 +468,13 @@ class DaemonService:
             return {'running': False, 'devices': [], 'recording': None}
         return self.keys.status(self.manager.devices)
 
+    def rpc_keys_presses(self, since=None) -> dict:
+        if self.keys is None:
+            return {'cursor': 0, 'presses': []}
+        if since is not None and (type(since) is not int or since < 0):
+            raise RpcError(INVALID_PARAMS, 'since must be a cursor from an earlier call')
+        return self.keys.presses(since)
+
     def rpc_macro_list(self, serial: str) -> dict:
         from ..keys import mouse
         from ..keys.service import is_mouse
@@ -762,6 +769,7 @@ class DaemonServer(socketserver.ThreadingTCPServer):
             'profile.create': service.rpc_profile_create,
             'profile.delete': service.rpc_profile_delete,
             'keys.status': service.rpc_keys_status,
+            'keys.presses': service.rpc_keys_presses,
             'macro.list': service.rpc_macro_list,
             'macro.set': service.rpc_macro_set,
             'macro.delete': service.rpc_macro_delete,

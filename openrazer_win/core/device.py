@@ -146,8 +146,14 @@ class DeviceError(Exception):
 
 #: Product ids whose onboard button memory has been read and written on real
 #: hardware.  The commands are not in upstream OpenRazer, so nothing else is
-#: offered them until someone checks.
-ONBOARD_BUTTON_PIDS = frozenset({0x0099})  # Basilisk V3
+#: offered them until someone checks.  The Viper Ultimate's four side buttons
+#: all reach Windows as back and forward, so only its onboard bindings can tell
+#: the right-hand pair from the left (issue #24, checked by its reporter).
+ONBOARD_BUTTON_PIDS = frozenset({
+    0x0099,  # Basilisk V3
+    0x007A,  # Viper Ultimate, on the cable
+    0x007B,  # Viper Ultimate, on its receiver
+})
 
 #: Metadata block of an onboard profile: 250 bytes, read 75 at a time, with the
 #: profile's name as ASCII from 0x10 to 0x73.
@@ -180,6 +186,7 @@ class RazerDevice:
         self.persistence = persistence or Persistence()
         self.recipes = recipes or get_recipes()
         self._lock = threading.RLock()
+        self._single_profile = False  # set once the mouse is seen to keep no profile list
         self._serial: Optional[str] = None
         self._firmware: Optional[str] = None
         self._capabilities: Optional[dict] = None
@@ -810,7 +817,8 @@ class RazerDevice:
                 found['profiles'] = [p for p in inventory[1:] if p]
             active = read('active profile', 0x05, 0x84, 0x00)
             found['active'] = active[0] if active is not None else None
-            profile = found['active'] or 1
+            # A mouse with no profile list keeps the bindings in use as profile 0.
+            profile = found['active'] or (1 if found['profiles'] else 0)
             listed = read('buttons', 0x02, 0x84, 0x50)
             ids = [i for i in listed[1:1 + listed[0]] if i] if listed is not None else []
             for button in ids[:32]:
@@ -845,15 +853,35 @@ class RazerDevice:
         """Profiles stored on the mouse: ``{active, max, profiles: [{id, name}]}``."""
         self._require_onboard()
         with self._lock:
-            inventory = self._onboard(0x05, 0x81, 0x00)
+            inventory = self._profile_inventory()
+            if inventory is None:
+                # No profile button, so no list (the Viper Ultimate): the bindings
+                # in use are profile 0, which reads and writes like any other.
+                return {'active': 0, 'max': 0, 'profiles': [{'id': 0, 'name': None}]}
             active = self.get_active_onboard_profile()
             profiles = [{'id': pid, 'name': self._onboard_profile_name(pid)}
                         for pid in inventory[1:] if pid]
         return {'active': active, 'max': inventory[0], 'profiles': profiles}
 
+    def _profile_inventory(self) -> Optional[bytes]:
+        """The mouse's profile list (count, then ids), or ``None`` if it keeps none."""
+        try:
+            inventory = self._onboard(0x05, 0x81, 0x00)
+        except DeviceError as error:
+            if error.status not in (Status.FAILURE, Status.NOT_SUPPORTED):
+                raise
+            inventory = b''
+        if not any(inventory[1:]):
+            self._single_profile = True
+            return None
+        self._single_profile = False
+        return inventory
+
     def get_active_onboard_profile(self) -> Optional[int]:
         """The profile the mouse is on -- one read, cheap enough to poll for the
         profile button.  ``None`` on firmware that cannot tell."""
+        if self._single_profile:
+            return 0  # agrees with get_onboard_profiles, so nothing looks switched
         try:
             return self._onboard(0x05, 0x84, 0x00)[0]
         except DeviceError as error:

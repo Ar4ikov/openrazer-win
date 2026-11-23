@@ -94,6 +94,9 @@ EQ_MAX_DB = 6
 _EQ_OFFSET = 5
 
 SIDETONE_MAX = 15
+#: The level a factory reset leaves (justik13's notes): what sidetone is turned
+#: on at when the level stored is 0, which plays nothing.
+SIDETONE_DEFAULT = 10
 #: The register is a byte of minutes; Synapse only offers up to 60 of them.
 IDLE_MINUTES_MAX = 255
 

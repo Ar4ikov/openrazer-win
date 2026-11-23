@@ -15,6 +15,7 @@ mod images;
 mod layout;
 mod notes;
 mod outline;
+mod presses;
 mod preview;
 mod pysetup;
 mod report;

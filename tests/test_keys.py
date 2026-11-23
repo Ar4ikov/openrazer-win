@@ -392,6 +392,24 @@ def test_a_macro_key_press_is_told_to_the_reactive_effects(rig):
     assert wait_for(lambda: pressed == ['M1', 'DIAL'])
 
 
+def test_studio_can_follow_the_keys_only_the_daemon_hears(rig):
+    # Issue #19: the preview could not light M1-M5 or the dial.
+    service, keys, device, fake, _, _ = rig
+    start = service.rpc_keys_presses()
+    assert start['presses'] == []
+    fake.hold(0x20)
+    assert wait_for(lambda: len(service.rpc_keys_presses(start['cursor'])['presses']) == 1)
+    fake.hold()
+    fake.hold(0x52)                  # mute: not a macro key, named all the same
+    assert wait_for(lambda: len(service.rpc_keys_presses(start['cursor'])['presses']) == 2)
+    got = service.rpc_keys_presses(start['cursor'])
+    assert [(p['serial'], p['code'], p['name']) for p in got['presses']] == [
+        (device.serial, 0x20, 'M1'), (device.serial, 0x52, 'KEY_MUTE')]
+    assert service.rpc_keys_presses(got['cursor'])['presses'] == []
+    with pytest.raises(RpcError):
+        service.rpc_keys_presses(-1)
+
+
 def test_the_daemon_passes_macro_key_presses_to_its_effects(tmp_path):
     fake = FakeRazerDevice(BLACKWIDOW_CHROMA, 'Razer BlackWidow Chroma', interface=2, keys=True)
     backend = FakeHidBackend([fake])

@@ -178,10 +178,12 @@ too. The daemon does it with a low-level mouse hook, installed only while a conn
 side button reassigned. Windows does not say which mouse a button came from, so while that mouse is
 connected its bindings apply to the side buttons of every mouse.
 
-The **Basilisk V3** does keep its buttons in its own memory, so on it the *Buttons* tab also shows
-the profiles stored on the mouse, what every button does on the normal and the Hypershift layer,
+The **Basilisk V3** and the **Viper Ultimate** keep their buttons in their own memory, so on them
+the *Buttons* tab also shows the profiles stored on the mouse (the Viper Ultimate has just the one), what every button does on the normal and the Hypershift layer,
 and the macros Synapse saved there. A button changed here is written into the mouse and works on
 any computer with nothing running; a profile's buttons can be backed up to a file and restored.
+On the Viper Ultimate this is the only way to tell its right-hand side buttons from the left-hand
+ones.
 
 Other mice may have the same memory. `openrazer-win buttons` reads what one keeps there, and
 never writes, so that support for it can be checked before anything is changed on it.

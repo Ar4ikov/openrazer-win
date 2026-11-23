@@ -258,7 +258,13 @@ class BlackSharkDevice:
         return bool(self._read(Command.MIC_MUTED))
 
     def set_sidetone(self, enabled: bool) -> None:
+        """Turn sidetone on or off.  On, the level goes again after it, as
+        justik13's tool does; a level of 0 would play nothing at all, so it
+        becomes the factory level (issue #5)."""
         self._write(Command.SIDETONE, bool(enabled))
+        if enabled:
+            level = self._read(Command.SIDETONE_LEVEL)
+            self._write(Command.SIDETONE_LEVEL, level or protocol.SIDETONE_DEFAULT)
 
     def set_sidetone_level(self, level: int) -> None:
         level = int(level)

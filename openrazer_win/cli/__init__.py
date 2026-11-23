@@ -15,7 +15,7 @@ from ..core.device import DeviceError
 from ..core.transport import (
     is_barracuda_interface, is_blackshark_interface, is_blackshark_v3x_interface,
 )
-from ..daemon.protocol import RpcError, endpoint_path
+from ..daemon.protocol import METHOD_NOT_FOUND, RpcError, endpoint_path
 from ..devices.database import get_database
 from ..devices.recipes import NotSupported
 from ..hid.base import HidError
@@ -877,9 +877,22 @@ def cmd_buttons(args) -> int:
             except (RpcError, NotSupported, DeviceError) as error:
                 print('{0}: {1}'.format(device.name, error), file=sys.stderr)
                 failures += 1
+                if isinstance(error, RpcError) and error.code == METHOD_NOT_FOUND:
+                    _blame_old_daemon()
+                    break
                 continue
             _show_buttons(device.name, found)
     return 1 if failures else 0
+
+
+def _blame_old_daemon() -> None:
+    """Say so when the daemon that answered is older than this command (#24)."""
+    running = daemon_version_mismatch()
+    if running:
+        print('The daemon running is version {0}, this is {1}. Restart it with\n'
+              '  openrazer-win daemon restart\n'
+              'or quit the old one from its tray icon, then try again.'.format(
+                  running, __version__), file=sys.stderr)
 
 
 def _show_buttons(name: str, found: dict) -> None:

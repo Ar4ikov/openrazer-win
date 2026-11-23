@@ -630,7 +630,7 @@ fn keys_pressed(down: &mut Vec<u16>) -> Vec<u16> {
     Vec::new()
 }
 
-fn pressed_cells(ui: &egui::Ui, art: &Art, down: &mut Vec<u16>, typing: &mut bool) -> Vec<(u8, u8)> {
+fn pressed_cells(ui: &egui::Ui, art: &Art, serial: &str, down: &mut Vec<u16>, typing: &mut bool) -> Vec<(u8, u8)> {
     // Tab moves the focus, and could land it in a layer's name: a key played
     // on the keyboard must not leave the preview deaf until the next click.
     let tabbed = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::Tab, pressed: true, .. })));
@@ -645,10 +645,14 @@ fn pressed_cells(ui: &egui::Ui, art: &Art, down: &mut Vec<u16>, typing: &mut boo
     *typing = ui.ctx().wants_keyboard_input() && !tabbed;
     let focused = ui.input(|i| i.focused);
     let pressed = keys_pressed(down);
+    // The macro keys and the dial, which only the daemon hears of.
+    let own = crate::presses::take(serial);
     if *typing || !focused {
         return Vec::new();
     }
-    pressed.into_iter().filter_map(vk_label).filter_map(|(label, side)| cell_for(art, label, side)).collect()
+    let from_windows = pressed.into_iter().filter_map(vk_label).filter_map(|(label, side)| cell_for(art, label, side));
+    let from_daemon = own.iter().filter_map(|name| crate::presses::cap_label(name)).filter_map(|label| cell_for(art, label, Side::Left));
+    from_windows.chain(from_daemon).collect()
 }
 
 fn studio(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value, snap: &Snapshot, art: Arc<Art>) {
@@ -670,7 +674,7 @@ fn studio(app: &mut App, ui: &mut egui::Ui, device: &Device, caps: &Value, snap:
 
     // Typing in the window shows what reactive layers will do.
     let now = Instant::now();
-    for cell in pressed_cells(ui, &art, &mut stack.down, &mut stack.typing) {
+    for cell in pressed_cells(ui, &art, &serial, &mut stack.down, &mut stack.typing) {
         stack.presses.push((now, cell));
     }
     stack.presses.retain(|(at, _)| at.elapsed() < Duration::from_secs(2));

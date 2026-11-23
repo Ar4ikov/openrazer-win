@@ -53,7 +53,10 @@ BUTTONS = {'left': 1, 'right': 2, 'middle': 3, 'back': 4, 'forward': 5,
            # Basilisk V3: named after the factory function each holds (OpenSnek's
            # Basilisk notes, and what a Synapse-configured unit reads back).
            'clutch': 0x0F, 'tiltleft': 0x34, 'tiltright': 0x35, 'profile': 0x0E,
-           'wheelmode': 0x6A}
+           'wheelmode': 0x6A,
+           # Viper Ultimate: its right-hand side buttons, as a real unit reports
+           # them (issue #24).
+           'rightback': 0x06, 'rightforward': 0x07}
 
 #: Layer names as clients spell them, to the byte the mouse uses.
 LAYERS = {'normal': 0, 'hypershift': 1}

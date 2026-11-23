@@ -259,6 +259,28 @@ def _onboard_seed() -> dict:
             'buttons': buttons, 'bindings': bindings, 'macros': macros}
 
 
+def _single_profile_seed() -> dict:
+    """Onboard memory of a mouse with no profile button: the Viper Ultimate.
+
+    It lists no profiles and cannot say which is active; its bindings are
+    profile 0 alone (issue #24, as the reporter's unit answers).
+    """
+    buttons = [1, 2, 3, 4, 5, 6, 7, 0x60, 9, 10]
+    # The right-hand pair does what the left-hand one does: back and forward.
+    does = {6: (0x01, 4), 7: (0x01, 5), 0x60: (0x06, 6)}
+    bindings = {}
+    for button in buttons:
+        fn, arg = does.get(button, (0x01, button))
+        for layer in (0, 1):
+            bindings[(0, button, layer)] = (fn, 1, bytes((arg,)).ljust(5, b'\0'))
+    return {'max': 0, 'active': None, 'profiles': [], 'names': {},
+            'buttons': buttons, 'bindings': bindings, 'macros': {}}
+
+
+#: Products whose onboard memory has no profile list.
+SINGLE_PROFILE_PIDS = frozenset({0x007A, 0x007B})
+
+
 #: Onboard-memory commands (class 0x02 bindings, 0x05 profiles, 0x06 macro reads).
 ONBOARD_COMMANDS = frozenset(((0x02, 0x84), (0x02, 0x8C), (0x02, 0x0C),
                               (0x05, 0x81), (0x05, 0x84), (0x05, 0x88), (0x05, 0x04),
@@ -649,6 +671,8 @@ class FakeRazerDevice:
         self.kraken_writes: list = []
         self.state = FakeDeviceState(
             serial or 'FAKE{0:010d}'.format(next(_SERIAL_COUNTER)))
+        if product_id in SINGLE_PROFILE_PIDS:
+            self.state.onboard = _single_profile_seed()
         if headset and v3x:
             self.headset = FakeHeadsetV3X(self.state.serial,
                                           product_id in blackshark_v3x.WIRED_PRODUCT_IDS)

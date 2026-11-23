@@ -273,6 +273,17 @@ def test_sidetone(headset):
         device.set_sidetone_level(16)
 
 
+def test_sidetone_turned_on_at_zero_can_be_heard(headset):
+    device, fake = headset
+    fake.headset.registers[Command.SIDETONE_LEVEL] = b'\x00'
+    device.set_sidetone(True)
+    assert fake.headset.registers[Command.SIDETONE] == b'\x01'
+    assert fake.headset.registers[Command.SIDETONE_LEVEL] == bytes((10,))
+    device.set_sidetone_level(3)
+    device.set_sidetone(True)
+    assert fake.headset.registers[Command.SIDETONE_LEVEL] == bytes((3,))
+
+
 def test_a_preset_turns_the_equalizer_on(headset):
     device, fake = headset
     device.set_equalizer(False)

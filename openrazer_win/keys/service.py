@@ -27,6 +27,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from functools import lru_cache
 from typing import Callable, Optional
 
@@ -49,6 +50,10 @@ BOARD_MACRO_KEYS = {
 }
 
 logger = logging.getLogger(__name__)
+
+#: How many vendor-key presses are kept for ``presses``: a client that polls
+#: a few times a second misses none of them.
+PRESS_LOG = 64
 
 KEYS_PATH = os.path.join(DATA_DIR, 'keys.json')
 
@@ -162,6 +167,10 @@ class KeyService:
         #: Told the name of every macro key pressed (``M1``, ``DIAL``), for
         #: the effects that answer key presses: no keyboard hook sees these.
         self.on_press: Optional[Callable[[str], None]] = None
+        #: Recent presses on the vendor report, for clients that show them:
+        #: Studio's preview, and ``openrazer-win keys watch`` (issue #19).
+        self._presses: deque = deque(maxlen=PRESS_LOG)
+        self._press_count = 0
         #: Mice connected, by serial, whose side buttons may be reassigned.
         self._mice: dict = {}
         #: What each side button does now: name -> (serial, binding).  Read
@@ -321,6 +330,8 @@ class KeyService:
     def _vendor_key(self, binding: _Binding, code: int, down: bool) -> None:
         target = self.data['vendor_codes'].get('{0:02x}'.format(code))
         name = MACRO_KEYS.get(code)
+        if down:
+            self._log_press(binding.serial, code, name or _evdev(target))
         if name is not None:
             binding.seen.add(name)
             self._macro_key(binding, name, target, down)
@@ -330,6 +341,23 @@ class KeyService:
         output = output_for(target)
         if output is not None:
             self.injector.key(output, down)
+
+    def _log_press(self, serial: str, code: int, name: Optional[str]) -> None:
+        with self._lock:
+            self._press_count += 1
+            self._presses.append({'seq': self._press_count, 'serial': serial,
+                                  'code': code, 'name': name})
+
+    def presses(self, since: Optional[int] = None) -> dict:
+        """Vendor-key presses after ``since``: ``{cursor, presses: [{seq, serial,
+        code, name}]}``.  A first call, without ``since``, only gets the cursor, so
+        a client does not light up keys pressed before it looked."""
+        with self._lock:
+            cursor = self._press_count
+            if since is None:
+                return {'cursor': cursor, 'presses': []}
+            return {'cursor': cursor,
+                    'presses': [dict(p) for p in self._presses if p['seq'] > since]}
 
     def _macro_key(self, binding: _Binding, name: str, default: Optional[str],
                    down: bool) -> None:
@@ -670,3 +698,11 @@ class KeyService:
                 'serial': recording.binding.serial, 'key': recording.key,
                 'events': len(recording.events)},
         }
+
+
+def _evdev(target: Optional[str]) -> Optional[str]:
+    """``USB_HID_KEY_MEDIA_MUTE`` -> ``KEY_MUTE``: the name a key goes by elsewhere."""
+    if not target:
+        return None
+    from .codes import USB_HID_NAMES
+    return USB_HID_NAMES.get(target, target)

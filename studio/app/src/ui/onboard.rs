@@ -494,6 +494,8 @@ pub fn button_label(id: i64, name: &str) -> String {
         "tiltright" => t("Wheel tilt right").into(),
         "profile" => t("Profile button").into(),
         "wheelmode" => t("Wheel mode button").into(),
+        "rightback" => t("Right-hand back").into(),
+        "rightforward" => t("Right-hand forward").into(),
         _ => tf("Button 0x{}", &[&format!("{id:02x}")]),
     }
 }
@@ -650,6 +652,7 @@ mod tests {
         assert_eq!(button_label(0x77, "btn0x77"), "Button 0x77");
         assert_eq!(button_label(0x0F, "clutch"), "Sensitivity clutch");
         assert_eq!(button_label(0x0E, "profile"), "Profile button");
+        assert_eq!(button_label(0x06, "rightback"), "Right-hand back");
     }
 
     #[test]

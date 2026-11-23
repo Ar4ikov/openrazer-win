@@ -615,6 +615,8 @@ pub fn device_keys(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Sna
         },
         |ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
+            // One width for every cap, wide enough for "Dial (press)".
+            let cap = if keys.iter().any(|k| key_label(k).chars().count() > 6) { 116.0 } else { 56.0 };
             for key in &keys {
                 let action = bindings.get(key);
                 let (text, bound) = summary(action, key);
@@ -623,7 +625,7 @@ pub fn device_keys(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Sna
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 10.0;
-                        widgets::keycap(ui, &key_label(key), 56.0, bound);
+                        widgets::keycap(ui, &key_label(key), cap, bound);
                         let tools = 200.0 + 4.0 * 34.0;
                         let room = (ui.available_width() - tools).max(60.0);
                         let (rect, response) = ui.allocate_exact_size(vec2(room, 32.0), Sense::hover());
@@ -714,6 +716,8 @@ fn key_label(key: &str) -> String {
     match key {
         "MOUSE4" => t("Back").to_string(),
         "MOUSE5" => t("Forward").to_string(),
+        // It turns too; this is what pressing it does (issue #19).
+        "DIAL" => t("Dial (press)").to_string(),
         other => other.to_string(),
     }
 }
