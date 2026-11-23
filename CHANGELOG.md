@@ -6,6 +6,35 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.8] - 2026-11-23
+
+### Added
+
+- **Razer Viper Ultimate: all four side buttons can be remapped, each pair
+  on its own.** Windows hears both pairs as the same Back and Forward, so the
+  bindings now go into the mouse's own memory, as on the Basilisk V3. The
+  mouse keeps no list of profiles, and Studio edits the one it uses.
+  Its owner worked this out and checked it on the mouse, on the cable and on
+  the receiver ([#24](https://github.com/Ar4ikov/openrazer-win/issues/24),
+  thanks @tehpingwin).
+- **Razer BlackWidow V4 and V4 Pro: the M keys and the dial light up in
+  Studio's preview.** Windows never hears of them, so Studio now asks the
+  daemon (the new `keys.presses` call). In the Keys tab the dial is now
+  "Dial (press)" ([#19](https://github.com/Ar4ikov/openrazer-win/issues/19)).
+
+### Fixed
+
+- **Razer Basilisk V3: Studio drew its lights the wrong way round.** The
+  wheel and the logo were swapped, and the side LEDs were mirrored
+  ([#27](https://github.com/Ar4ikov/openrazer-win/pull/27), thanks
+  @tejas-911).
+- **Razer BlackShark V2 HyperSpeed: "Hear your own voice" could be on and
+  silent.** Turned on with its level at 0, it played nothing. It now sends
+  the level again after it, and starts at the factory level, 10, when the
+  stored level is 0 ([#5](https://github.com/Ar4ikov/openrazer-win/issues/5)).
+- **`openrazer-win buttons` against an older daemon** now says which version
+  is running and how to restart it, not just "method not exposed over RPC".
+
 ## [1.6.7] - 2026-11-22
 
 ### Added
