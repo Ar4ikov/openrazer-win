@@ -2,7 +2,7 @@
 
 # OpenRazer for Windows
 
-**English** · [简体中文](README.zh-CN.md)
+**English** · [简体中文](README.zh-CN.md) · [Русский](README.ru.md)
 
 **Control your Razer keyboard, mouse and mousepad on Windows 10 / 11 — without Synapse, without a kernel driver, without a single third-party package.**
 

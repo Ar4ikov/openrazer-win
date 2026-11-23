@@ -2,7 +2,7 @@
 
 # OpenRazer for Windows
 
-**简体中文** · [English](README.md)
+**简体中文** · [English](README.md) · [Русский](README.ru.md)
 
 **在 Windows 10 / 11 上控制你的 Razer 键盘、鼠标和鼠标垫——无需 Synapse，无需内核驱动，也无需任何第三方软件包。**
 
