@@ -6,6 +6,18 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.9] - 2026-11-23
+
+### Fixed
+
+- **Studio kept a whole CPU core busy while it sat in the tray.** A hidden
+  window gets no paint messages, and the window library, once anything asked
+  for a repaint, kept polling for one: 4% of a 24-thread CPU, until some
+  event happened to stop it. Closing the window now parks it minimized, off
+  the screen, the taskbar and Alt+Tab, and Studio draws nothing while it is
+  there ([#28](https://github.com/Ar4ikov/openrazer-win/issues/28), thanks
+  @Himijimmy).
+
 ## [1.6.8] - 2026-11-23
 
 ### Added
