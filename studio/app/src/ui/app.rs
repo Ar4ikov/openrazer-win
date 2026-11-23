@@ -285,6 +285,12 @@ impl eframe::App for App {
         let snap = self.shared.lock().unwrap().clone();
         self.sync(&snap);
         self.flush_pending(ctx);
+        // In the tray (or minimized) nothing is seen, so draw nothing: a page
+        // that animates would otherwise keep asking for frames (issue #28).
+        // Restoring the window brings a frame of its own.
+        if self.hide_frames == 0 && self.capture.is_none() && ctx.input(|i| i.viewport().minimized == Some(true)) {
+            return;
+        }
         if let Some(version) = self.updates.just_updated() {
             self.toast(tf("Updated to {}", &[&version]), false);
         }

@@ -1,9 +1,15 @@
 //! The window's life outside egui: one instance, the tray icon, show and hide.
 //!
 //! Showing and hiding go straight through Win32 rather than egui viewport
-//! commands. A hidden window gets no paint messages, so egui never runs a
-//! frame for it and a "show yourself" command would wait forever; ShowWindow
-//! does not care.
+//! commands, which need a frame to run and so would wait forever on a window
+//! that is out of sight.
+//!
+//! "Hidden in the tray" is not a hidden window. A hidden window gets no paint
+//! messages, and eframe, once anything asks for a repaint, polls for the paint
+//! that never comes: a whole CPU core for as long as the window stays hidden
+//! (issue #28). So the window is parked instead: minimized, which keeps paint
+//! messages coming, and made a tool window, which keeps it off the taskbar and
+//! out of Alt+Tab. Windows keeps minimized windows off the screen.
 
 use openrazer_studio_core::t;
 
@@ -12,10 +18,12 @@ pub const WINDOW_TITLE: &str = "OpenRazer Studio";
 #[cfg(windows)]
 mod win {
     use super::WINDOW_TITLE;
-    use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HWND};
+    use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HWND, POINT};
     use windows_sys::Win32::System::Threading::CreateMutexW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        FindWindowW, IsIconic, SetForegroundWindow, ShowWindow, SW_HIDE, SW_RESTORE, SW_SHOW,
+        FindWindowW, GetWindowLongPtrW, GetWindowPlacement, IsIconic, SetForegroundWindow, SetWindowLongPtrW,
+        SetWindowPlacement, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_RESTORE, SW_SHOW, SW_SHOWMINNOACTIVE, WINDOWPLACEMENT,
+        WPF_SETMINPOSITION, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
     };
 
     fn wide(text: &str) -> Vec<u16> {
@@ -42,10 +50,30 @@ mod win {
         }
     }
 
+    /// Whether the window is parked. Read from the window itself: another
+    /// Studio process may be the one showing it.
+    fn parked(hwnd: HWND) -> bool {
+        unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW != 0 }
+    }
+
+    /// Change the extended style. The taskbar only notices while the window
+    /// is hidden, hence the SW_HIDE first.
+    fn set_tool_window(hwnd: HWND, tool: bool) {
+        unsafe {
+            ShowWindow(hwnd, SW_HIDE);
+            let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+            let style = if tool { (style | WS_EX_TOOLWINDOW) & !WS_EX_APPWINDOW } else { style & !WS_EX_TOOLWINDOW };
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
+        }
+    }
+
     pub fn show() {
         if let Some(hwnd) = window() {
             unsafe {
-                if IsIconic(hwnd) != 0 {
+                if parked(hwnd) {
+                    set_tool_window(hwnd, false);
+                    ShowWindow(hwnd, SW_RESTORE);
+                } else if IsIconic(hwnd) != 0 {
                     ShowWindow(hwnd, SW_RESTORE);
                 } else {
                     ShowWindow(hwnd, SW_SHOW);
@@ -55,10 +83,24 @@ mod win {
         }
     }
 
+    /// Put the window in the tray. See the top of this file for why it is
+    /// parked, not hidden.
     pub fn hide() {
         if let Some(hwnd) = window() {
+            if parked(hwnd) {
+                return;
+            }
+            set_tool_window(hwnd, true);
+            // Minimized where it cannot be seen: a minimized tool window would
+            // otherwise sit as a stub in the screen's bottom-left corner.
             unsafe {
-                ShowWindow(hwnd, SW_HIDE);
+                let mut place: WINDOWPLACEMENT = std::mem::zeroed();
+                place.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+                GetWindowPlacement(hwnd, &mut place);
+                place.flags = WPF_SETMINPOSITION;
+                place.ptMinPosition = POINT { x: -32000, y: -32000 };
+                place.showCmd = SW_SHOWMINNOACTIVE as u32;
+                SetWindowPlacement(hwnd, &place);
             }
         }
     }
