@@ -305,8 +305,8 @@ still shipped as a single file with the daemon inside. Pick a device on the left
 - **Performance** — DPI with presets, the DPI stages the mouse button cycles, polling rate,
   keyswitch optimization.
 - **Power** — battery, charging, sleep timer, low-battery warning.
-- **Macro keys** — what each key does, editing, recording and trying it out; on a mouse,
-  **Buttons**, for its side buttons.
+- **Macro keys** — what each key does, editing, recording and trying it out. A mouse's side
+  buttons are set in Studio or with `openrazer-win macro`, not here.
 - **Profiles** — save what is showing under a name, apply it later.
 
 It starts the daemon itself if it is not running — the one built into it, or one beside it or
@@ -416,7 +416,7 @@ to have a backlight it does not have.
 
 | Category | Devices |
 |---|---:|
-| Mice | 118 |
+| Mice | 116 |
 | Keyboards & laptops | 117 |
 | Accessories (docks, stands, ARGB controllers) | 17 |
 | Headsets (Kraken protocol) | 8 |
@@ -427,7 +427,11 @@ to have a backlight it does not have.
 | Mousepads | 8 |
 | Keypads | 7 |
 | eGPU enclosures | 2 |
-| **Total** | **285** |
+| **Total** | **283** |
+
+Upstream also drives the DeathAdder 3.5G and its Black edition, which are not counted here. They
+take their settings through a USB request that Windows lets no program send, so on Windows they
+work only with the settings they already have.
 
 169 have addressable matrices; 90 report battery level. The full searchable list is
 [on the documentation site](https://ar4ikov.github.io/openrazer-win/#devices), or run
