@@ -6,6 +6,24 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.11] - 2026-11-24
+
+### Added
+
+- **Razer DeathAdder 3.5G and 3.5G Black can be set up, through a driver.**
+  Windows' own driver will not send the request these mice take their
+  settings by. libusb-win32's filter driver can, and it sits on top of the
+  mouse's driver, so the mouse keeps working as a mouse. Studio's home page
+  offers *Install the driver*, and so does `openrazer-win driver install`.
+  Both ask for administrator rights, download libusb-win32 1.4.0.2 from its
+  GitHub release, check every file against a pinned hash, and put the
+  filter on these two mice only. Then Studio sets the DPI (450, 900, 1800 or
+  3500, the only steps the mouse has), the polling rate and, on the 3.5G,
+  the logo and wheel lights. The mouse forgets its settings when unplugged,
+  so they are sent again every time it turns up. *Remove* under *About*, or
+  `openrazer-win driver remove`, takes the filter off. Not yet tried on the
+  mouse itself ([#29](https://github.com/Ar4ikov/openrazer-win/issues/29)).
+
 ## [1.6.10] - 2026-11-24
 
 ### Changed
