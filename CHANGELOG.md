@@ -6,6 +6,27 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.10] - 2026-11-24
+
+### Changed
+
+- **Razer DeathAdder 3.5G and 3.5G Black: said plainly that Windows can't
+  set them up.** They predate the report every other Razer device takes,
+  and upstream sets them with a USB request that Windows lets no program
+  send. The daemon log used to blame another program for holding the
+  mouse. Now the log, `openrazer-win doctor` and Studio's home page say
+  what is really going on, and `openrazer-win supported`, the device list
+  and the README mark both mice as not reachable on Windows. They still
+  work, with the settings they have
+  ([#29](https://github.com/Ar4ikov/openrazer-win/issues/29)).
+
+### Fixed
+
+- **The README promised a Buttons tab in the classic control panel.** Side
+  buttons are set in Studio or with `openrazer-win macro`; the README now
+  says so, in all three languages. The Chinese README's device counts were
+  also out of date.
+
 ## [1.6.9] - 2026-11-23
 
 ### Fixed
