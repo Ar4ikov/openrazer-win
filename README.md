@@ -416,7 +416,7 @@ to have a backlight it does not have.
 
 | Category | Devices |
 |---|---:|
-| Mice | 116 |
+| Mice | 118 |
 | Keyboards & laptops | 117 |
 | Accessories (docks, stands, ARGB controllers) | 17 |
 | Headsets (Kraken protocol) | 8 |
@@ -427,11 +427,14 @@ to have a backlight it does not have.
 | Mousepads | 8 |
 | Keypads | 7 |
 | eGPU enclosures | 2 |
-| **Total** | **283** |
+| **Total** | **285** |
 
-Upstream also drives the DeathAdder 3.5G and its Black edition, which are not counted here. They
-take their settings through a USB request that Windows lets no program send, so on Windows they
-work only with the settings they already have.
+The **DeathAdder 3.5G** and its Black edition need a driver first. They take their settings
+through a USB request that Windows' own driver will not send, so `openrazer-win driver install`
+(or *Install the driver* on Studio's home page) adds libusb-win32's filter driver to them, after
+a UAC prompt. It downloads libusb-win32 1.4.0.2 from its GitHub release, checks every file against
+a pinned hash, and filters these two mice only; the mouse keeps working as a mouse.
+`openrazer-win driver remove` takes it off again.
 
 169 have addressable matrices; 90 report battery level. The full searchable list is
 [on the documentation site](https://ar4ikov.github.io/openrazer-win/#devices), or run

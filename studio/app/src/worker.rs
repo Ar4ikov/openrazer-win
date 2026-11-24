@@ -153,6 +153,9 @@ pub enum Command {
     InstallPackage,
     /// End Razer Synapse's processes that this user may end.
     CloseSynapse,
+    /// Put libusb-win32's filter driver on the DeathAdder 3.5G, or take it off
+    /// (issue #29). Asks for administrator rights.
+    Driver { install: bool },
     /// Switch one of the daemon's integrations on or off.
     Integration { name: String, enabled: bool },
     /// Change Snap Tap: whichever of `snaptap.set`'s parameters are given.
@@ -753,6 +756,24 @@ impl Worker {
                     None => Err(t("No Python 3.9 or newer was found.").to_string()),
                 };
                 self.finish_setup(result);
+            }
+            Command::Driver { install } => {
+                self.shared.lock().unwrap().busy = true;
+                let action = if install { "install" } else { "remove" };
+                let outcome = crate::daemon::run_cli(&["driver", action, "--json"]);
+                self.shared.lock().unwrap().busy = false;
+                match outcome {
+                    Ok((true, _, _)) => self.toast(if install { t("The driver is installed. The mouse can be set up now.") } else { t("The driver is off the mouse") }, false),
+                    Ok((false, out, err)) => {
+                        let said = serde_json::from_str::<Value>(out.trim()).ok().and_then(|v| v["error"].as_str().map(str::to_string));
+                        let text = said.unwrap_or_else(|| err.trim().trim_start_matches("error:").trim().to_string());
+                        self.toast(tf("The driver could not be changed: {}", &[&text]), true);
+                    }
+                    Err(error) => self.toast(error, true),
+                }
+                let _ = self.with(|c| c.call("daemon.rescan", json!({})));
+                self.slow_at = None;
+                self.poll();
             }
             Command::CloseSynapse => {
                 let running = self.shared.lock().unwrap().synapse.clone();

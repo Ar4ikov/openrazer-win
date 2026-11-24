@@ -110,8 +110,15 @@ fn notices(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
     }
     if !snap.unreachable.is_empty() {
         let names: Vec<String> = snap.unreachable.iter().map(|(pid, name)| format!("{name} (1532:{pid:04X})")).collect();
-        let body = format!("{}\n{}", names.join(", "), t("They take their settings through a USB request that Windows lets no program send. They still work, with the settings they have."));
-        widgets::banner(ui, theme::INFO, icon::INFO, t("Some Razer devices can't be set up on Windows"), &body, |_| {});
+        let body = format!("{}\n{}", names.join(", "), t("Windows' own driver cannot send the request these mice take their settings by. libusb-win32's filter driver can: it sits on top of the mouse's driver, so the mouse keeps working as a mouse. Installing it downloads libusb-win32 from GitHub and asks for administrator rights."));
+        let tx = app.tx.clone();
+        let busy = snap.busy;
+        widgets::banner(ui, theme::INFO, icon::INFO, t("Some Razer devices need a driver to be set up"), &body, |ui| {
+            if ui.add_enabled(!busy, Button::primary(t("Install the driver")).small()).clicked() {
+                let _ = tx.send(Command::Driver { install: true });
+            }
+            widgets::link_button(ui, t("About libusb-win32"), "https://github.com/mcuee/libusb-win32");
+        });
     }
 }
 

@@ -9,11 +9,13 @@ from typing import Optional
 from ..devices.database import DeviceDatabase, DeviceInfo, get_database
 from ..devices.recipes import RecipeTable, get_recipes
 from ..hid import get_backend
+from .. import usbfilter
 from ..protocol import barracuda, blackshark, blackshark_v3x, razer_ble
 from ..protocol.report import VENDOR_ID
 from .barracuda import BarracudaDevice
 from .blackshark import BlackSharkDevice
 from .blackshark_v3x import BlackSharkV3XDevice
+from .deathadder35g import DeathAdder35GDevice
 from .device import RazerDevice
 from .kraken import KrakenDevice
 from .persistence import Persistence
@@ -45,8 +47,10 @@ BLUETOOTH_STARTUP_WINDOW = 180.0
 #: 3.5G (and its Black edition) predate the 90-byte report: upstream sets them
 #: with a USB SET_REPORT of report type 0, wValue 0x0010, which no HID report
 #: of theirs declares, and Windows' HID driver sends only declared reports.
-#: Only replacing that driver would reach them, and then they stop being mice
-#: (issue #29).
+#: Replacing that driver would reach them, but then they stop being mice.
+#: libusb-win32's filter driver sits on top of it instead: once
+#: ``openrazer-win driver install`` has put it on them, they are served by
+#: :class:`DeathAdder35GDevice` (issue #29).
 WINDOWS_UNREACHABLE = {
     0x0016: 'takes its settings through a USB request Windows lets no program send',
     0x0029: 'takes its settings through a USB request Windows lets no program send',
@@ -65,8 +69,11 @@ class DeviceManager:
                  database: Optional[DeviceDatabase] = None,
                  recipes: Optional[RecipeTable] = None,
                  bluetooth: bool = True,
-                 bluetooth_interval: float = BLUETOOTH_INTERVAL):
+                 bluetooth_interval: float = BLUETOOTH_INTERVAL,
+                 libusb=None):
         self.backend = backend if backend is not None else get_backend()
+        #: libusb-win32, for `WINDOWS_UNREACHABLE` devices; looked for each scan if not given.
+        self.libusb = libusb
         #: Scanning for advertisements costs a few seconds, so it is opt-out
         #: and only happens when the optional dependency is installed.
         self.bluetooth = bluetooth
@@ -119,12 +126,26 @@ class DeviceManager:
                 if meta.is_bluetooth:
                     continue      # reached over Bluetooth, not the HID bus
                 if pid in WINDOWS_UNREACHABLE:
-                    unreachable.append((pid, meta.name))
-                    if pid not in self._explained:
-                        self._explained.add(pid)
-                        logger.warning('%s is attached, but it %s; it works as it is, '
-                                       'with the settings it has', meta.name,
-                                       WINDOWS_UNREACHABLE[pid])
+                    key = self._key(meta, infos)
+                    if key in self._devices:
+                        seen.add(key)
+                        self._devices[key].hid_collections = infos
+                        continue
+                    device = self._build_filtered(meta)
+                    if device is None:
+                        unreachable.append((pid, meta.name))
+                        if pid not in self._explained:
+                            self._explained.add(pid)
+                            logger.warning('%s is attached, but it %s; it works as it is, with '
+                                           'the settings it has. `openrazer-win driver install` '
+                                           'adds a driver that can reach it', meta.name,
+                                           WINDOWS_UNREACHABLE[pid])
+                        continue
+                    seen.add(key)
+                    device.hid_collections = infos
+                    self._devices[key] = device
+                    logger.info('found %s (%04x:%04x) through libusb-win32', meta.name,
+                                meta.vid, meta.pid)
                     continue
                 key = self._key(meta, infos)
                 seen.add(key)
@@ -296,6 +317,26 @@ class DeviceManager:
     @staticmethod
     def _key(meta: DeviceInfo, infos: list) -> str:
         return '{0:04x}:{1:04x}'.format(meta.vid, meta.pid)
+
+    def _build_filtered(self, meta: DeviceInfo):
+        """A device of `WINDOWS_UNREACHABLE`, if libusb-win32's filter driver has it."""
+        # An emulated backend says what libusb it has, even none; only real
+        # hardware looks for the installed one.
+        if self.libusb is not None:
+            library = self.libusb
+        elif hasattr(self.backend, 'libusb'):
+            library = self.backend.libusb
+        else:
+            library = usbfilter.open_library()
+        if library is None:
+            return None
+        try:
+            if not library.present(meta.vid, meta.pid):
+                return None
+        except Exception:  # noqa: BLE001 - a broken install is the same as none
+            logger.debug('libusb-win32 could not list devices', exc_info=True)
+            return None
+        return DeathAdder35GDevice(meta, library, self.persistence)
 
     def _build(self, meta: DeviceInfo, infos: list) -> Optional[RazerDevice]:
         if meta.pid in self.recipes.kraken_pids:

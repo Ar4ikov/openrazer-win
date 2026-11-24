@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from ..devices.database import get_database
 from ..devices.recipes import get_recipes
-from ..hid.fake import FakeHidBackend, FakeRazerDevice
+from ..hid.fake import FakeHidBackend, FakeLibusb, FakeRazerDevice
 from ..protocol import barracuda, blackshark, blackshark_v3x
 
 #: Two keyboards, a mouse, a mousepad and a headset that has settings rather
@@ -12,10 +12,11 @@ from ..protocol import barracuda, blackshark, blackshark_v3x
 DEMO_DEVICES = (0x0203, 0x0078, 0x0C00, blackshark.PID_WIRELESS, 0x026B)
 
 
-def build_demo_backend(product_ids=DEMO_DEVICES) -> FakeHidBackend:
+def build_demo_backend(product_ids=DEMO_DEVICES, filtered=()) -> FakeHidBackend:
+    """`filtered`: product ids libusb-win32's filter driver is emulated on."""
     database = get_database()
     recipes = get_recipes()
-    backend = FakeHidBackend()
+    backend = FakeHidBackend(libusb=FakeLibusb(filtered))
     for index, pid in enumerate(product_ids):
         meta = database.get(0x1532, pid)
         if meta is None:

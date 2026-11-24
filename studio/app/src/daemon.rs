@@ -55,6 +55,43 @@ fn candidates() -> Vec<Command> {
     commands
 }
 
+/// Ways to run the `openrazer-win` command line, best first: as `candidates`.
+fn cli_candidates() -> Vec<Command> {
+    let mut commands = Vec::new();
+    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf));
+    if let Some(beside) = exe_dir.as_ref().map(|dir| dir.join(install::DAEMON_EXE)).filter(|p| p.is_file()) {
+        commands.push(Command::new(beside));
+    }
+    for installed in on_path(install::DAEMON_EXE) {
+        if installed.is_file() {
+            commands.push(Command::new(installed));
+        }
+    }
+    for python in crate::pysetup::pythons_with_package() {
+        let mut command = Command::new(python);
+        command.args(["-m", "openrazer_win.cli"]);
+        commands.push(command);
+    }
+    commands
+}
+
+/// Run `openrazer-win` with `args`, windowless, and wait for it: what it
+/// printed, and whether it succeeded. A command that asks for administrator
+/// rights shows Windows' own prompt while this waits.
+pub fn run_cli(args: &[&str]) -> Result<(bool, String, String), String> {
+    let Some(mut command) = cli_candidates().into_iter().next() else {
+        return Err(t("The daemon is not on this computer: there is no openrazer-win.exe beside this program or on PATH, and no Python with openrazer-win installed in it.").to_string());
+    };
+    command.args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let output = command.stdin(Stdio::null()).output().map_err(|e| e.to_string())?;
+    Ok((output.status.success(), String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned()))
+}
+
 fn on_path(name: &str) -> Vec<PathBuf> {
     std::env::var_os("PATH").map(|path| std::env::split_paths(&path).map(|dir| dir.join(name)).collect()).unwrap_or_default()
 }

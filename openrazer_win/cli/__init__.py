@@ -1001,13 +1001,130 @@ def cmd_supported(args) -> int:
     for device_type in sorted(by_type):
         print('{0} ({1})'.format(device_type, len(by_type[device_type])))
         for entry in sorted(by_type[device_type], key=lambda e: e.name):
-            out_of_reach = '  (not on Windows)' if entry.pid in WINDOWS_UNREACHABLE else ''
+            out_of_reach = '  (needs a driver)' if entry.pid in WINDOWS_UNREACHABLE else ''
             print('  {0:04x}  {1}{2}'.format(entry.pid, entry.name, out_of_reach))
     print('\n{0} devices in total.'.format(len(entries)))
     if any(entry.pid in WINDOWS_UNREACHABLE for entry in entries):
-        print('"Not on Windows": upstream drives it with a USB request Windows lets no '
-              'program send.')
+        print('"Needs a driver": Windows\' own driver cannot send what it takes. '
+              '`openrazer-win driver install` puts libusb-win32\'s filter on it.')
     return 0
+
+
+def _driver_pids(args) -> list:
+    from ..core.manager import WINDOWS_UNREACHABLE
+    from ..hid import get_backend
+    from ..protocol.report import VENDOR_ID
+
+    if args.pid:
+        try:
+            pids = sorted({int(text, 16) for text in args.pid})
+        except ValueError as error:
+            raise CliError('--pid takes a hex product id, like 0016') from error
+        unknown = [pid for pid in pids if pid not in WINDOWS_UNREACHABLE]
+        if unknown:
+            raise CliError('the filter driver is only for {0}, not {1}'.format(
+                ', '.join('{0:04x}'.format(p) for p in sorted(WINDOWS_UNREACHABLE)),
+                ', '.join('{0:04x}'.format(p) for p in unknown)))
+        return pids
+    try:
+        collections = get_backend().enumerate(vendor_id=VENDOR_ID)
+    except Exception:  # noqa: BLE001 - nothing attached is the same answer
+        collections = []
+    return sorted({info.product_id for info in collections} & set(WINDOWS_UNREACHABLE))
+
+
+def cmd_driver(args) -> int:
+    """Install, remove or check libusb-win32's filter on the DeathAdder 3.5G (issue #29)."""
+    from .. import usbfilter
+
+    pids = _driver_pids(args)
+    if args.action == 'status':
+        library = usbfilter.open_library()
+        reachable = [pid for pid in pids if library is not None and library.present(0x1532, pid)]
+        status = {'installed': library is not None, 'version': usbfilter.VERSION,
+                  'attached': ['{0:04x}'.format(p) for p in pids],
+                  'reachable': ['{0:04x}'.format(p) for p in reachable]}
+        if args.json:
+            print(json.dumps(status))
+            return 0
+        print('libusb-win32 {0}'.format('installed' if library is not None else 'not installed'))
+        if not pids:
+            print('No DeathAdder 3.5G is plugged in.')
+        for pid in pids:
+            print('{0:04x}  {1}'.format(pid, 'reached through the filter' if pid in reachable
+                                        else 'no filter on it yet: openrazer-win driver install'))
+        return 0
+
+    if not pids:
+        raise CliError('no DeathAdder 3.5G is plugged in; plug it in first, or name it with '
+                       '--pid 0016')
+    action = usbfilter.install if args.action == 'install' else usbfilter.remove
+    if not usbfilter.is_admin():
+        if args.result:
+            raise CliError('this needs administrator rights')
+        return _driver_elevated(args, pids)
+
+    try:
+        done = action(pids)
+        outcome = {'ok': True, 'done': done}
+    except (usbfilter.DriverError, OSError, subprocess.SubprocessError) as error:
+        outcome = {'ok': False, 'error': str(error)}
+    if args.result:
+        with open(args.result, 'w', encoding='utf-8') as handle:
+            json.dump(outcome, handle)
+    return _driver_report(outcome, args)
+
+
+def _driver_elevated(args, pids: list) -> int:
+    """Run this same command as administrator and report what it did."""
+    import tempfile
+
+    from ..elevate import Declined, run_elevated
+
+    handle, result = tempfile.mkstemp(prefix='openrazer-driver-', suffix='.json')
+    os.close(handle)
+    try:
+        command = ['driver', args.action, '--result', result]
+        for pid in pids:
+            command += ['--pid', '{0:04x}'.format(pid)]
+        try:
+            code = run_elevated(command)
+        except Declined as error:
+            raise CliError(str(error)) from error
+        try:
+            with open(result, encoding='utf-8') as source:
+                outcome = json.load(source)
+        except (OSError, ValueError):
+            outcome = {'ok': False, 'error': 'the administrator run ended ({0}) without saying '
+                                             'what it did'.format(code)}
+    finally:
+        try:
+            os.remove(result)
+        except OSError:
+            pass
+    return _driver_report(outcome, args)
+
+
+def _driver_report(outcome: dict, args) -> int:
+    if outcome.get('ok') and not args.result:
+        # The daemon looks again, so the mouse turns up (or goes) without a restart.
+        try:
+            client = RpcClient(timeout=10.0)
+            try:
+                client.call('daemon.rescan')
+            finally:
+                client.close()
+        except Exception:  # noqa: BLE001 - no daemon running is fine
+            pass
+    if args.json:
+        print(json.dumps(outcome))
+    elif outcome.get('ok'):
+        for line in outcome.get('done', []):
+            print(line)
+        print('Done.')
+    else:
+        print('error: {0}'.format(outcome.get('error')), file=sys.stderr)
+    return 0 if outcome.get('ok') else 1
 
 
 def cmd_daemon(args) -> int:
@@ -1290,8 +1407,9 @@ def cmd_doctor(args) -> int:
         print('      {0}'.format(known.name if known else 'NOT IN DATABASE'))
     for pid in sorted({info.product_id for info in collections} & set(WINDOWS_UNREACHABLE)):
         known = database.get(VENDOR_ID, pid)
-        print('\n{0} {1}, so openrazer-win cannot set it up on Windows. It works '
-              'as it is, with the settings it has.'.format(
+        print('\n{0} {1}, so Windows\' own driver cannot set it up. '
+              '`openrazer-win driver install` (or Studio) adds libusb-win32\'s filter '
+              'driver, which can; `openrazer-win driver` shows whether it is on.'.format(
                   known.name if known else '1532:{0:04x}'.format(pid), WINDOWS_UNREACHABLE[pid]))
 
     others = [info for info in collections if info.product_id not in WINDOWS_UNREACHABLE]
@@ -1552,6 +1670,16 @@ def build_parser() -> argparse.ArgumentParser:
                            help='start it without host-rendered effects')
 
     add('doctor', cmd_doctor, 'diagnose device detection problems')
+
+    driver = add('driver', cmd_driver,
+                 'the libusb-win32 filter driver, for the DeathAdder 3.5G (asks for '
+                 'administrator rights to install or remove it)')
+    driver.add_argument('action', nargs='?', default='status',
+                        choices=('status', 'install', 'remove'))
+    driver.add_argument('--pid', action='append', default=[],
+                        help='product id in hex (0016 or 0029); default: those plugged in')
+    driver.add_argument('--json', action='store_true')
+    driver.add_argument('--result', help=argparse.SUPPRESS)
     return parser
 
 

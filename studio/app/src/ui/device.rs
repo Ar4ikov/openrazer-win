@@ -230,7 +230,26 @@ fn performance(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapsho
     let two = has_dpi && has_side;
     widgets::columns(ui, if two { 0.56 } else { 1.0 }, if two { TWO_COLUMNS } else { f32::INFINITY }, |ui, column| {
         let side = has_side && if two { column == 1 } else { column == 0 };
-        if column == 0 && has_dpi {
+        // A mouse with a few fixed steps (the DeathAdder 3.5G) gets just those.
+        let choices: Vec<i64> = caps["dpi_choices"].as_array().map(|c| c.iter().filter_map(serde_json::Value::as_i64).collect()).unwrap_or_default();
+        if column == 0 && has_dpi && !choices.is_empty() {
+            widgets::panel(ui, t("Sensitivity"), |ui| {
+                let current = edit.dpi.map(|(x, _)| x);
+                widgets::row(ui, t("Sensitivity"), t("This mouse has these settings only."), |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                        for choice in &choices {
+                            let label = choice.to_string();
+                            let button = if current == Some(*choice) { Button::primary(&label) } else { Button::secondary(&label) };
+                            if ui.add(button.small().min_width(58.0)).clicked() {
+                                edit.dpi = Some((*choice, *choice));
+                                send.push(Command::Call { serial: serial.clone(), method: "set_dpi".into(), args: vec![json!(choice), json!(choice)], zone: None, then: Then::Nothing });
+                            }
+                        }
+                    });
+                });
+            });
+        } else if column == 0 && has_dpi {
             widgets::panel(ui, t("Sensitivity"), |ui| {
                 let (x, y) = edit.dpi.unwrap_or((800, 800));
                 let (mut fx, mut fy) = (x as f64, y as f64);
@@ -802,6 +821,15 @@ fn about(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
                 }
                 if caps["transport"]["path"].as_str().is_some() {
                     widgets::fact(ui, t("Connected through"), if caps["protocol"] == "razer-ble" { "Bluetooth LE" } else { "USB" });
+                }
+                if caps["transport"]["path"] == "libusb-win32" {
+                    widgets::fact(ui, t("Driver"), t("libusb-win32 filter"));
+                    let busy = snap.busy;
+                    widgets::row(ui, t("Remove the driver"), t("Takes the filter off this mouse. It keeps working, with the settings it has until it is unplugged."), |ui| {
+                        if ui.add_enabled(!busy, Button::secondary(t("Remove")).small()).clicked() {
+                            app.send(Command::Driver { install: false });
+                        }
+                    });
                 }
                 if let Some(address) = caps["bluetooth_address"].as_str() {
                     // As Windows shows it in Bluetooth settings: AA:BB:CC:DD:EE:FF.

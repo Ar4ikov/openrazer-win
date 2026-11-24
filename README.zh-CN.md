@@ -411,7 +411,7 @@ Windows 把每个接口暴露为独立的 HID 集合，因此移植版会打开�
 
 | 类别 | 设备 |
 |---|---:|
-| 鼠标 | 116 |
+| 鼠标 | 118 |
 | 键盘与笔记本 | 117 |
 | 配件（扩展坞、支架、ARGB 控制器） | 17 |
 | 耳机（Kraken 协议） | 8 |
@@ -422,10 +422,12 @@ Windows 把每个接口暴露为独立的 HID 集合，因此移植版会打开�
 | 鼠标垫 | 8 |
 | 键区 | 7 |
 | eGPU 外接显卡坞 | 2 |
-| **总计** | **283** |
+| **总计** | **285** |
 
-上游还支持 DeathAdder 3.5G 及其 Black 版本，但未计入此表：它们通过一种 Windows 不允许任何程序发送的
-USB 请求接收设置，因此在 Windows 上只能保持现有设置。
+**DeathAdder 3.5G** 及其 Black 版本需要先安装驱动程序：它们通过 Windows 自带驱动不会发送的 USB
+请求接收设置。`openrazer-win driver install`（或 Studio 主页上的“安装驱动程序”）会在 UAC 确认后为它们
+安装 libusb-win32 过滤驱动：从 GitHub 下载 libusb-win32 1.4.0.2，按预先固定的哈希校验每个文件，
+并且只作用于这两款鼠标，鼠标仍可正常使用。`openrazer-win driver remove` 可将其移除。
 
 其中 169 个具有可寻址矩阵；90 个可报告电量。完整的可搜索列表在
 [文档站点](https://ar4ikov.github.io/openrazer-win/#devices)，或运行

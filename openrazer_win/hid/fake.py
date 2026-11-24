@@ -927,13 +927,35 @@ class FakeRazerDevice:
             response.set_arguments(6, bytes((len(chunk),)) + chunk)
 
 
+class FakeLibusb:
+    """libusb-win32's ``libusb0.dll``, with its filter on the product ids in `filtered`.
+
+    Keeps every control request sent, for tests to read (issue #29)."""
+
+    def __init__(self, filtered=()):
+        self.filtered = set(filtered)
+        self.sent: list = []
+        self.fail = False
+
+    def present(self, vid: int, pid: int) -> bool:
+        return vid == 0x1532 and pid in self.filtered
+
+    def control_out(self, vid, pid, request_type, request, value, index, data, timeout_ms=1000):
+        if self.fail or not self.present(vid, pid):
+            raise OSError('libusb0-sys: could not open {0:04x}:{1:04x}'.format(vid, pid))
+        self.sent.append((pid, request_type, request, value, index, bytes(data)))
+        return len(data)
+
+
 class FakeHidBackend:
     """A :class:`~openrazer_win.hid.base.HidBackend` over emulated devices."""
 
     name = 'fake'
 
-    def __init__(self, devices=None):
+    def __init__(self, devices=None, libusb=None):
         self.devices: list = list(devices or [])
+        #: What the manager reaches filter-driven devices through, when set.
+        self.libusb = libusb
 
     def add(self, device: FakeRazerDevice) -> FakeRazerDevice:
         self.devices.append(device)
