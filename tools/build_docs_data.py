@@ -13,6 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from openrazer_win._version import UPSTREAM_VERSION  # noqa: E402
+from openrazer_win.core.manager import WINDOWS_UNREACHABLE  # noqa: E402
 from openrazer_win.devices import get_database  # noqa: E402
 
 OUT_PATH = os.path.join(ROOT, 'docs', 'devices.json')
@@ -21,6 +22,8 @@ OUT_PATH = os.path.join(ROOT, 'docs', 'devices.json')
 def main() -> int:
     rows = []
     for entry in get_database():
+        if entry.pid in WINDOWS_UNREACHABLE:
+            continue        # in the database, but Windows gives no way to reach it
         rows.append({
             'n': entry.name,
             'p': '{0:04x}'.format(entry.pid),
@@ -38,7 +41,7 @@ def main() -> int:
         'devices': rows,
     }
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
-    with open(OUT_PATH, 'w', encoding='utf-8') as handle:
+    with open(OUT_PATH, 'w', encoding='utf-8', newline='\n') as handle:
         json.dump(payload, handle, separators=(',', ':'), ensure_ascii=False)
         handle.write('\n')
     print('wrote {0}: {1} devices'.format(OUT_PATH, len(rows)))

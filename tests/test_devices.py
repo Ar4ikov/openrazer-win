@@ -403,3 +403,28 @@ def test_manager_reports_unknown_razer_hardware(persistence):
     assert manager.scan() == []
     assert manager.unsupported == [(0xABCD, 'Razer Something New')]
     manager.close()
+
+
+def test_the_deathadder_3_5g_is_named_as_out_of_reach(persistence, caplog):
+    """Issue #29: it is set by a USB request Windows does not send, so it is
+    reported as such, once, and not as a device another program holds."""
+    import logging
+
+    from openrazer_win.core.manager import DeviceManager
+    from openrazer_win.daemon.server import DaemonService
+    backend = FakeHidBackend([FakeRazerDevice(0x0016, 'Razer DeathAdder 3.5G')])
+    manager = DeviceManager(backend=backend, persistence=persistence, bluetooth=False)
+    with caplog.at_level(logging.WARNING, logger='openrazer_win.core.manager'):
+        assert manager.scan() == []
+        assert manager.scan() == []
+    assert manager.unreachable == [(0x0016, 'Razer DeathAdder 3.5G')]
+    assert manager.unsupported == []
+    said = [r.getMessage() for r in caplog.records]
+    assert len(said) == 1 and 'USB request Windows lets no program send' in said[0]
+    assert not any('exclusively' in line for line in said)
+
+    service = DaemonService.__new__(DaemonService)
+    service.manager = manager
+    assert service.rpc_unsupported() == [
+        {'pid': 0x0016, 'product': 'Razer DeathAdder 3.5G', 'reason': 'windows'}]
+    manager.close()

@@ -41,6 +41,17 @@ BLUETOOTH_INTERVAL = 60.0
 BLUETOOTH_STARTUP_INTERVAL = 10.0
 BLUETOOTH_STARTUP_WINDOW = 180.0
 
+#: Devices upstream drives that Windows gives no way to reach.  The DeathAdder
+#: 3.5G (and its Black edition) predate the 90-byte report: upstream sets them
+#: with a USB SET_REPORT of report type 0, wValue 0x0010, which no HID report
+#: of theirs declares, and Windows' HID driver sends only declared reports.
+#: Only replacing that driver would reach them, and then they stop being mice
+#: (issue #29).
+WINDOWS_UNREACHABLE = {
+    0x0016: 'takes its settings through a USB request Windows lets no program send',
+    0x0029: 'takes its settings through a USB request Windows lets no program send',
+}
+
 
 class DeviceManager:
     """Enumerates supported devices and keeps :class:`RazerDevice` objects alive.
@@ -72,6 +83,10 @@ class DeviceManager:
         self._lock = threading.RLock()
         self._devices: dict = {}
         self._unsupported: list = []
+        #: ``(product_id, name)`` of attached devices in `WINDOWS_UNREACHABLE`.
+        self._unreachable: list = []
+        #: Product ids already explained in the log, so a rescan says it once.
+        self._explained: set = set()
         #: LE address -> the classic address the device advertises with it.
         #: Learned once, kept: not every sweep hears the packet carrying it.
         self._identities: dict = {}
@@ -95,6 +110,7 @@ class DeviceManager:
 
             seen = set()
             unsupported = []
+            unreachable = []
             for pid, infos in sorted(by_pid.items()):
                 meta = self.database.get(VENDOR_ID, pid)
                 if meta is None:
@@ -102,6 +118,14 @@ class DeviceManager:
                     continue
                 if meta.is_bluetooth:
                     continue      # reached over Bluetooth, not the HID bus
+                if pid in WINDOWS_UNREACHABLE:
+                    unreachable.append((pid, meta.name))
+                    if pid not in self._explained:
+                        self._explained.add(pid)
+                        logger.warning('%s is attached, but it %s; it works as it is, '
+                                       'with the settings it has', meta.name,
+                                       WINDOWS_UNREACHABLE[pid])
+                    continue
                 key = self._key(meta, infos)
                 seen.add(key)
                 if key in self._devices:
@@ -128,6 +152,7 @@ class DeviceManager:
                 self._devices.pop(key).close()
 
             self._unsupported = unsupported
+            self._unreachable = unreachable
             return self.devices
 
     @staticmethod
@@ -346,6 +371,12 @@ class DeviceManager:
         """``(product_id, product_string)`` for Razer hardware we don't know."""
         with self._lock:
             return list(self._unsupported)
+
+    @property
+    def unreachable(self) -> list:
+        """``(product_id, name)`` for known devices Windows gives no way to set up."""
+        with self._lock:
+            return list(self._unreachable)
 
     def by_serial(self, serial: str) -> Optional[RazerDevice]:
         for device in self.devices:

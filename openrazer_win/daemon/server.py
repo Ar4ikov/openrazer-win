@@ -391,7 +391,12 @@ class DaemonService:
         return [_device_summary(device) for device in self.manager.devices]
 
     def rpc_unsupported(self) -> list:
-        return [{'pid': pid, 'product': name} for pid, name in self.manager.unsupported]
+        """Razer hardware attached but not served.  A row with ``reason: 'windows'``
+        is a known device Windows gives no way to set up; the rest are unknown."""
+        rows = [{'pid': pid, 'product': name} for pid, name in self.manager.unsupported]
+        rows.extend({'pid': pid, 'product': name, 'reason': 'windows'}
+                    for pid, name in getattr(self.manager, 'unreachable', ()))
+        return rows
 
     def rpc_rescan(self) -> list:
         # Someone asked: sweep the radio now rather than when it is next due.

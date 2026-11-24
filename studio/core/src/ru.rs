@@ -230,6 +230,8 @@ pub const RU: &[(&str, &str)] = &[
     ("Close Synapse", "Закрыть Synapse"),
     ("Its Windows services can only be stopped by an administrator, in Services.", "Его службы Windows может остановить только администратор — в «Службах»."),
     ("Some Razer devices are not supported yet", "Некоторые устройства Razer пока не поддерживаются"),
+    ("Some Razer devices can't be set up on Windows", "Некоторые устройства Razer нельзя настроить в Windows"),
+    ("They take their settings through a USB request that Windows lets no program send. They still work, with the settings they have.", "Настройки они получают USB-запросом, который Windows не даёт отправить ни одной программе. Работать они будут, но с теми настройками, что в них уже есть."),
     ("Ask for one to be added", "Попросить добавить"),
     ("All settings", "Все настройки"),
     ("Razer Synapse was closed", "Razer Synapse закрыт"),

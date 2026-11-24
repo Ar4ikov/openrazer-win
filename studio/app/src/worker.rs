@@ -111,6 +111,9 @@ pub struct Snapshot {
     pub synapse: Vec<(u32, String)>,
     /// Razer devices plugged in that the port has no data for.
     pub unsupported: Vec<(u16, String)>,
+    /// Razer devices plugged in that the port knows, but Windows gives no
+    /// way to set up (issue #29).
+    pub unreachable: Vec<(u16, String)>,
     /// The daemon's integrations: the accent colour, Chroma games.
     pub integrations: Value,
     /// Snap Tap, as the daemon has it.
@@ -305,15 +308,13 @@ impl Worker {
             .filter(|p| SYNAPSE.contains(&p.name.to_lowercase().as_str()))
             .map(|p| (p.pid, p.name))
             .collect();
-        let unsupported = self
-            .with(|c| c.call("devices.unsupported", json!({})))
-            .ok()
-            .and_then(|v| v.as_array().cloned())
-            .map(|rows| rows.iter().map(|r| (r["pid"].as_u64().unwrap_or(0) as u16, r["product"].as_str().unwrap_or("").to_string())).collect())
-            .unwrap_or_default();
+        let rows = self.with(|c| c.call("devices.unsupported", json!({}))).ok().and_then(|v| v.as_array().cloned()).unwrap_or_default();
+        let row = |r: &Value| (r["pid"].as_u64().unwrap_or(0) as u16, r["product"].as_str().unwrap_or("").to_string());
+        let (unreachable, unsupported): (Vec<&Value>, Vec<&Value>) = rows.iter().partition(|r| r["reason"] == "windows");
         let mut shared = self.shared.lock().unwrap();
         shared.synapse = synapse;
-        shared.unsupported = unsupported;
+        shared.unsupported = unsupported.into_iter().map(row).collect();
+        shared.unreachable = unreachable.into_iter().map(row).collect();
     }
 
     fn poll_batteries(&mut self) {

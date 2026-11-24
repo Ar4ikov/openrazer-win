@@ -48,6 +48,9 @@ pub fn build(snap: &Snapshot) -> String {
     for (pid, product) in &snap.unsupported {
         let _ = writeln!(out, "- not supported: 1532:{pid:04X} {product}");
     }
+    for (pid, product) in &snap.unreachable {
+        let _ = writeln!(out, "- not reachable on Windows: 1532:{pid:04X} {product}");
+    }
     let _ = writeln!(out, "\n== Keys\n{}", serde_json::to_string(&snap.keys).unwrap_or_default());
     for (name, path) in [("daemon.log", crate::daemon::log_path()), ("daemon-start.log", crate::daemon::start_log_path())] {
         let _ = writeln!(out, "\n== {name} (last 150 lines)");

@@ -996,11 +996,17 @@ def cmd_supported(args) -> int:
     by_type: dict = {}
     for entry in entries:
         by_type.setdefault(entry.type, []).append(entry)
+    from ..core.manager import WINDOWS_UNREACHABLE
+
     for device_type in sorted(by_type):
         print('{0} ({1})'.format(device_type, len(by_type[device_type])))
         for entry in sorted(by_type[device_type], key=lambda e: e.name):
-            print('  {0:04x}  {1}'.format(entry.pid, entry.name))
+            out_of_reach = '  (not on Windows)' if entry.pid in WINDOWS_UNREACHABLE else ''
+            print('  {0:04x}  {1}{2}'.format(entry.pid, entry.name, out_of_reach))
     print('\n{0} devices in total.'.format(len(entries)))
+    if any(entry.pid in WINDOWS_UNREACHABLE for entry in entries):
+        print('"Not on Windows": upstream drives it with a USB request Windows lets no '
+              'program send.')
     return 0
 
 
@@ -1275,13 +1281,21 @@ def cmd_doctor(args) -> int:
             return is_barracuda_interface(info)
         return info.feature_length == FEATURE_BUFFER_SIZE or is_blackshark_interface(info)
 
+    from ..core.manager import WINDOWS_UNREACHABLE
+
     for info in collections:
         control = ' <- control interface' if reachable(info) else ''
         known = database.get(info.vendor_id, info.product_id)
         print('  {0}{1}'.format(info.describe(), control))
         print('      {0}'.format(known.name if known else 'NOT IN DATABASE'))
+    for pid in sorted({info.product_id for info in collections} & set(WINDOWS_UNREACHABLE)):
+        known = database.get(VENDOR_ID, pid)
+        print('\n{0} {1}, so openrazer-win cannot set it up on Windows. It works '
+              'as it is, with the settings it has.'.format(
+                  known.name if known else '1532:{0:04x}'.format(pid), WINDOWS_UNREACHABLE[pid]))
 
-    if collections and not any(reachable(info) for info in collections):
+    others = [info for info in collections if info.product_id not in WINDOWS_UNREACHABLE]
+    if others and not any(reachable(info) for info in others):
         print('\nNo collection exposes the 90-byte feature report.')
         print('Razer Synapse may be holding the device -- close it and retry.')
 

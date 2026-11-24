@@ -108,6 +108,11 @@ fn notices(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
             widgets::link_button(ui, t("Ask for one to be added"), &format!("{}/issues/new?template=device-not-detected.md", openrazer_studio_core::install::REPOSITORY));
         });
     }
+    if !snap.unreachable.is_empty() {
+        let names: Vec<String> = snap.unreachable.iter().map(|(pid, name)| format!("{name} (1532:{pid:04X})")).collect();
+        let body = format!("{}\n{}", names.join(", "), t("They take their settings through a USB request that Windows lets no program send. They still work, with the settings they have."));
+        widgets::banner(ui, theme::INFO, icon::INFO, t("Some Razer devices can't be set up on Windows"), &body, |_| {});
+    }
 }
 
 /// Turn every light off by its brightness -- effects and colours stay as they

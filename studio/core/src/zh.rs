@@ -222,6 +222,8 @@ pub const ZH: &[(&str, &str)] = &[
     ("Close Synapse", "关闭 Synapse"),
     ("Its Windows services can only be stopped by an administrator, in Services.", "其 Windows 服务只能由管理员在服务中停止。"),
     ("Some Razer devices are not supported yet", "部分 Razer 设备尚不支持"),
+    ("Some Razer devices can't be set up on Windows", "部分 Razer 设备无法在 Windows 上设置"),
+    ("They take their settings through a USB request that Windows lets no program send. They still work, with the settings they have.", "它们通过一种 Windows 不允许任何程序发送的 USB 请求接收设置。设备仍可使用，但只能保持现有设置。"),
     ("Ask for one to be added", "申请添加一个"),
     ("All settings", "所有设置"),
     ("Razer Synapse was closed", "Razer Synapse 已关闭"),

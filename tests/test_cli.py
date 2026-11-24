@@ -66,6 +66,21 @@ def test_doctor_runs_without_hardware(capsys):
     assert 'supported product ids' in output
 
 
+def test_doctor_explains_the_deathadder_3_5g(capsys, monkeypatch):
+    """Issue #29: no Synapse advice for a mouse Windows cannot reach anyway."""
+    from openrazer_win import hid
+    from openrazer_win.hid.fake import FakeHidBackend, FakeRazerDevice
+
+    backend = FakeHidBackend([FakeRazerDevice(0x0016, 'Razer DeathAdder 3.5G')])
+    monkeypatch.setattr(hid, 'get_backend', lambda: backend)
+    monkeypatch.setattr('openrazer_win.cli._report_devices_beyond_hid', lambda *a: None)
+    monkeypatch.setattr('openrazer_win.cli._report_bluetooth_support', lambda: None)
+    main(['doctor'])
+    output = capsys.readouterr().out
+    assert 'Razer DeathAdder 3.5G takes its settings through a USB request' in output
+    assert 'Synapse may be holding' not in output
+
+
 # -- CLI against a live daemon ----------------------------------------------
 
 @pytest.fixture
