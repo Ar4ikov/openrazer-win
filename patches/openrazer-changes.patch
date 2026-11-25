@@ -1,7 +1,7 @@
 From 2cdac55c30f1dd8eedf8b3f38f82dfea879ffda9 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 19:14:12 +0000
-Subject: [PATCH] Studio: devices and batteries in the tray, tray names,
+Subject: [PATCH 1/2] Studio: devices and batteries in the tray, tray names,
  low-battery warning
 
 The tray icon's tooltip lists each device on its own line with its
@@ -346,6 +346,250 @@ index 5aa8445..e6b35c4 100644
  fn general(app: &mut App, ui: &mut egui::Ui) {
      widgets::panel(ui, t("General"), |ui| {
          let mut chosen = None;
+-- 
+2.43.0
+
+From 9d696b3d591c7ce7b09ae0d4f6a9baa44c15fb94 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Wed, 25 Nov 2026 22:18:33 +0000
+Subject: [PATCH 2/2] Studio: a visible low-battery warning
+
+The notification was asked for in the same call that added its icon,
+which Windows often answers with the icon alone. It now follows the
+documented order: add the icon, set it to NOTIFYICON_VERSION_4, then
+request the notification as its own step (warning icon, large).
+
+A low battery also brings up a warning window: always on top at the
+bottom centre of the main display's work area, for a time set in
+Settings > System tray (10 s by default; a click closes it sooner),
+independent of Windows' notification settings and Focus Assist. Drawn
+as an egui immediate viewport, shown while the main window is parked in
+the tray.
+---
+ studio/app/src/settings.rs    |  6 ++++
+ studio/app/src/shell.rs       | 42 +++++++++++++++++++++---
+ studio/app/src/ui/app.rs      | 60 ++++++++++++++++++++++++++++++++---
+ studio/app/src/ui/settings.rs | 16 ++++++++++
+ 4 files changed, 114 insertions(+), 10 deletions(-)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index 608cb07..f035641 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -55,6 +55,10 @@ pub struct Settings {
+     /// The charge, in percent, at or above which a device counts as charged
+     /// again, so its next discharge is announced too.
+     pub low_battery_rearm_at: u8,
++    /// Whether a low battery also brings up a warning window on screen.
++    pub low_battery_popup: bool,
++    /// How long that window stays, in seconds.
++    pub low_battery_popup_seconds: u16,
+ }
+ 
+ impl Default for Settings {
+@@ -76,6 +80,8 @@ impl Default for Settings {
+             low_battery_warning: true,
+             low_battery_warn_at: 15,
+             low_battery_rearm_at: 25,
++            low_battery_popup: true,
++            low_battery_popup_seconds: 10,
+         }
+     }
+ }
+diff --git a/studio/app/src/shell.rs b/studio/app/src/shell.rs
+index d575d84..a168a35 100644
+--- a/studio/app/src/shell.rs
++++ b/studio/app/src/shell.rs
+@@ -239,7 +239,8 @@ impl Tray {
+ #[cfg(windows)]
+ pub fn notify(title: &str, text: &str) {
+     use windows_sys::Win32::UI::Shell::{
+-        Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_TIP, NIIF_WARNING, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
++        Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_TIP, NIIF_LARGE_ICON, NIIF_WARNING, NIM_ADD, NIM_DELETE,
++        NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4,
+     };
+     use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, LoadIconW, HWND_MESSAGE, IDI_WARNING};
+ 
+@@ -276,13 +277,20 @@ pub fn notify(title: &str, text: &str) {
+             data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+             data.hWnd = hwnd;
+             data.uID = 0x5254;
+-            data.uFlags = NIF_ICON | NIF_TIP | NIF_INFO;
++            // The documented order: add the icon, switch it to the current
++            // notification behaviour, then ask for the notification as its own
++            // step (a balloon requested in the add itself is often dropped).
++            data.uFlags = NIF_ICON | NIF_TIP;
+             data.hIcon = LoadIconW(std::ptr::null_mut(), IDI_WARNING);
+-            data.dwInfoFlags = NIIF_WARNING;
+             copy(&mut data.szTip, &title);
+-            copy(&mut data.szInfoTitle, &title);
+-            copy(&mut data.szInfo, &text);
+             if Shell_NotifyIconW(NIM_ADD, &data) != 0 {
++                data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
++                Shell_NotifyIconW(NIM_SETVERSION, &data);
++                data.uFlags = NIF_INFO;
++                data.dwInfoFlags = NIIF_WARNING | NIIF_LARGE_ICON;
++                copy(&mut data.szInfoTitle, &title);
++                copy(&mut data.szInfo, &text);
++                Shell_NotifyIconW(NIM_MODIFY, &data);
+                 std::thread::sleep(std::time::Duration::from_secs(15));
+                 Shell_NotifyIconW(NIM_DELETE, &data);
+             }
+@@ -293,3 +301,27 @@ pub fn notify(title: &str, text: &str) {
+ 
+ #[cfg(not(windows))]
+ pub fn notify(_title: &str, _text: &str) {}
++
++/// Where a window of `size` points sits at the bottom centre of the main
++/// display's work area (above the taskbar), for a display at
++/// `pixels_per_point`.
++#[cfg(windows)]
++pub fn popup_position(size: egui::Vec2, pixels_per_point: f32) -> Option<egui::Pos2> {
++    use windows_sys::Win32::Foundation::RECT;
++    use windows_sys::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETWORKAREA};
++
++    let mut area = RECT { left: 0, top: 0, right: 0, bottom: 0 };
++    // SAFETY: SPI_GETWORKAREA writes one RECT into `area`, which is sized for it.
++    let ok = unsafe { SystemParametersInfoW(SPI_GETWORKAREA, 0, (&raw mut area).cast(), 0) };
++    if ok == 0 || pixels_per_point <= 0.0 {
++        return None;
++    }
++    let scale = |v: i32| v as f32 / pixels_per_point;
++    let centre = (scale(area.left) + scale(area.right)) / 2.0;
++    Some(egui::pos2(centre - size.x / 2.0, scale(area.bottom) - size.y - 48.0))
++}
++
++#[cfg(not(windows))]
++pub fn popup_position(_size: egui::Vec2, _pixels_per_point: f32) -> Option<egui::Pos2> {
++    None
++}
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index e023e6e..ea8ac30 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -93,6 +93,8 @@ pub struct App {
+     tray_lines: Vec<String>,
+     /// Devices whose low battery has been announced in this discharge.
+     tray_warned: HashSet<String>,
++    /// The low-battery warning window on screen: title, text, until when.
++    popup: Option<(String, String, std::time::Instant)>,
+     capture: Option<Capture>,
+     /// The library macro the screenshot hook opened, so it is opened once.
+     macros_opened: Option<usize>,
+@@ -186,6 +188,7 @@ impl App {
+             tray_ok,
+             tray_lines: Vec::new(),
+             tray_warned: HashSet::new(),
++            popup: None,
+             hide_frames: if background && tray_ok { 4 } else { 0 },
+             capture,
+             macros_opened: None,
+@@ -290,8 +293,10 @@ impl eframe::App for App {
+         }
+         let snap = self.shared.lock().unwrap().clone();
+         self.sync(&snap);
+-        // Before the early return below: the tray is read while the window is hidden.
++        // Before the early return below: the tray is read, and the warning
++        // window shown, while the main window is hidden.
+         self.refresh_tray(&snap);
++        self.show_popup(ctx);
+         self.flush_pending(ctx);
+         // In the tray (or minimized) nothing is seen, so draw nothing: a page
+         // that animates would otherwise keep asking for frames (issue #28).
+@@ -325,6 +330,47 @@ impl eframe::App for App {
+ 
+ impl App {
+     /// Keep the selection pointing at something that exists, and edits current.
++    /// The low-battery warning window: always on top at the bottom centre of
++    /// the main display, until its time is up or it is clicked.
++    fn show_popup(&mut self, ctx: &egui::Context) {
++        let Some((title, text, until)) = self.popup.clone() else {
++            return;
++        };
++        let now = std::time::Instant::now();
++        if now >= until {
++            self.popup = None;
++            return;
++        }
++        ctx.request_repaint_after(until - now);
++        let size = egui::vec2(380.0, 96.0);
++        let mut builder = egui::ViewportBuilder::default()
++            .with_title(title.clone())
++            .with_decorations(false)
++            .with_always_on_top()
++            .with_resizable(false)
++            .with_taskbar(false)
++            .with_active(false)
++            .with_inner_size(size);
++        if let Some(position) = shell::popup_position(size, ctx.pixels_per_point()) {
++            builder = builder.with_position(position);
++        }
++        let mut dismissed = false;
++        ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("low-battery-warning"), builder, |ctx, _| {
++            egui::CentralPanel::default()
++                .frame(egui::Frame::window(&ctx.style()).inner_margin(16.0))
++                .show(ctx, |ui| {
++                    let click = ui.interact(ui.max_rect(), ui.id().with("dismiss"), egui::Sense::click());
++                    ui.heading(&title);
++                    ui.label(&text);
++                    ui.weak(t("Click to dismiss."));
++                    dismissed |= click.clicked();
++                });
++        });
++        if dismissed {
++            self.popup = None;
++        }
++    }
++
+     /// One tray line per device (its tray name and battery), and the
+     /// low-battery notification, once per discharge.
+     fn refresh_tray(&mut self, snap: &Snapshot) {
+@@ -354,10 +400,14 @@ impl App {
+             if !settings.low_battery_warning || charging || percent >= settings.low_battery_rearm_at {
+                 self.tray_warned.remove(&device.serial);
+             } else if percent <= settings.low_battery_warn_at && self.tray_warned.insert(device.serial.clone()) {
+-                shell::notify(
+-                    &tf("{} battery low", &[&name]),
+-                    &tf("{}% left. Charge it soon.", &[&percent]),
+-                );
++                let title = tf("{} battery low", &[&name]);
++                let text = tf("{}% left. Charge it soon.", &[&percent]);
++                shell::notify(&title, &text);
++                if settings.low_battery_popup {
++                    let seconds = u64::from(settings.low_battery_popup_seconds.clamp(2, 600));
++                    let until = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
++                    self.popup = Some((title, text, until));
++                }
+             }
+         }
+         if lines != self.tray_lines {
+diff --git a/studio/app/src/ui/settings.rs b/studio/app/src/ui/settings.rs
+index e6b35c4..084c027 100644
+--- a/studio/app/src/ui/settings.rs
++++ b/studio/app/src/ui/settings.rs
+@@ -81,6 +81,22 @@ fn tray(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
+                 app.settings.low_battery_rearm_at = (rearm_at.clamp(10.0, 95.0).round() as u8).max(warn_at + 5);
+                 app.save_settings();
+             }
++            let mut popup = app.settings.low_battery_popup;
++            if widgets::toggle_row(ui, t("Show a warning on screen"), t("A window at the bottom of the main display, on top of everything."), &mut popup) {
++                app.settings.low_battery_popup = popup;
++                app.save_settings();
++            }
++            if app.settings.low_battery_popup {
++                let mut seconds = f64::from(app.settings.low_battery_popup_seconds);
++                let mut changed = false;
++                widgets::row(ui, t("Show it for"), t("Seconds; a click closes it sooner."), |ui| {
++                    changed = widgets::slider_field(ui, "tray-popup-seconds", &mut seconds, 2.0..=120.0, 1.0, 0, " s", 60.0);
++                });
++                if changed {
++                    app.settings.low_battery_popup_seconds = seconds.clamp(2.0, 120.0).round() as u16;
++                    app.save_settings();
++                }
++            }
+         }
+     });
+ }
 -- 
 2.43.0
 
