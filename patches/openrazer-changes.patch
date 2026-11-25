@@ -1,0 +1,351 @@
+From 2cdac55c30f1dd8eedf8b3f38f82dfea879ffda9 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Wed, 25 Nov 2026 19:14:12 +0000
+Subject: [PATCH] Studio: devices and batteries in the tray, tray names,
+ low-battery warning
+
+The tray icon's tooltip lists each device on its own line with its
+battery (and "charging"), and the menu shows the same lines, greyed,
+above Open, Restart and Quit. Each device can be given a name for the
+tray in Settings > System tray (empty: its own name; nowhere else
+changes).
+
+A Windows notification announces a low battery once per discharge:
+at or below a level (15 % by default) and again only after the device
+has charged to a second level (25 %) or is charging. Both levels, and
+the warning itself, are set in Settings > System tray. Shown with the
+Shell notify-icon balloon through windows-sys, no new dependency.
+---
+ studio/app/src/settings.rs    |  14 +++++
+ studio/app/src/shell.rs       | 107 +++++++++++++++++++++++++++++++++-
+ studio/app/src/ui/app.rs      |  55 ++++++++++++++++-
+ studio/app/src/ui/settings.rs |  40 +++++++++++++
+ 4 files changed, 211 insertions(+), 5 deletions(-)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index 4fd6d01..608cb07 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -45,6 +45,16 @@ pub struct Settings {
+     pub recent_colours: Vec<[u8; 3]>,
+     /// Games given the stand-in for Razer's Chroma SDK DLL, by their program.
+     pub chroma_games: Vec<String>,
++    /// The name each device has in the tray, by serial; empty or missing is
++    /// the device's own name. Used by the tray only.
++    pub tray_names: BTreeMap<String, String>,
++    /// Whether a device's low battery is announced with a Windows notification.
++    pub low_battery_warning: bool,
++    /// The charge, in percent, at or below which it is announced.
++    pub low_battery_warn_at: u8,
++    /// The charge, in percent, at or above which a device counts as charged
++    /// again, so its next discharge is announced too.
++    pub low_battery_rearm_at: u8,
+ }
+ 
+ impl Default for Settings {
+@@ -62,6 +72,10 @@ impl Default for Settings {
+             lights_before: BTreeMap::new(),
+             recent_colours: Vec::new(),
+             chroma_games: Vec::new(),
++            tray_names: BTreeMap::new(),
++            low_battery_warning: true,
++            low_battery_warn_at: 15,
++            low_battery_rearm_at: 25,
+         }
+     }
+ }
+diff --git a/studio/app/src/shell.rs b/studio/app/src/shell.rs
+index ec99918..d575d84 100644
+--- a/studio/app/src/shell.rs
++++ b/studio/app/src/shell.rs
+@@ -150,9 +150,16 @@ pub enum TrayAction {
+ 
+ /// The tray icon and its menu.  Must be built on the UI thread and kept alive.
+ pub struct Tray {
+-    _icon: tray_icon::TrayIcon,
++    icon: tray_icon::TrayIcon,
++    menu: tray_icon::menu::Menu,
++    /// The device lines at the top of the menu, and the separator under them.
++    rows: Vec<tray_icon::menu::MenuItem>,
++    rows_separator: Option<tray_icon::menu::PredefinedMenuItem>,
+ }
+ 
++/// A tray tooltip holds 127 characters on Windows.
++const TOOLTIP_MAX: usize = 127;
++
+ impl Tray {
+     pub fn new(on_action: impl Fn(TrayAction) + Send + Sync + 'static) -> Option<Tray> {
+         use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+@@ -165,7 +172,7 @@ impl Tray {
+         menu.append_items(&[&open, &restart, &PredefinedMenuItem::separator(), &quit]).ok()?;
+         let icon = Icon::from_rgba(icon_rgba(32), 32, 32).ok()?;
+         let tray = TrayIconBuilder::new()
+-            .with_menu(Box::new(menu))
++            .with_menu(Box::new(menu.clone()))
+             .with_tooltip(WINDOW_TITLE)
+             .with_icon(icon)
+             .with_menu_on_left_click(false)
+@@ -189,6 +196,100 @@ impl Tray {
+                 on_action(TrayAction::Open);
+             }
+         }));
+-        Some(Tray { _icon: tray })
++        Some(Tray { icon: tray, menu, rows: Vec::new(), rows_separator: None })
++    }
++
++    /// Show `lines`, one per device, in the tooltip under the app's name and
++    /// at the top of the menu (greyed: they are for reading).
++    pub fn show_devices(&mut self, lines: &[String]) {
++        use tray_icon::menu::{MenuItem, PredefinedMenuItem};
++
++        let mut tip = String::from(WINDOW_TITLE);
++        for line in lines {
++            tip.push('\n');
++            tip.push_str(line);
++        }
++        let tip: String = tip.chars().take(TOOLTIP_MAX).collect();
++        let _ = self.icon.set_tooltip(Some(tip));
++
++        for row in self.rows.drain(..) {
++            let _ = self.menu.remove(&row);
++        }
++        if let Some(separator) = self.rows_separator.take() {
++            let _ = self.menu.remove(&separator);
++        }
++        for (position, line) in lines.iter().enumerate() {
++            let row = MenuItem::new(line, false, None);
++            if self.menu.insert(&row, position).is_ok() {
++                self.rows.push(row);
++            }
++        }
++        if !self.rows.is_empty() {
++            let separator = PredefinedMenuItem::separator();
++            if self.menu.insert(&separator, self.rows.len()).is_ok() {
++                self.rows_separator = Some(separator);
++            }
++        }
++    }
++}
++
++/// A Windows notification: a warning icon shows in the tray for a few
++/// seconds and its balloon, which Windows 10 and 11 present as a regular
++/// notification. Runs on a thread of its own, which owns the window behind it.
++#[cfg(windows)]
++pub fn notify(title: &str, text: &str) {
++    use windows_sys::Win32::UI::Shell::{
++        Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_TIP, NIIF_WARNING, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
++    };
++    use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, LoadIconW, HWND_MESSAGE, IDI_WARNING};
++
++    fn copy(into: &mut [u16], text: &str) {
++        let wide: Vec<u16> = text.encode_utf16().take(into.len() - 1).collect();
++        into[..wide.len()].copy_from_slice(&wide);
+     }
++
++    let (title, text) = (title.to_owned(), text.to_owned());
++    std::thread::spawn(move || {
++        let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
++        // SAFETY: a message-only window of a system class, made, used and
++        // destroyed on this thread; the notify-icon data is a plain C struct
++        // whose all-zero state is empty.
++        unsafe {
++            let hwnd = CreateWindowExW(
++                0,
++                class.as_ptr(),
++                std::ptr::null(),
++                0,
++                0,
++                0,
++                0,
++                0,
++                HWND_MESSAGE,
++                std::ptr::null_mut(),
++                std::ptr::null_mut(),
++                std::ptr::null(),
++            );
++            if hwnd.is_null() {
++                return;
++            }
++            let mut data: NOTIFYICONDATAW = std::mem::zeroed();
++            data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
++            data.hWnd = hwnd;
++            data.uID = 0x5254;
++            data.uFlags = NIF_ICON | NIF_TIP | NIF_INFO;
++            data.hIcon = LoadIconW(std::ptr::null_mut(), IDI_WARNING);
++            data.dwInfoFlags = NIIF_WARNING;
++            copy(&mut data.szTip, &title);
++            copy(&mut data.szInfoTitle, &title);
++            copy(&mut data.szInfo, &text);
++            if Shell_NotifyIconW(NIM_ADD, &data) != 0 {
++                std::thread::sleep(std::time::Duration::from_secs(15));
++                Shell_NotifyIconW(NIM_DELETE, &data);
++            }
++            DestroyWindow(hwnd);
++        }
++    });
+ }
++
++#[cfg(not(windows))]
++pub fn notify(_title: &str, _text: &str) {}
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index 0cce9ec..e023e6e 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -12,7 +12,7 @@ use crate::worker::{self, Command, DaemonState, Device, Shared, Snapshot};
+ use egui::{pos2, vec2, Align, Align2, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, StrokeKind};
+ use openrazer_studio_core::theme::{self, icon, ACCENT, BORDER_HI, NAV, SURFACE, SURFACE_HI, TEXT, TEXT_DIM, TEXT_FAINT};
+ use openrazer_studio_core::{install, t, tf, widgets};
+-use std::collections::HashMap;
++use std::collections::{HashMap, HashSet};
+ use std::sync::mpsc::Sender;
+ use std::sync::{Arc, Mutex};
+ use std::time::{Duration, Instant};
+@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
+ /// the UI thread: the installer's signal arrives on a thread of its own.
+ static TRAY: Mutex<Option<TrayIcon>> = Mutex::new(None);
+ 
+-struct TrayIcon(#[allow(dead_code)] Tray);
++struct TrayIcon(Tray);
+ 
+ // It is not `Send` for an `Rc` inside it, but it is only ever put here on the
+ // UI thread and then dropped, once, by whichever thread ends the process; and
+@@ -89,6 +89,10 @@ pub struct App {
+     pub installed: Option<install::Installed>,
+     pub started: Instant,
+     tray_ok: bool,
++    /// The device lines the tray shows now, so it is only told of a change.
++    tray_lines: Vec<String>,
++    /// Devices whose low battery has been announced in this discharge.
++    tray_warned: HashSet<String>,
+     capture: Option<Capture>,
+     /// The library macro the screenshot hook opened, so it is opened once.
+     macros_opened: Option<usize>,
+@@ -180,6 +184,8 @@ impl App {
+             installed: install::installed(),
+             started: Instant::now(),
+             tray_ok,
++            tray_lines: Vec::new(),
++            tray_warned: HashSet::new(),
+             hide_frames: if background && tray_ok { 4 } else { 0 },
+             capture,
+             macros_opened: None,
+@@ -284,6 +290,8 @@ impl eframe::App for App {
+         }
+         let snap = self.shared.lock().unwrap().clone();
+         self.sync(&snap);
++        // Before the early return below: the tray is read while the window is hidden.
++        self.refresh_tray(&snap);
+         self.flush_pending(ctx);
+         // In the tray (or minimized) nothing is seen, so draw nothing: a page
+         // that animates would otherwise keep asking for frames (issue #28).
+@@ -317,6 +325,49 @@ impl eframe::App for App {
+ 
+ impl App {
+     /// Keep the selection pointing at something that exists, and edits current.
++    /// One tray line per device (its tray name and battery), and the
++    /// low-battery notification, once per discharge.
++    fn refresh_tray(&mut self, snap: &Snapshot) {
++        let settings = &self.settings;
++        let mut lines = Vec::with_capacity(snap.devices.len());
++        for device in &snap.devices {
++            let name = settings
++                .tray_names
++                .get(&device.serial)
++                .map(|name| name.trim())
++                .filter(|name| !name.is_empty())
++                .unwrap_or(&device.name)
++                .to_owned();
++            let detail = snap.details.get(&device.serial);
++            let Some(level) = detail.and_then(|d| d.battery) else {
++                lines.push(name);
++                continue;
++            };
++            let charging = detail.and_then(|d| d.charging).unwrap_or(false);
++            let percent = level.clamp(0.0, 100.0).round() as u8;
++            lines.push(if charging {
++                format!("{name}: {percent}% ({})", t("charging"))
++            } else {
++                format!("{name}: {percent}%")
++            });
++
++            if !settings.low_battery_warning || charging || percent >= settings.low_battery_rearm_at {
++                self.tray_warned.remove(&device.serial);
++            } else if percent <= settings.low_battery_warn_at && self.tray_warned.insert(device.serial.clone()) {
++                shell::notify(
++                    &tf("{} battery low", &[&name]),
++                    &tf("{}% left. Charge it soon.", &[&percent]),
++                );
++            }
++        }
++        if lines != self.tray_lines {
++            if let Some(TrayIcon(tray)) = TRAY.lock().unwrap().as_mut() {
++                tray.show_devices(&lines);
++            }
++            self.tray_lines = lines;
++        }
++    }
++
+     fn sync(&mut self, snap: &Snapshot) {
+         if self.selected.as_ref().is_none_or(|s| !snap.devices.iter().any(|d| &d.serial == s)) {
+             self.selected = snap.devices.first().map(|d| d.serial.clone());
+diff --git a/studio/app/src/ui/settings.rs b/studio/app/src/ui/settings.rs
+index 5aa8445..e6b35c4 100644
+--- a/studio/app/src/ui/settings.rs
++++ b/studio/app/src/ui/settings.rs
+@@ -26,6 +26,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
+         widgets::columns(ui, 0.5, super::device::TWO_COLUMNS, |ui, column| {
+             if column == 0 {
+                 general(app, ui);
++                tray(app, ui, snap);
+                 support(app, ui, snap);
+                 about(app, ui);
+             } else {
+@@ -45,6 +46,45 @@ fn language_name(lang: Lang) -> &'static str {
+     }
+ }
+ 
++/// The tray's names for the devices, and the low-battery warning.
++fn tray(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
++    widgets::panel(ui, t("System tray"), |ui| {
++        for device in &snap.devices {
++            let mut changed = false;
++            let name = app.settings.tray_names.entry(device.serial.clone()).or_default();
++            widgets::row(ui, &device.name, t("Its name in the tray. Empty: the device's own name."), |ui| {
++                changed = widgets::text_field(ui, name, &device.name, 200.0).changed();
++            });
++            if changed {
++                app.save_settings();
++            }
++            widgets::divider(ui);
++        }
++        let mut warn = app.settings.low_battery_warning;
++        if widgets::toggle_row(ui, t("Warn when a battery runs low"), t("A Windows notification, once per discharge."), &mut warn) {
++            app.settings.low_battery_warning = warn;
++            app.save_settings();
++        }
++        if app.settings.low_battery_warning {
++            let mut warn_at = f64::from(app.settings.low_battery_warn_at);
++            let mut rearm_at = f64::from(app.settings.low_battery_rearm_at);
++            let mut changed = false;
++            widgets::row(ui, t("Warn at"), t("The charge that brings the warning."), |ui| {
++                changed |= widgets::slider_field(ui, "tray-warn-at", &mut warn_at, 5.0..=50.0, 1.0, 0, "%", 60.0);
++            });
++            widgets::row(ui, t("Warn again after"), t("The charge a device must reach before its next low battery is announced."), |ui| {
++                changed |= widgets::slider_field(ui, "tray-rearm-at", &mut rearm_at, 10.0..=95.0, 1.0, 0, "%", 60.0);
++            });
++            if changed {
++                let warn_at = warn_at.clamp(5.0, 50.0).round() as u8;
++                app.settings.low_battery_warn_at = warn_at;
++                app.settings.low_battery_rearm_at = (rearm_at.clamp(10.0, 95.0).round() as u8).max(warn_at + 5);
++                app.save_settings();
++            }
++        }
++    });
++}
++
+ fn general(app: &mut App, ui: &mut egui::Ui) {
+     widgets::panel(ui, t("General"), |ui| {
+         let mut chosen = None;
+-- 
+2.43.0
+
