@@ -1,7 +1,7 @@
 From 2cdac55c30f1dd8eedf8b3f38f82dfea879ffda9 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 19:14:12 +0000
-Subject: [PATCH 1/3] Studio: devices and batteries in the tray, tray names,
+Subject: [PATCH 1/4] Studio: devices and batteries in the tray, tray names,
  low-battery warning
 
 The tray icon's tooltip lists each device on its own line with its
@@ -352,7 +352,7 @@ index 5aa8445..e6b35c4 100644
 From 9d696b3d591c7ce7b09ae0d4f6a9baa44c15fb94 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:18:33 +0000
-Subject: [PATCH 2/3] Studio: a visible low-battery warning
+Subject: [PATCH 2/4] Studio: a visible low-battery warning
 
 The notification was asked for in the same call that added its icon,
 which Windows often answers with the icon alone. It now follows the
@@ -596,7 +596,7 @@ index e6b35c4..084c027 100644
 From 9dfd73247258484991476b8756c1671fe0e01711 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:38:19 +0000
-Subject: [PATCH 3/3] Studio: the low-battery window in Studio's look
+Subject: [PATCH 3/4] Studio: the low-battery window in Studio's look
 
 Near-black (NAV) with a thin border and a Razer-green edge down the left,
 the battery glyph in green, "LOW BATTERY" in small letter-spaced
@@ -709,6 +709,179 @@ index ea8ac30..3da4d7e 100644
                  }
              }
          }
+-- 
+2.43.0
+
+From 64bba954d448e0e34fddbcfc8cb4e346b8375fa2 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Wed, 25 Nov 2026 22:51:48 +0000
+Subject: [PATCH 4/4] Studio: a one-line low-battery window; the Windows
+ notification optional
+
+The warning window shrinks to one line (300 x 44): the green edge, the
+battery glyph, the device in bold capitals and the charge in green.
+
+The Windows notification is drawn by Windows and can't take Studio's
+look, so it is now optional and off by default (Settings > System tray,
+"Also show a Windows notification"), with a shorter text and the
+normal icon.
+---
+ studio/app/src/settings.rs    |  4 +++
+ studio/app/src/shell.rs       |  4 +--
+ studio/app/src/ui/app.rs      | 52 +++++++++++++++--------------------
+ studio/app/src/ui/settings.rs |  5 ++++
+ 4 files changed, 33 insertions(+), 32 deletions(-)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index f035641..4b55d62 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -59,6 +59,9 @@ pub struct Settings {
+     pub low_battery_popup: bool,
+     /// How long that window stays, in seconds.
+     pub low_battery_popup_seconds: u16,
++    /// Whether a low battery is also announced as a Windows notification
++    /// (drawn by Windows; off by default, the window covers it).
++    pub low_battery_system_notification: bool,
+ }
+ 
+ impl Default for Settings {
+@@ -82,6 +85,7 @@ impl Default for Settings {
+             low_battery_rearm_at: 25,
+             low_battery_popup: true,
+             low_battery_popup_seconds: 10,
++            low_battery_system_notification: false,
+         }
+     }
+ }
+diff --git a/studio/app/src/shell.rs b/studio/app/src/shell.rs
+index a168a35..3a739ca 100644
+--- a/studio/app/src/shell.rs
++++ b/studio/app/src/shell.rs
+@@ -239,7 +239,7 @@ impl Tray {
+ #[cfg(windows)]
+ pub fn notify(title: &str, text: &str) {
+     use windows_sys::Win32::UI::Shell::{
+-        Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_TIP, NIIF_LARGE_ICON, NIIF_WARNING, NIM_ADD, NIM_DELETE,
++        Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_TIP, NIIF_WARNING, NIM_ADD, NIM_DELETE,
+         NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4,
+     };
+     use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, LoadIconW, HWND_MESSAGE, IDI_WARNING};
+@@ -287,7 +287,7 @@ pub fn notify(title: &str, text: &str) {
+                 data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
+                 Shell_NotifyIconW(NIM_SETVERSION, &data);
+                 data.uFlags = NIF_INFO;
+-                data.dwInfoFlags = NIIF_WARNING | NIIF_LARGE_ICON;
++                data.dwInfoFlags = NIIF_WARNING;
+                 copy(&mut data.szInfoTitle, &title);
+                 copy(&mut data.szInfo, &text);
+                 Shell_NotifyIconW(NIM_MODIFY, &data);
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index 3da4d7e..f4a9551 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -331,9 +331,9 @@ impl eframe::App for App {
+ impl App {
+     /// Keep the selection pointing at something that exists, and edits current.
+     /// The low-battery warning window: always on top at the bottom centre of
+-    /// the main display, until its time is up or it is clicked. Studio's own
+-    /// look: near-black, a Razer-green edge, the device in heavy capitals and
+-    /// the charge in green.
++    /// the main display, until its time is up or it is clicked. One line in
++    /// Studio's look: near-black, a Razer-green edge, the battery glyph, the
++    /// device in capitals and the charge in green.
+     fn show_popup(&mut self, ctx: &egui::Context) {
+         use egui::{Align, Frame, Layout, Margin, RichText, Sense, Stroke};
+ 
+@@ -346,7 +346,7 @@ impl App {
+             return;
+         }
+         ctx.request_repaint_after(until - now);
+-        let size = egui::vec2(400.0, 84.0);
++        let size = egui::vec2(300.0, 44.0);
+         let mut builder = egui::ViewportBuilder::default()
+             .with_title(tf("{} battery low", &[&name]))
+             .with_decorations(false)
+@@ -363,35 +363,27 @@ impl App {
+             let frame = Frame::new()
+                 .fill(NAV)
+                 .stroke(Stroke::new(1.0_f32, BORDER_HI))
+-                .inner_margin(Margin { left: 22, right: 20, top: 14, bottom: 14 });
++                .inner_margin(Margin { left: 16, right: 14, top: 0, bottom: 0 });
+             egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
+-                let whole = ui.max_rect().expand2(egui::vec2(22.0, 14.0));
++                let whole = ui.max_rect().expand2(egui::vec2(16.0, 0.0));
+                 // The Razer-green edge down the left side.
+-                let edge = egui::Rect::from_min_size(whole.min, egui::vec2(4.0, whole.height()));
++                let edge = egui::Rect::from_min_size(whole.min, egui::vec2(3.0, whole.height()));
+                 ui.painter().rect_filled(edge, egui::CornerRadius::ZERO, ACCENT);
+                 let click = ui.interact(whole, ui.id().with("dismiss"), Sense::click());
+                 ui.horizontal_centered(|ui| {
+-                    ui.label(RichText::new(icon::BATTERY).font(theme::icon_font(26.0)).color(ACCENT));
+-                    ui.add_space(10.0);
+-                    ui.vertical(|ui| {
+-                        ui.label(
+-                            RichText::new(t("Low battery").to_uppercase())
+-                                .font(theme::bold(11.0))
+-                                .color(TEXT_DIM)
+-                                .extra_letter_spacing(1.4),
+-                        );
+-                        ui.add(
+-                            egui::Label::new(
+-                                RichText::new(name.to_uppercase())
+-                                    .font(theme::heavy(18.0))
+-                                    .color(TEXT)
+-                                    .extra_letter_spacing(0.8),
+-                            )
+-                            .truncate(),
+-                        );
+-                    });
++                    ui.label(RichText::new(icon::BATTERY).font(theme::icon_font(18.0)).color(ACCENT));
++                    ui.add_space(6.0);
++                    ui.add(
++                        egui::Label::new(
++                            RichText::new(name.to_uppercase())
++                                .font(theme::bold(12.5))
++                                .color(TEXT)
++                                .extra_letter_spacing(0.8),
++                        )
++                        .truncate(),
++                    );
+                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+-                        ui.label(RichText::new(format!("{percent}%")).font(theme::heavy(30.0)).color(ACCENT));
++                        ui.label(RichText::new(format!("{percent}%")).font(theme::heavy(16.0)).color(ACCENT));
+                     });
+                 });
+                 dismissed |= click.clicked();
+@@ -431,9 +423,9 @@ impl App {
+             if !settings.low_battery_warning || charging || percent >= settings.low_battery_rearm_at {
+                 self.tray_warned.remove(&device.serial);
+             } else if percent <= settings.low_battery_warn_at && self.tray_warned.insert(device.serial.clone()) {
+-                let title = tf("{} battery low", &[&name]);
+-                let text = tf("{}% left. Charge it soon.", &[&percent]);
+-                shell::notify(&title, &text);
++                if settings.low_battery_system_notification {
++                    shell::notify(&tf("{} battery low", &[&name]), &tf("{}% left", &[&percent]));
++                }
+                 if settings.low_battery_popup {
+                     let seconds = u64::from(settings.low_battery_popup_seconds.clamp(2, 600));
+                     let until = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+diff --git a/studio/app/src/ui/settings.rs b/studio/app/src/ui/settings.rs
+index 084c027..aa5b756 100644
+--- a/studio/app/src/ui/settings.rs
++++ b/studio/app/src/ui/settings.rs
+@@ -86,6 +86,11 @@ fn tray(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
+                 app.settings.low_battery_popup = popup;
+                 app.save_settings();
+             }
++            let mut system = app.settings.low_battery_system_notification;
++            if widgets::toggle_row(ui, t("Also show a Windows notification"), t("Drawn by Windows, in its own style."), &mut system) {
++                app.settings.low_battery_system_notification = system;
++                app.save_settings();
++            }
+             if app.settings.low_battery_popup {
+                 let mut seconds = f64::from(app.settings.low_battery_popup_seconds);
+                 let mut changed = false;
 -- 
 2.43.0
 
