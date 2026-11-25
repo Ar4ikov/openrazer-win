@@ -26,6 +26,8 @@ jobs:
           fetch-depth: 0
       - name: Apply the patches
         shell: bash
+        # The repository's top folder: the studio job runs from studio/.
+        working-directory: ${{ github.workspace }}
         run: |
           git config user.name "fork build"
           git config user.email "fork-build@localhost"
@@ -94,6 +96,8 @@ jobs:
           fetch-depth: 0
       - name: Apply the patches
         shell: bash
+        # The repository's top folder: the studio job runs from studio/.
+        working-directory: ${{ github.workspace }}
         run: |
           git config user.name "fork build"
           git config user.email "fork-build@localhost"
