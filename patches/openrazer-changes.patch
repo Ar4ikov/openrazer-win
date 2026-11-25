@@ -1,7 +1,7 @@
 From 2cdac55c30f1dd8eedf8b3f38f82dfea879ffda9 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 19:14:12 +0000
-Subject: [PATCH 1/2] Studio: devices and batteries in the tray, tray names,
+Subject: [PATCH 1/3] Studio: devices and batteries in the tray, tray names,
  low-battery warning
 
 The tray icon's tooltip lists each device on its own line with its
@@ -352,7 +352,7 @@ index 5aa8445..e6b35c4 100644
 From 9d696b3d591c7ce7b09ae0d4f6a9baa44c15fb94 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:18:33 +0000
-Subject: [PATCH 2/2] Studio: a visible low-battery warning
+Subject: [PATCH 2/3] Studio: a visible low-battery warning
 
 The notification was asked for in the same call that added its icon,
 which Windows often answers with the icon alone. It now follows the
@@ -590,6 +590,125 @@ index e6b35c4..084c027 100644
          }
      });
  }
+-- 
+2.43.0
+
+From 9dfd73247258484991476b8756c1671fe0e01711 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Wed, 25 Nov 2026 22:38:19 +0000
+Subject: [PATCH 3/3] Studio: the low-battery window in Studio's look
+
+Near-black (NAV) with a thin border and a Razer-green edge down the left,
+the battery glyph in green, "LOW BATTERY" in small letter-spaced
+capitals over the device in heavy capitals, and the charge large in
+green on the right. A click still closes it.
+---
+ studio/app/src/ui/app.rs | 61 ++++++++++++++++++++++++++++++----------
+ 1 file changed, 46 insertions(+), 15 deletions(-)
+
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index ea8ac30..3da4d7e 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -93,8 +93,8 @@ pub struct App {
+     tray_lines: Vec<String>,
+     /// Devices whose low battery has been announced in this discharge.
+     tray_warned: HashSet<String>,
+-    /// The low-battery warning window on screen: title, text, until when.
+-    popup: Option<(String, String, std::time::Instant)>,
++    /// The low-battery warning window on screen: device, charge, until when.
++    popup: Option<(String, u8, std::time::Instant)>,
+     capture: Option<Capture>,
+     /// The library macro the screenshot hook opened, so it is opened once.
+     macros_opened: Option<usize>,
+@@ -331,9 +331,13 @@ impl eframe::App for App {
+ impl App {
+     /// Keep the selection pointing at something that exists, and edits current.
+     /// The low-battery warning window: always on top at the bottom centre of
+-    /// the main display, until its time is up or it is clicked.
++    /// the main display, until its time is up or it is clicked. Studio's own
++    /// look: near-black, a Razer-green edge, the device in heavy capitals and
++    /// the charge in green.
+     fn show_popup(&mut self, ctx: &egui::Context) {
+-        let Some((title, text, until)) = self.popup.clone() else {
++        use egui::{Align, Frame, Layout, Margin, RichText, Sense, Stroke};
++
++        let Some((name, percent, until)) = self.popup.clone() else {
+             return;
+         };
+         let now = std::time::Instant::now();
+@@ -342,9 +346,9 @@ impl App {
+             return;
+         }
+         ctx.request_repaint_after(until - now);
+-        let size = egui::vec2(380.0, 96.0);
++        let size = egui::vec2(400.0, 84.0);
+         let mut builder = egui::ViewportBuilder::default()
+-            .with_title(title.clone())
++            .with_title(tf("{} battery low", &[&name]))
+             .with_decorations(false)
+             .with_always_on_top()
+             .with_resizable(false)
+@@ -356,15 +360,42 @@ impl App {
+         }
+         let mut dismissed = false;
+         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("low-battery-warning"), builder, |ctx, _| {
+-            egui::CentralPanel::default()
+-                .frame(egui::Frame::window(&ctx.style()).inner_margin(16.0))
+-                .show(ctx, |ui| {
+-                    let click = ui.interact(ui.max_rect(), ui.id().with("dismiss"), egui::Sense::click());
+-                    ui.heading(&title);
+-                    ui.label(&text);
+-                    ui.weak(t("Click to dismiss."));
+-                    dismissed |= click.clicked();
++            let frame = Frame::new()
++                .fill(NAV)
++                .stroke(Stroke::new(1.0_f32, BORDER_HI))
++                .inner_margin(Margin { left: 22, right: 20, top: 14, bottom: 14 });
++            egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
++                let whole = ui.max_rect().expand2(egui::vec2(22.0, 14.0));
++                // The Razer-green edge down the left side.
++                let edge = egui::Rect::from_min_size(whole.min, egui::vec2(4.0, whole.height()));
++                ui.painter().rect_filled(edge, egui::CornerRadius::ZERO, ACCENT);
++                let click = ui.interact(whole, ui.id().with("dismiss"), Sense::click());
++                ui.horizontal_centered(|ui| {
++                    ui.label(RichText::new(icon::BATTERY).font(theme::icon_font(26.0)).color(ACCENT));
++                    ui.add_space(10.0);
++                    ui.vertical(|ui| {
++                        ui.label(
++                            RichText::new(t("Low battery").to_uppercase())
++                                .font(theme::bold(11.0))
++                                .color(TEXT_DIM)
++                                .extra_letter_spacing(1.4),
++                        );
++                        ui.add(
++                            egui::Label::new(
++                                RichText::new(name.to_uppercase())
++                                    .font(theme::heavy(18.0))
++                                    .color(TEXT)
++                                    .extra_letter_spacing(0.8),
++                            )
++                            .truncate(),
++                        );
++                    });
++                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
++                        ui.label(RichText::new(format!("{percent}%")).font(theme::heavy(30.0)).color(ACCENT));
++                    });
+                 });
++                dismissed |= click.clicked();
++            });
+         });
+         if dismissed {
+             self.popup = None;
+@@ -406,7 +437,7 @@ impl App {
+                 if settings.low_battery_popup {
+                     let seconds = u64::from(settings.low_battery_popup_seconds.clamp(2, 600));
+                     let until = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+-                    self.popup = Some((title, text, until));
++                    self.popup = Some((name.clone(), percent, until));
+                 }
+             }
+         }
 -- 
 2.43.0
 
