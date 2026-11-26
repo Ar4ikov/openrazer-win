@@ -398,7 +398,7 @@ Windows 把每个接口暴露为独立的 HID 集合，因此移植版会打开�
  {"op": "send"}]
 ```
 
-616 条不同的配方覆盖全部 284 个 USB 设备。`openrazer_win/devices/recipes.py` 在运行时解释它们。
+637 条不同的配方覆盖全部 286 个 USB 设备。`openrazer_win/devices/recipes.py` 在运行时解释它们。
 跟进新的上游版本意味着重跑转译器，而不是重写 Python。
 
 **设备数据库**也来自同一处：`tools/extract_device_db.py` 在把仅限 Linux 的依赖
@@ -411,7 +411,7 @@ Windows 把每个接口暴露为独立的 HID 集合，因此移植版会打开�
 
 | 类别 | 设备 |
 |---|---:|
-| 鼠标 | 121 |
+| 鼠标 | 123 |
 | 键盘与笔记本 | 120 |
 | 配件（扩展坞、支架、ARGB 控制器） | 18 |
 | 耳机（Kraken 协议） | 8 |
@@ -422,14 +422,14 @@ Windows 把每个接口暴露为独立的 HID 集合，因此移植版会打开�
 | 鼠标垫 | 8 |
 | 键区 | 7 |
 | eGPU 外接显卡坞 | 2 |
-| **总计** | **292** |
+| **总计** | **294** |
 
 **DeathAdder 3.5G** 及其 Black 版本需要先安装驱动程序：它们通过 Windows 自带驱动不会发送的 USB
 请求接收设置。`openrazer-win driver install`（或 Studio 主页上的“安装驱动程序”）会在 UAC 确认后为它们
 安装 libusb-win32 过滤驱动：从 GitHub 下载 libusb-win32 1.4.0.2，按预先固定的哈希校验每个文件，
 并且只作用于这两款鼠标，鼠标仍可正常使用。`openrazer-win driver remove` 可将其移除。
 
-其中 173 个具有可寻址矩阵；95 个可报告电量。完整的可搜索列表在
+其中 175 个具有可寻址矩阵；97 个可报告电量。完整的可搜索列表在
 [文档站点](https://ar4ikov.github.io/openrazer-win/#devices)，或运行
 `openrazer-win supported`。
 
@@ -648,7 +648,7 @@ pip install -e ".[dev]"
 
 pytest                              # 418 项测试，无需硬件
 ruff check .
-python tools/simulate_devices.py    # 全部 284 个 USB 设备的每一项能力
+python tools/simulate_devices.py    # 全部 286 个 USB 设备的每一项能力
 ```
 
 OpenRazer Studio 及其安装程序是 `studio/` 下的一个 Rust 工作区——

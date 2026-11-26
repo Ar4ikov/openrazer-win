@@ -82,6 +82,22 @@ def test_arithmetic_expression():
     assert evaluate({'k': 'raw', 'expr': '(stop_col - start_col) + 1'}, env) == 8
 
 
+def test_c_logical_operators_are_translated():
+    env = Environment()
+    env.response = RazerReport()
+    in_range = {'k': 'raw',
+                'expr': 'response.arguments[0] >= 0x01 && response.arguments[0] <= 0x05'}
+    for profile, expected in ((0, 0), (1, 1), (5, 1), (6, 0)):
+        env.response.set_argument(0, profile)
+        assert evaluate(in_range, env) == expected
+    either = {'k': 'raw', 'expr': 'response.arguments[0] == 7 || !response.arguments[1]'}
+    env.response.set_argument(0, 7)
+    env.response.set_argument(1, 1)
+    assert evaluate(either, env) == 1
+    env.response.set_argument(0, 0)
+    assert evaluate(either, env) == 0
+
+
 def test_ternary_expression():
     env = Environment(b'', channel=2, sz=17)
     env.response = RazerReport()
@@ -197,6 +213,100 @@ def test_for_each_row_rejects_reversed_columns():
 def test_unknown_op_is_reported():
     with pytest.raises(RecipeError, match='unknown recipe op'):
         collect([{'op': 'teleport'}])
+
+
+ACTIVE_PROFILE = {'op': 'build', 'target': 'request', 'fn': 'razer_chroma_misc_get_active_profile',
+                  'args': []}
+IN_RANGE = {'k': 'raw', 'expr': 'response.arguments[0] >= 0x01 && response.arguments[0] <= 0x05'}
+CHOSEN = [{'op': 'let', 'name': 'chosen', 'value': {'k': 'response', 'offset': 0}}]
+FALLBACK = [{'op': 'let', 'name': 'chosen', 'value': {'k': 'const', 'value': 1}}]
+
+
+def test_a_send_inside_a_test_takes_then_when_it_works_and_holds():
+    def send(report, want_response):
+        reply = RazerReport.unpack(report.pack())
+        reply.arguments[0] = 4
+        return reply
+
+    env = execute([ACTIVE_PROFILE, {'op': 'if_sent', 'test': IN_RANGE,
+                                    'then': CHOSEN, 'else': FALLBACK}], Environment(), send)
+    assert env.vars['chosen'] == 4
+    assert env.sent == 1
+
+
+def test_a_send_inside_a_test_that_fails_takes_else():
+    from openrazer_win.protocol.report import RazerReportError
+
+    def send(report, want_response):
+        raise RazerReportError('device replied not supported', status=0x05)
+
+    env = execute([ACTIVE_PROFILE, {'op': 'if_sent', 'test': IN_RANGE,
+                                    'then': CHOSEN, 'else': FALLBACK}], Environment(), send)
+    assert env.vars['chosen'] == 1
+
+
+# -- driver helpers carried as Python ----------------------------------------
+
+def stage_reply(active, stages, data_size=0x26):
+    """What a mouse answers to "get DPI stages": 7 bytes a stage from argument 3."""
+    def send(report, want_response):
+        sent.append(report)
+        reply = RazerReport.unpack(report.pack())
+        if report.command_id == 0x86:
+            reply.data_size = data_size
+            reply.set_argument(1, active)
+            reply.set_argument(2, len(stages))
+            for index, (x, y) in enumerate(stages):
+                reply.set_arguments(3 + 7 * index, bytes((index + 1, x >> 8, x & 0xFF,
+                                                          y >> 8, y & 0xFF, 0, 0)))
+        return reply
+    sent: list = []
+    return send, sent
+
+
+def test_the_active_stage_is_rewritten_and_the_others_kept():
+    send, sent = stage_reply(2, [(400, 400), (800, 800), (1600, 1600)])
+    env = Environment(variable_storage=3)
+    execute([{'op': 'native', 'fn': 'razer_set_active_stage_dpi',
+              'args': [{'k': 'const', 'value': 2400}, {'k': 'const', 'value': 2600}]}], env, send)
+    read, write = sent
+    assert (read.command_class, read.command_id, read.arguments[0]) == (0x04, 0x86, 3)
+    assert (write.command_class, write.command_id) == (0x04, 0x06)
+    assert read.transaction_id == write.transaction_id == 0x1F
+    assert list(write.arguments[:3]) == [3, 2, 3]         # storage, active stage, count
+    stages = [((write.arguments[4 + 7 * i] << 8) | write.arguments[5 + 7 * i],
+               (write.arguments[6 + 7 * i] << 8) | write.arguments[7 + 7 * i]) for i in range(3)]
+    assert stages == [(400, 400), (2400, 2600), (1600, 1600)]
+
+
+@pytest.mark.parametrize('active, stages, data_size', [
+    (0, [(800, 800)], 0x26),                    # no stage is active
+    (3, [(800, 800), (1600, 1600)], 0x26),      # past the last stage
+    (1, [(800, 800)] * 5, 0x10),                # a reply too short for its stages
+])
+def test_a_stage_list_that_does_not_add_up_is_left_alone(active, stages, data_size):
+    send, sent = stage_reply(active, stages, data_size)
+    with pytest.raises(RecipeError):
+        execute([{'op': 'native', 'fn': 'razer_set_active_stage_dpi',
+                  'args': [{'k': 'const', 'value': 2400}, {'k': 'const', 'value': 2400}]}],
+                Environment(variable_storage=1), send)
+    assert [r.command_id for r in sent] == [0x86]          # nothing written
+
+
+def test_no_more_stages_are_read_than_the_driver_keeps(recipes):
+    from openrazer_win.devices.recipes import MAX_DPI_STAGES
+    assert MAX_DPI_STAGES == recipes.constants['RAZER_MOUSE_MAX_DPI_STAGES']
+    send, sent = stage_reply(1, [(800, 800)] * 5)
+    execute([{'op': 'native', 'fn': 'razer_set_active_stage_dpi',
+              'args': [{'k': 'const', 'value': 900}, {'k': 'const', 'value': 900}]}],
+            Environment(variable_storage=1), send)
+    assert sent[1].arguments[2] == MAX_DPI_STAGES
+
+
+def test_a_native_helper_must_exist_and_counts_as_doing_something():
+    with pytest.raises(RecipeError, match='no Python implementation'):
+        collect([{'op': 'native', 'fn': 'razer_teleport', 'args': []}])
+    assert is_actionable([{'op': 'native', 'fn': 'razer_set_active_stage_dpi', 'args': []}])
 
 
 # -- table lookups ----------------------------------------------------------

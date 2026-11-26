@@ -403,7 +403,7 @@ against every known product id, and emits a small program per (attribute, device
  {"op": "send"}]
 ```
 
-616 distinct recipes cover all 284 USB devices. `openrazer_win/devices/recipes.py` interprets them at
+637 distinct recipes cover all 286 USB devices. `openrazer_win/devices/recipes.py` interprets them at
 runtime. Tracking a new upstream release means re-running the transpiler, not rewriting Python.
 
 **The device database** comes from the same place: `tools/extract_device_db.py` imports upstream's
@@ -416,7 +416,7 @@ to have a backlight it does not have.
 
 | Category | Devices |
 |---|---:|
-| Mice | 121 |
+| Mice | 123 |
 | Keyboards & laptops | 120 |
 | Accessories (docks, stands, ARGB controllers) | 18 |
 | Headsets (Kraken protocol) | 8 |
@@ -427,7 +427,7 @@ to have a backlight it does not have.
 | Mousepads | 8 |
 | Keypads | 7 |
 | eGPU enclosures | 2 |
-| **Total** | **292** |
+| **Total** | **294** |
 
 The **DeathAdder 3.5G** and its Black edition need a driver first. They take their settings
 through a USB request that Windows' own driver will not send, so `openrazer-win driver install`
@@ -436,7 +436,7 @@ a UAC prompt. It downloads libusb-win32 1.4.0.2 from its GitHub release, checks 
 a pinned hash, and filters these two mice only; the mouse keeps working as a mouse.
 `openrazer-win driver remove` takes it off again.
 
-173 have addressable matrices; 95 report battery level. The full searchable list is
+175 have addressable matrices; 97 report battery level. The full searchable list is
 [on the documentation site](https://ar4ikov.github.io/openrazer-win/#devices), or run
 `openrazer-win supported`.
 
@@ -655,7 +655,7 @@ pip install -e ".[dev]"
 
 pytest                              # 418 tests, no hardware needed
 ruff check .
-python tools/simulate_devices.py    # every capability of all 284 USB devices
+python tools/simulate_devices.py    # every capability of all 286 USB devices
 ```
 
 OpenRazer Studio and its installer are a Rust workspace in `studio/` — `core` (the daemon's

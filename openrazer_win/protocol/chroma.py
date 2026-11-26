@@ -728,6 +728,22 @@ def misc_get_scroll_mode() -> RazerReport:
     return report
 
 
+def misc_set_scroll_mode2(scroll_mode: int) -> RazerReport:
+    """The newer scroll mode command (Basilisk V4 Pro): the mode in argument 1."""
+    report = get_razer_report(0x02, 0x30, 0x02)
+    report.set_argument(1, scroll_mode)
+    return report
+
+
+def misc_get_scroll_mode2() -> RazerReport:
+    return get_razer_report(0x02, 0xB0, 0x02)
+
+
+def misc_get_active_profile() -> RazerReport:
+    """The active onboard profile, 1-5, comes back in argument 0."""
+    return get_razer_report(0x05, 0x84, 0x01)
+
+
 def misc_set_scroll_acceleration(acceleration: bool) -> RazerReport:
     report = get_razer_report(0x02, 0x16, 0x02)
     report.set_argument(0, VarStore.VARSTORE)

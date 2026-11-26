@@ -205,3 +205,147 @@ def test_the_retail_deathadder_2000_is_the_other_one_under_a_second_id(recipes, 
     for attribute in ('read:dpi', 'write:dpi', 'write:poll_rate', 'write:logo_matrix_effect_on',
                       'write:scroll_matrix_effect_breath', 'write:logo_led_brightness'):
         assert recipes.lookup('mouse', attribute, 0x005F) == recipes.lookup('mouse', attribute, 0x004F)
+
+
+# -- the Basilisk V4 Pro (openrazer-win#31, openrazer/openrazer#2975) ---------
+
+BASILISK_V4_PRO = (0x00E2, 0x00E3)
+
+
+@pytest.fixture(params=BASILISK_V4_PRO, ids=['wired', 'receiver'])
+def basilisk_v4_pro(request, persistence):
+    device, fake = make_device(request.param, persistence)
+    fake.state.onboard['active'] = 3         # not profile 1, so VARSTORE would show
+    _ = device.serial
+    fake.state.sent.clear()
+    yield device, fake
+    device.close()
+
+
+@pytest.mark.parametrize('pid', BASILISK_V4_PRO)
+def test_the_basilisk_v4_pro_is_reached_on_its_fourth_interface(pid, recipes):
+    from openrazer_win.core.transport import select_control_interface
+    from openrazer_win.hid.base import HidDeviceInfo
+    assert recipes.transport_params('mouse', pid)['index'] == 3
+
+    def collection(interface, usage_page, usage, feature_length):
+        return HidDeviceInfo(path='mi_{0:02x}'.format(interface), vendor_id=0x1532,
+                             product_id=pid, interface=interface, usage_page=usage_page,
+                             usage=usage, feature_length=feature_length)
+    # What Windows lists for the receiver: the control report sits on a
+    # consumer-control collection of interface 3.
+    control = collection(3, 0x000C, 0x0001, 91)
+    found = select_control_interface([collection(0, 0x0001, 0x0002, 0),
+                                      collection(1, 0x0001, 0x0006, 0), control], 3)
+    assert found is control
+
+
+def test_every_basilisk_v4_pro_report_carries_transaction_id_0x1f(basilisk_v4_pro):
+    device, fake = basilisk_v4_pro
+    device.set_static(255, 0, 0)
+    device.set_wave(1, zone='logo')
+    device.set_spectrum(zone='scroll')
+    device.set_brightness(40)
+    device.get_brightness('scroll')
+    device.set_dpi(1600)
+    device.get_dpi()
+    device.get_dpi_stages()
+    device.set_poll_rate(8000)
+    device.get_poll_rate()
+    device.set_scroll_mode(2)
+    device.set_scroll_acceleration(True)
+    device.get_scroll_smart_reel()
+    device.get_battery_level()
+    device.set_idle_time(300)
+    device.set_custom_frame([(0, 0, b'\x00\xff\x00' * 7)])
+    assert fake.sent_reports
+    assert {report.transaction_id for report in fake.sent_reports} == {0x1F}
+
+
+def test_the_basilisk_v4_pro_lights_its_active_profile(basilisk_v4_pro):
+    device, fake = basilisk_v4_pro
+    device.set_static(1, 2, 3)
+    query, effect = fake.sent_reports
+    assert (query.command_class, query.command_id) == (0x05, 0x84)
+    assert (effect.command_class, effect.command_id) == (0x0F, 0x02)
+    # The active profile, every LED, static, then the colour.
+    assert list(effect.arguments[:9]) == [0x03, 0x00, 0x01, 0x00, 0x00, 0x01, 1, 2, 3]
+    device.set_brightness(50, zone='logo')
+    assert list(last_report(fake, 0x0F, 0x04).arguments[:3]) == [0x03, 0x04, 0x80]
+    device.set_scroll_smart_reel(True)
+    assert list(last_report(fake, 0x02, 0x17).arguments[:2]) == [0x03, 0x01]
+
+
+def test_the_basilisk_v4_pro_underglow_is_its_backlight(basilisk_v4_pro):
+    device, fake = basilisk_v4_pro
+    device.set_brightness(100)
+    assert list(last_report(fake, 0x0F, 0x04).arguments[:3]) == [0x03, 0x0A, 0xFF]
+    assert device.get_brightness() == 100.0
+
+
+def test_a_basilisk_v4_pro_that_cannot_say_its_profile_falls_back_to_varstore(basilisk_v4_pro):
+    device, fake = basilisk_v4_pro
+    fake.state.onboard['active'] = None      # answered "not supported"
+    device.set_static(1, 2, 3)
+    assert last_report(fake, 0x0F, 0x02).arguments[0] == 0x01
+
+
+def test_the_basilisk_v4_pro_dpi_is_its_active_stage(basilisk_v4_pro):
+    device, fake = basilisk_v4_pro
+    fake.state.dpi_stages = (2, [(400, 400), (800, 800), (1600, 1600)])
+    device.set_dpi(2400, 2600)
+    # The plain DPI command does nothing on this mouse, so it is never sent.
+    assert not [r for r in fake.sent_reports if (r.command_class, r.command_id) == (0x04, 0x05)]
+    read = last_report(fake, 0x04, 0x86)
+    assert read.arguments[0] == 0x03
+    assert fake.state.dpi_stages == (2, [(400, 400), (2400, 2600), (1600, 1600)])
+    assert last_report(fake, 0x04, 0x06).arguments[0] == 0x03
+    assert device.get_dpi() == (2400, 2600)
+    assert device.get_dpi_stages() == (2, [(400, 400), (2400, 2600), (1600, 1600)])
+
+
+def test_the_basilisk_v4_pro_wheel_has_three_modes(basilisk_v4_pro):
+    device, fake = basilisk_v4_pro
+    for mode in (2, 1, 0):
+        device.set_scroll_mode(mode)
+        report = last_report(fake, 0x02, 0x30)
+        assert list(report.arguments[:2]) == [0x00, mode]
+        assert device.get_scroll_mode() == mode
+    # Not the Basilisk V3's commands, which this one does not take.
+    assert not [r for r in fake.sent_reports if (r.command_class, r.command_id) in
+                ((0x02, 0x14), (0x02, 0x94))]
+
+
+def test_the_basilisk_v4_pro_polls_up_to_8000_hz(basilisk_v4_pro):
+    device, fake = basilisk_v4_pro
+    assert device.supported_poll_rates() == [125, 500, 1000, 2000, 4000, 8000]
+    device.set_poll_rate(8000)
+    writes = [r for r in fake.sent_reports if (r.command_class, r.command_id) == (0x00, 0x40)]
+    # Sent twice, as the driver does: to argument 0x00 and then 0x01.
+    assert [list(r.arguments[:2]) for r in writes] == [[0x00, 0x01], [0x01, 0x01]]
+    assert device.get_poll_rate() == 8000
+
+
+def test_what_the_basilisk_v4_pro_offers(basilisk_v4_pro):
+    device, _fake = basilisk_v4_pro
+    caps = device.capabilities()
+    assert sorted(caps['zones']) == ['backlight', 'logo', 'scroll']
+    assert all(zone['brightness'] for zone in caps['zones'].values())
+    assert caps['matrix_dimensions'] == [1, 7]
+    assert caps['max_dpi'] == 50000
+    for feature in ('dpi', 'dpi_stages', 'poll_rate', 'battery', 'idle_time', 'scroll_mode',
+                    'custom_frame', 'software_effects'):
+        assert caps[feature] is True, feature
+
+
+def test_other_mice_keep_their_scroll_wheel_commands(persistence):
+    device, fake = make_device(0x00AA, persistence)       # Basilisk V3 Pro (Wired)
+    try:
+        device.set_scroll_mode(1)
+        assert last_report(fake, 0x02, 0x14).arguments[0] == 0x01
+        device.set_scroll_acceleration(True)
+        # VARSTORE, and no profile question for it: that is the V4 Pro's alone.
+        assert not [r for r in fake.sent_reports if (r.command_class, r.command_id) == (0x05, 0x84)]
+        assert list(last_report(fake, 0x02, 0x16).arguments[:2]) == [0x01, 0x01]
+    finally:
+        device.close()

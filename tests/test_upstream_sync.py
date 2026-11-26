@@ -14,8 +14,8 @@ import sys
 
 import pytest
 
-from openrazer_win.devices.recipes import Environment, execute
-from openrazer_win.protocol.report import RazerReport
+from openrazer_win.devices.recipes import Environment, RecipeTable, execute
+from openrazer_win.protocol.report import RazerReport, RazerReportError
 
 from .conftest import make_device
 
@@ -23,7 +23,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'tools'))
 import transpile_recipes as tr  # noqa: E402
 
 CONSTS = {'USB_DEVICE_ID_RAZER_PAD': 0x0F26, 'USB_DEVICE_ID_RAZER_DOCK': 0x00A4,
-          'USB_DEVICE_ID_RAZER_OTHER': 0x0C00, 'VARSTORE': 0x01, 'ZERO_LED': 0x00}
+          'USB_DEVICE_ID_RAZER_OTHER': 0x0C00, 'USB_DEVICE_ID_RAZER_V4_PRO': 0x00E2,
+          'VARSTORE': 0x01, 'ZERO_LED': 0x00, 'BACKLIGHT_LED': 0x05, 'UNDERGLOW_LED': 0x0A}
 
 
 def record(steps, env=None):
@@ -134,6 +135,156 @@ def test_a_helper_does_not_leak_its_locals():
     record(steps, env)
     assert env.vars['mode'] == 7
     assert 'scratch' not in env.vars
+
+
+# -- openrazer/openrazer#2975's helpers (the Basilisk V4 Pro) -----------------
+
+VARIABLE_STORAGE = """
+    struct razer_report request = {0};
+    struct razer_report response = {0};
+
+    switch (device->usb_pid) {
+    case USB_DEVICE_ID_RAZER_V4_PRO:
+        request = get_razer_report(0x05, 0x84, 0x01);
+        request.transaction_id.id = 0x1f;
+
+        if (razer_send_payload(device, &request, &response) == 0 &&
+            response.arguments[0] >= 0x01 && response.arguments[0] <= 0x05)
+            return response.arguments[0];
+        break;
+    }
+
+    return VARSTORE;
+"""
+
+STATIC_ON_THE_ACTIVE_PROFILE = """
+    request = razer_chroma_extended_matrix_effect_static(razer_get_variable_storage(device), ZERO_LED, (struct razer_rgb*)&buf[0]);
+    request.transaction_id.id = 0x1f;
+    err = razer_send_payload(device, &request, &response);
+"""
+
+
+def answering(profile=None, error=False):
+    """A sender whose active-profile query answers `profile`, or fails."""
+    sent = []
+
+    def send(report, want_response):
+        sent.append(report)
+        if (report.command_class, report.command_id) == (0x05, 0x84):
+            if error:
+                raise RazerReportError('device replied not supported', status=0x05)
+            reply = RazerReport.unpack(report.pack())
+            reply.arguments[0] = profile
+            return reply
+        return RazerReport.unpack(report.pack()) if want_response else None
+    return send, sent
+
+
+@pytest.mark.parametrize('profile, error, storage', [
+    (3, False, 3),          # what the mouse says
+    (9, False, 0x01),       # out of range: VARSTORE
+    (0, False, 0x01),
+    (None, True, 0x01),     # the query failed: VARSTORE, and the effect still goes
+])
+def test_the_active_profile_is_asked_for_and_checked(profile, error, storage):
+    steps = emit(STATIC_ON_THE_ACTIVE_PROFILE, 0x00E2,
+                 {'razer_get_variable_storage': VARIABLE_STORAGE})
+    assert steps[0]['op'] == 'call'
+    send, sent = answering(profile or 0, error)
+    execute(steps, Environment(b'\xff\x00\x00'), send)
+    assert [(r.command_class, r.command_id) for r in sent] == [(0x05, 0x84), (0x0F, 0x02)]
+    assert sent[1].arguments[0] == storage
+    assert list(sent[1].arguments[6:9]) == [0xFF, 0x00, 0x00]
+
+
+def test_a_helper_that_only_returns_a_constant_is_folded_away():
+    # Every other mouse: razer_get_variable_storage() is VARSTORE, asked of nobody.
+    steps = emit(STATIC_ON_THE_ACTIVE_PROFILE, 0x0C00,
+                 {'razer_get_variable_storage': VARIABLE_STORAGE})
+    assert [step['op'] for step in steps] == ['build', 'txid', 'send']
+    assert steps[0]['args'][0] == {'k': 'const', 'value': 0x01}
+    send, sent = answering(3)
+    execute(steps, Environment(b'\x01\x02\x03'), send)
+    assert [(r.command_class, r.command_id) for r in sent] == [(0x0F, 0x02)]
+
+
+def test_a_native_helper_is_called_after_the_values_it_needs():
+    body = """
+    dpi_x = (buf[0] << 8) | (buf[1] & 0xFF);
+    dpi_y = (count == 4) ? ((buf[2] << 8) | (buf[3] & 0xFF)) : dpi_x;
+    err = razer_set_active_stage_dpi(device, dpi_x, dpi_y);
+    if (err)
+        return err;
+    return count;
+    """
+    native = """
+    unsigned char variable_storage = razer_get_variable_storage(device);
+    request = razer_chroma_misc_get_dpi_stages(variable_storage);
+    """
+    helpers = {'razer_get_variable_storage': VARIABLE_STORAGE,
+               'razer_set_active_stage_dpi': native}
+    steps = emit(body, 0x00E2, helpers)
+    assert [step['op'] for step in steps] == ['let', 'let', 'call', 'native', 'stop']
+    assert steps[2]['result'] == 'variable_storage'
+    assert steps[3] == {'op': 'native', 'fn': 'razer_set_active_stage_dpi',
+                        'args': [{'k': 'var', 'name': 'dpi_x'}, {'k': 'var', 'name': 'dpi_y'}]}
+    # The parenthesised test of the ternary is a ternary, not a raw C string.
+    assert steps[1]['value']['k'] == 'ternary'
+    env = Environment(b'\x03\x20')
+    execute(steps[:2], env, answering()[0])
+    assert (env.vars['dpi_x'], env.vars['dpi_y']) == (800, 800)
+    env = Environment(b'\x03\x20\x06\x40')
+    execute(steps[:2], env, answering()[0])
+    assert (env.vars['dpi_x'], env.vars['dpi_y']) == (800, 1600)
+    # Elsewhere the value it needs is a constant, bound without asking.
+    other = emit(body, 0x0C00, helpers)
+    assert other[2] == {'op': 'let', 'name': 'variable_storage',
+                        'value': {'k': 'const', 'value': 0x01}}
+
+
+def test_a_constant_picked_by_product_id_binds_a_wrapper_per_device():
+    helper = """
+    struct razer_mouse_device *device = dev_get_drvdata(dev);
+
+    if (device->usb_pid == USB_DEVICE_ID_RAZER_V4_PRO ||
+        device->usb_pid == USB_DEVICE_ID_RAZER_OTHER)
+        return UNDERGLOW_LED;
+
+    return BACKLIGHT_LED;
+    """
+    nodes = tr.parse_block(tr.strip_comments(helper))
+    folded = tr.fold_pid_helper(nodes, {0x00E2, 0x0C00, 0x0F26}, CONSTS, set(), 'mouse', [])
+    assert folded == (0x05, {'00e2': 0x0A, '0c00': 0x0A})
+    wrapper = tr.parse_block('return razer_attr_write_led_brightness(dev, attr, buf, count, '
+                             'razer_backlight_led_id(dev));')
+    assert tr.find_delegation(wrapper, CONSTS, {'razer_backlight_led_id': None}) == (
+        'razer_attr_write_led_brightness', [{'helper': 'razer_backlight_led_id'}])
+    assert tr.find_delegation(wrapper, CONSTS) is None
+
+
+def test_a_wrapper_bound_per_device_resolves_for_each_one():
+    pool = [[{'op': 'build', 'target': 'request', 'fn': 'get_razer_report',
+              'args': [{'k': 'const', 'value': 0x0F}, {'k': 'const', 'value': 0x04},
+                       {'k': 'var', 'name': 'led_id'}]}, {'op': 'send'}]]
+    table = RecipeTable({'pool': pool, 'drivers': {'mouse': {
+        'write:led_brightness': {'default': 0, 'pids': {}},
+        'write:backlight_led_brightness': {'alias': 'write:led_brightness',
+                                           'bind': {'led_id': 0x05},
+                                           'pid_bind': {'00e2': {'led_id': 0x0A}}},
+        'write:outer': {'alias': 'write:backlight_led_brightness', 'bind': {'led_id': 0x01}},
+    }}})
+    assert table.lookup('mouse', 'write:backlight_led_brightness', 0x00E2)[1] == {'led_id': 0x0A}
+    assert table.lookup('mouse', 'write:backlight_led_brightness', 0x0099)[1] == {'led_id': 0x05}
+    # An outer wrapper's own binding still wins over the inner one's.
+    assert table.lookup('mouse', 'write:outer', 0x00E2)[1] == {'led_id': 0x01}
+
+
+def test_the_shipped_underglow_is_its_own_led_on_the_v4_pro_only(recipes):
+    for attribute in ('write:backlight_led_brightness', 'read:backlight_led_brightness',
+                      'write:backlight_matrix_effect_static'):
+        assert recipes.lookup('mouse', attribute, 0x00E2)[1]['led_id'] == 0x0A
+        assert recipes.lookup('mouse', attribute, 0x00E3)[1]['led_id'] == 0x0A
+        assert recipes.lookup('mouse', attribute, 0x0099)[1]['led_id'] == 0x05
 
 
 # -- the shipped recipes, through the device API ----------------------------
