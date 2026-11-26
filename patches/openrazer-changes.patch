@@ -1,7 +1,7 @@
 From 2cdac55c30f1dd8eedf8b3f38f82dfea879ffda9 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 19:14:12 +0000
-Subject: [PATCH 1/5] Studio: devices and batteries in the tray, tray names,
+Subject: [PATCH 1/6] Studio: devices and batteries in the tray, tray names,
  low-battery warning
 
 The tray icon's tooltip lists each device on its own line with its
@@ -352,7 +352,7 @@ index 5aa8445..e6b35c4 100644
 From 9d696b3d591c7ce7b09ae0d4f6a9baa44c15fb94 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:18:33 +0000
-Subject: [PATCH 2/5] Studio: a visible low-battery warning
+Subject: [PATCH 2/6] Studio: a visible low-battery warning
 
 The notification was asked for in the same call that added its icon,
 which Windows often answers with the icon alone. It now follows the
@@ -596,7 +596,7 @@ index e6b35c4..084c027 100644
 From 9dfd73247258484991476b8756c1671fe0e01711 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:38:19 +0000
-Subject: [PATCH 3/5] Studio: the low-battery window in Studio's look
+Subject: [PATCH 3/6] Studio: the low-battery window in Studio's look
 
 Near-black (NAV) with a thin border and a Razer-green edge down the left,
 the battery glyph in green, "LOW BATTERY" in small letter-spaced
@@ -715,7 +715,7 @@ index ea8ac30..3da4d7e 100644
 From 64bba954d448e0e34fddbcfc8cb4e346b8375fa2 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:51:48 +0000
-Subject: [PATCH 4/5] Studio: a one-line low-battery window; the Windows
+Subject: [PATCH 4/6] Studio: a one-line low-battery window; the Windows
  notification optional
 
 The warning window shrinks to one line (300 x 44): the green edge, the
@@ -888,7 +888,7 @@ index 084c027..aa5b756 100644
 From f3a1240c7096a129e352c70c00c19bf74c75f216 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Thu, 26 Nov 2026 09:06:06 +0000
-Subject: [PATCH 5/5] Studio: the tray keeps a device's last battery while it
+Subject: [PATCH 5/6] Studio: the tray keeps a device's last battery while it
  is offline
 
 The tray showed a device's battery only while a reading was in the
@@ -1028,6 +1028,175 @@ index f4a9551..a82dbf2 100644
      fn sync(&mut self, snap: &Snapshot) {
          if self.selected.as_ref().is_none_or(|s| !snap.devices.iter().any(|d| &d.serial == s)) {
              self.selected = snap.devices.first().map(|d| d.serial.clone());
+-- 
+2.43.0
+
+From 0ad6717cba9c795f5904eb3a98381ed7be79dfa3 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Thu, 26 Nov 2026 09:11:30 +0000
+Subject: [PATCH 6/6] Studio: show or hide a device in the tray, and forget an
+ offline one
+
+Settings > System tray gets a switch per device, connected or offline,
+that leaves it out of the tray (its low-battery warning still comes),
+and lists remembered devices that aren't connected, each with a Forget
+button that drops its last reading, tray name and hidden flag, so it
+leaves the tray until it connects again.
+---
+ studio/app/src/settings.rs    |  5 +++-
+ studio/app/src/ui/app.rs      | 19 ++++++++-----
+ studio/app/src/ui/settings.rs | 51 ++++++++++++++++++++++++++++++++---
+ 3 files changed, 65 insertions(+), 10 deletions(-)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index 32fbd87..879ab19 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -6,7 +6,7 @@ use crate::layout::Variant;
+ use openrazer_studio_core::i18n::Lang;
+ use serde::{Deserialize, Serialize};
+ use serde_json::Value;
+-use std::collections::BTreeMap;
++use std::collections::{BTreeMap, BTreeSet};
+ use std::path::PathBuf;
+ 
+ /// "When `exe` is in front, `serial` shows `profile`."
+@@ -65,6 +65,8 @@ pub struct Settings {
+     /// Each device's last battery reading, by serial, so the tray still shows
+     /// it while the device is off, asleep or unplugged, however long for.
+     pub last_battery: BTreeMap<String, LastBattery>,
++    /// Devices left out of the tray, by serial (their warnings still come).
++    pub tray_hidden: BTreeSet<String>,
+ }
+ 
+ /// A device's last battery reading, as the tray shows it while it is offline.
+@@ -99,6 +101,7 @@ impl Default for Settings {
+             low_battery_popup_seconds: 10,
+             low_battery_system_notification: false,
+             last_battery: BTreeMap::new(),
++            tray_hidden: BTreeSet::new(),
+         }
+     }
+ }
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index a82dbf2..fe183cf 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -405,8 +405,12 @@ impl App {
+         let mut readings: Vec<(String, crate::settings::LastBattery)> = Vec::new();
+         for device in &snap.devices {
+             let name = self.tray_name(&device.serial, &device.name);
++            let hidden = self.settings.tray_hidden.contains(&device.serial);
+             let detail = snap.details.get(&device.serial);
+             let Some(level) = detail.and_then(|d| d.battery) else {
++                if hidden {
++                    continue;
++                }
+                 lines.push(match self.settings.last_battery.get(&device.serial) {
+                     Some(last) => format!("{name}: {}% ({offline})", last.percent),
+                     None => name,
+@@ -419,12 +423,15 @@ impl App {
+                 device.serial.clone(),
+                 crate::settings::LastBattery { name: device.name.clone(), percent },
+             ));
+-            lines.push(if charging {
+-                format!("{name}: {percent}% ({})", t("charging"))
+-            } else {
+-                format!("{name}: {percent}%")
+-            });
++            if !hidden {
++                lines.push(if charging {
++                    format!("{name}: {percent}% ({})", t("charging"))
++                } else {
++                    format!("{name}: {percent}%")
++                });
++            }
+ 
++            // A device left out of the tray still warns of a low battery.
+             let settings = &self.settings;
+             if !settings.low_battery_warning || charging || percent >= settings.low_battery_rearm_at {
+                 self.tray_warned.remove(&device.serial);
+@@ -441,7 +448,7 @@ impl App {
+         }
+         // Devices seen before but not listed now: their last reading, offline.
+         for (serial, last) in &self.settings.last_battery {
+-            if !snap.devices.iter().any(|device| &device.serial == serial) {
++            if !self.settings.tray_hidden.contains(serial) && !snap.devices.iter().any(|device| &device.serial == serial) {
+                 let name = self.tray_name(serial, &last.name);
+                 lines.push(format!("{name}: {}% ({offline})", last.percent));
+             }
+diff --git a/studio/app/src/ui/settings.rs b/studio/app/src/ui/settings.rs
+index aa5b756..afe358b 100644
+--- a/studio/app/src/ui/settings.rs
++++ b/studio/app/src/ui/settings.rs
+@@ -6,7 +6,7 @@ use egui::RichText;
+ use openrazer_studio_core::i18n::Lang;
+ use openrazer_studio_core::install::{self, COMMUNITY, REPOSITORY};
+ use openrazer_studio_core::theme::{self, icon, ACCENT, TEXT_DIM, TEXT_FAINT};
+-use openrazer_studio_core::widgets::{self, Button};
++use openrazer_studio_core::widgets::{self, Button, IconButton};
+ use openrazer_studio_core::{t, tf};
+ 
+ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+@@ -51,11 +51,56 @@ fn tray(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
+     widgets::panel(ui, t("System tray"), |ui| {
+         for device in &snap.devices {
+             let mut changed = false;
++            let mut shown = !app.settings.tray_hidden.contains(&device.serial);
+             let name = app.settings.tray_names.entry(device.serial.clone()).or_default();
+-            widgets::row(ui, &device.name, t("Its name in the tray. Empty: the device's own name."), |ui| {
+-                changed = widgets::text_field(ui, name, &device.name, 200.0).changed();
++            widgets::row(ui, &device.name, t("Its name in the tray. Empty: the device's own name. The switch shows or hides it there."), |ui| {
++                changed |= widgets::toggle(ui, &mut shown).changed();
++                changed |= widgets::text_field(ui, name, &device.name, 200.0).changed();
+             });
+             if changed {
++                if shown {
++                    app.settings.tray_hidden.remove(&device.serial);
++                } else {
++                    app.settings.tray_hidden.insert(device.serial.clone());
++                }
++                app.save_settings();
++            }
++            widgets::divider(ui);
++        }
++        // Devices remembered but not connected now: show or hide, or forget.
++        let offline: Vec<(String, String, u8)> = app
++            .settings
++            .last_battery
++            .iter()
++            .filter(|(serial, _)| !snap.devices.iter().any(|device| &&device.serial == serial))
++            .map(|(serial, last)| (serial.clone(), last.name.clone(), last.percent))
++            .collect();
++        for (serial, own_name, percent) in offline {
++            let label = app
++                .settings
++                .tray_names
++                .get(&serial)
++                .map(|name| name.trim().to_owned())
++                .filter(|name| !name.is_empty())
++                .unwrap_or_else(|| own_name.clone());
++            let mut shown = !app.settings.tray_hidden.contains(&serial);
++            let mut toggled = false;
++            let mut forget = false;
++            widgets::row(ui, &label, &tf("Offline, last {}%. Forget removes it from the tray until it connects again.", &[&percent]), |ui| {
++                toggled = widgets::toggle(ui, &mut shown).changed();
++                forget = ui.add(IconButton::new(icon::DELETE, t("Forget")).danger().size(26.0)).clicked();
++            });
++            if forget {
++                app.settings.last_battery.remove(&serial);
++                app.settings.tray_names.remove(&serial);
++                app.settings.tray_hidden.remove(&serial);
++                app.save_settings();
++            } else if toggled {
++                if shown {
++                    app.settings.tray_hidden.remove(&serial);
++                } else {
++                    app.settings.tray_hidden.insert(serial.clone());
++                }
+                 app.save_settings();
+             }
+             widgets::divider(ui);
 -- 
 2.43.0
 
