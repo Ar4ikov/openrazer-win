@@ -6,6 +6,52 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.12] - 2026-11-26
+
+### Added
+
+- **Razer Basilisk V4 Pro** (1532:00E2 on the cable, 00E3 on its receiver),
+  from an upstream pull request tested on the mouse
+  ([openrazer/openrazer#2975](https://github.com/openrazer/openrazer/pull/2975)):
+  lighting of the logo, the wheel and the five underglow LEDs, DPI and DPI
+  stages, polling up to 8000 Hz, battery, sleep timer and low-battery
+  warning. This mouse ignores the plain DPI command, so DPI is set by
+  rewriting the active stage of its active onboard profile
+  ([#31](https://github.com/Ar4ikov/openrazer-win/issues/31)).
+- **Razer BlackShark V2 Pro (2023)** on its 2.4 GHz receiver (1532:0555):
+  battery and charging, auto-off, sidetone and its level, Do Not Disturb
+  and the mute button's state. Its equalizer and receiver light are not
+  worked out yet ([#32](https://github.com/Ar4ikov/openrazer-win/issues/32)).
+- **Studio remembers each device's last battery level.** A mouse switched
+  off behind its receiver reports 0%; Studio shows the last real reading
+  instead, faint, with when it was taken. The tray icon's tooltip lists
+  every device's battery
+  ([#30](https://github.com/Ar4ikov/openrazer-win/issues/30)).
+
+### Changed
+
+- **Device data follows upstream OpenRazer master (ea55c1b)**: also the
+  Orochi V2 2026, Viper V4 Pro, BlackWidow V4 Low-profile TKL HyperSpeed,
+  Huntsman V3 HE Magnetic TKL 8KHz and Raptor 27 165Hz, the DeathAdder V3
+  Pro's 8000 Hz polling, and the retail DeathAdder 2000 from upstream itself
+  now. 295 devices.
+- **A macro key or side button bound to one key or one shortcut is held**
+  while you hold it, and repeats at Windows' own keyboard delay and rate:
+  volume up keeps going, as in Synapse. A quick press types it once
+  ([#29](https://github.com/Ar4ikov/openrazer-win/issues/29)).
+- **Six polling rates are a list** in Studio rather than six squeezed
+  buttons.
+
+### Fixed
+
+- **DeathAdder 3.5G on Studio's home page**: *All lights off* switches off
+  its lights, which have no brightness; the DPI list offers its own steps;
+  its effect reads *On* from the start
+  ([#29](https://github.com/Ar4ikov/openrazer-win/issues/29)).
+- **Uninstalling Studio takes libusb-win32's filter driver off** the mice it
+  was put on, after asking for administrator rights, and deletes the files
+  it downloaded ([#29](https://github.com/Ar4ikov/openrazer-win/issues/29)).
+
 ## [1.6.11] - 2026-11-24
 
 ### Added
