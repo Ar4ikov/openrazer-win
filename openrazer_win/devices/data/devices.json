@@ -11286,6 +11286,32 @@
    "transport": "hid"
   },
   {
+   "class_name": "RazerBlackSharkV2Pro2023Wireless",
+   "name": "Razer BlackShark V2 Pro (2023, Wireless)",
+   "vid": 5426,
+   "pid": 1365,
+   "type": "headset",
+   "has_matrix": false,
+   "matrix_dims": null,
+   "dedicated_macro_keys": false,
+   "driver_mode": false,
+   "wave_dirs": [
+    1,
+    2
+   ],
+   "poll_rates": null,
+   "dpi_max": null,
+   "image": null,
+   "methods": [
+    "get_device_type_headset",
+    "get_battery",
+    "is_charging",
+    "get_idle_time",
+    "set_idle_time"
+   ],
+   "transport": "hid"
+  },
+  {
    "class_name": "RazerKrakenKittyV2",
    "name": "Razer Kraken Kitty V2",
    "vid": 5426,

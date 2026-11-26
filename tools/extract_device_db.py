@@ -259,6 +259,28 @@ LOCAL_DEVICES = [
         'transport': 'hid',
     },
     {
+        # The 2023 BlackShark V2 Pro's 2.4 GHz receiver, "Razer BlackShark V2
+        # Pro 2.4": the V2 HyperSpeed's registers in the Barracuda X's "PA"
+        # frames, after openrazer/openrazer#2862 (not merged).  It is in
+        # openrazer_win/protocol/blackshark_v2pro.py.  No picture, as for the
+        # Barracuda X: none could be checked from here.
+        'class_name': 'RazerBlackSharkV2Pro2023Wireless',
+        'name': 'Razer BlackShark V2 Pro (2023, Wireless)',
+        'vid': 0x1532,
+        'pid': 0x0555,
+        'type': 'headset',
+        'has_matrix': False,
+        'matrix_dims': None,
+        'dedicated_macro_keys': False,
+        'driver_mode': False,
+        'wave_dirs': [1, 2],
+        'poll_rates': None,
+        'dpi_max': None,
+        'image': None,
+        'methods': BLACKSHARK_METHODS,
+        'transport': 'hid',
+    },
+    {
         # The 2022 model's USB-C receiver, which calls itself "Razer Barracuda
         # X 2.4".  A tunnel to the headset rather than a control report, worked
         # out by leag/razer-barracuda; upstream has nothing for it.  It is in

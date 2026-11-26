@@ -287,6 +287,55 @@ ONBOARD_COMMANDS = frozenset(((0x02, 0x84), (0x02, 0x8C), (0x02, 0x0C),
                               (0x06, 0x8B), (0x06, 0x8C), (0x06, 0x88), (0x06, 0x89)))
 
 
+class FakeBlackSharkV2Pro:
+    """A BlackShark V2 Pro (2023)'s receiver and the headset behind it (issue #32).
+
+    "PA" frames in, "PI" replies out, written through the interrupt endpoint.
+    The headset answers only once the receiver is in remote mode, as the real
+    one does after its link dozes.
+    """
+
+    def __init__(self):
+        from ..protocol import blackshark_v2pro as v2pro
+        self.protocol = v2pro
+        #: Off means the receiver is there and the headset does not answer it.
+        self.on = True
+        self.remote = False
+        self.registers = {0x21: 64, 0x2A: 0, 0x2C: 15, 0x18: 0, 0x19: 7, 0x27: 0, 0x55: 0,
+                          0x02: 2}
+        self.frames: list = []
+
+    def write(self, data: bytes) -> list:
+        v2pro = self.protocol
+        self.frames.append(bytes(data))
+        if data[5:7] != b'PA':
+            return []
+        family, length = data[7], data[9]
+        body = data[10:10 + length]
+        if family == v2pro.FAMILY_RECEIVER and body[:1] == bytes((v2pro.REMOTE_MODE,)):
+            self.remote = body[1:2] == b'\x01'
+            return []
+        if family != v2pro.FAMILY_HEADSET or not self.remote or not self.on:
+            return []
+        register = body[0]
+        if register & v2pro.WRITE:
+            count = body[2]
+            if count:
+                self.registers[register & ~v2pro.WRITE] = body[3]
+            return [self._reply(register, b'\x00')]
+        value = self.registers.get(register)
+        if value is None:
+            return []
+        return [self._reply(register, bytes((value,)) if register != 0x02 else bytes((2, 6)) + bytes(22))]
+
+    @staticmethod
+    def _reply(register: int, data: bytes) -> bytes:
+        body = bytes((0x00, register, 0x01, len(data))) + data
+        report = bytes((0x02, 13 + len(data), 0x50, 0x49, 0x08, 0xCE, 0x2D, 0x83, 0x03, 0x00,
+                        len(body) - 1)) + body
+        return report.ljust(64, b'\x00')
+
+
 class FakeBarracuda:
     """A Barracuda X's receiver, the headset behind it, and their way of answering."""
 
@@ -650,12 +699,13 @@ class FakeRazerDevice:
         #: guess, as nobody has read the descriptor out on Windows.
         v3x = product_id in blackshark_v3x.PRODUCT_IDS
         tunnel = product_id in barracuda.PRODUCT_IDS
+        v2pro = product_id == 0x0555
         self.headset_info = HidDeviceInfo(
             path=self.info.path + '&headset',
             vendor_id=vendor_id,
             product_id=product_id,
             interface=0 if v3x else blackshark.INTERFACE,
-            usage_page=0xFF82 if v3x else 0xFF00 if tunnel else blackshark.USAGE_PAGE,
+            usage_page=0xFF82 if v3x else 0xFF00 if (tunnel or v2pro) else blackshark.USAGE_PAGE,
             usage=0x0001,
             feature_length=blackshark_v3x.REPORT_SIZE if v3x else 0,
             input_length=blackshark.REPORT_SIZE,
@@ -678,6 +728,8 @@ class FakeRazerDevice:
                                           product_id in blackshark_v3x.WIRED_PRODUCT_IDS)
         elif headset and tunnel:
             self.headset = FakeBarracuda(self.input_reports.put)
+        elif headset and v2pro:
+            self.headset = FakeBlackSharkV2Pro()
         elif headset:
             self.headset = FakeHeadset(self.state.serial,
                                        product_id == blackshark.PID_WIRED)

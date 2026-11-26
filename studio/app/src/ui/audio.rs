@@ -87,11 +87,14 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) 
         receiver(app, ui, device, &audio, &leds);
         return;
     }
-    widgets::columns(ui, 0.46, TWO_COLUMNS, |ui, column| {
+    // A headset whose equalizer is not worked out (the BlackShark V2 Pro,
+    // issue #32) has the rest without an empty column beside it.
+    let has_equalizer = !names(&caps["audio"]["equalizer_presets"]).is_empty();
+    widgets::columns(ui, if has_equalizer { 0.46 } else { 1.0 }, if has_equalizer { TWO_COLUMNS } else { f32::INFINITY }, |ui, column| {
         if column == 0 {
             microphone(app, ui, device, &audio, &caps);
             receiver(app, ui, device, &audio, &leds);
-        } else {
+        } else if has_equalizer {
             equalizer(app, ui, device, &caps);
         }
     });
@@ -273,7 +276,8 @@ pub fn quick(app: &mut App, ui: &mut egui::Ui, device: &Device, detail: &Detail,
     let presets = names(&caps["audio"]["equalizer_presets"]);
     let current = if audio["equalizer"] == true { audio["equalizer_preset"].as_str().unwrap_or_default() } else { "" };
     let mut chosen = None;
-    widgets::row(ui, t("Equalizer"), "", |ui| {
+    if !presets.is_empty() {
+        widgets::row(ui, t("Equalizer"), "", |ui| {
         widgets::select(ui, ("home-eq", &serial), if current.is_empty() { t("Off") } else { preset_label(current) }, ui.available_width(), |ui| {
             for preset in &presets {
                 if widgets::option(ui, preset == current, preset_label(preset)).clicked() {
@@ -281,7 +285,8 @@ pub fn quick(app: &mut App, ui: &mut egui::Ui, device: &Device, detail: &Detail,
                 }
             }
         });
-    });
+        });
+    }
     if let Some(preset) = chosen {
         app.send(call(&serial, "set_equalizer_preset", json!(preset)));
     }

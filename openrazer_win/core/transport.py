@@ -289,17 +289,49 @@ class Transport:
 
 
 class ReportChannel:
-    """Requests sent as output reports and answered with input reports."""
+    """Requests sent as output reports and answered with input reports.
 
-    def __init__(self, backend, info: HidDeviceInfo, timeout: float = 0.8):
+    `interrupt`: write to the interrupt endpoint (``WriteFile``) rather than
+    with a SET_REPORT on the control pipe -- what a device with an OUT endpoint
+    of its own, like the BlackShark V2 Pro's receiver, is spoken to with.
+    """
+
+    def __init__(self, backend, info: HidDeviceInfo, timeout: float = 0.8,
+                 interrupt: bool = False):
         self._backend = backend
         self.info = info
         self.timeout = timeout
+        self.interrupt = interrupt
         self._lock = threading.Lock()
         self._writer = None
         self._reader = None
 
-    def exchange(self, report: bytes, accept) -> Optional[bytes]:
+    def _open(self) -> None:
+        if self._reader is None:
+            # Before anything is sent: input reports are only queued
+            # for a handle that is already open.
+            self._reader = self._backend.open_input(self.info)
+        if self._writer is None:
+            self._writer = self._backend.open(self.info)
+
+    def _put(self, report: bytes) -> None:
+        padded = report.ljust(self.info.output_length, b'\x00')
+        if self.interrupt:
+            self._writer.write_output_report(padded)
+        else:
+            self._writer.send_output_report(padded)
+
+    def send(self, report: bytes) -> None:
+        """Send `report` and wait for nothing."""
+        with self._lock:
+            try:
+                self._open()
+                self._put(report)
+            except (HidError, OSError):
+                self._close()
+                raise
+
+    def exchange(self, report: bytes, accept, timeout: Optional[float] = None) -> Optional[bytes]:
         """Send `report` and return the first input report `accept` takes.
 
         ``None`` if none came in time.  Windows keeps input reports for every
@@ -309,14 +341,9 @@ class ReportChannel:
         """
         with self._lock:
             try:
-                if self._reader is None:
-                    # Before anything is sent: input reports are only queued
-                    # for a handle that is already open.
-                    self._reader = self._backend.open_input(self.info)
-                if self._writer is None:
-                    self._writer = self._backend.open(self.info)
-                self._writer.send_output_report(report.ljust(self.info.output_length, b'\x00'))
-                deadline = time.monotonic() + self.timeout
+                self._open()
+                self._put(report)
+                deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
                 while True:
                     left = deadline - time.monotonic()
                     if left <= 0:

@@ -4,7 +4,7 @@ from __future__ import annotations
 from ..devices.database import get_database
 from ..devices.recipes import get_recipes
 from ..hid.fake import FakeHidBackend, FakeLibusb, FakeRazerDevice
-from ..protocol import barracuda, blackshark, blackshark_v3x
+from ..protocol import barracuda, blackshark, blackshark_v2pro, blackshark_v3x
 
 #: Two keyboards, a mouse, a mousepad and a headset that has settings rather
 #: than lights -- enough to exercise every code path.  The Huntsman V2 Tenkeyless
@@ -29,5 +29,5 @@ def build_demo_backend(product_ids=DEMO_DEVICES, filtered=()) -> FakeHidBackend:
             # Keyboards expose the vendor collection their macro keys report on.
             keys=meta.driver == 'kbd',
             headset=(pid in blackshark.PRODUCT_IDS or pid in blackshark_v3x.PRODUCT_IDS
-                     or pid in barracuda.PRODUCT_IDS)))
+                     or pid in barracuda.PRODUCT_IDS or pid in blackshark_v2pro.PRODUCT_IDS)))
     return backend

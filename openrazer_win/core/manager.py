@@ -10,10 +10,11 @@ from ..devices.database import DeviceDatabase, DeviceInfo, get_database
 from ..devices.recipes import RecipeTable, get_recipes
 from ..hid import get_backend
 from .. import usbfilter
-from ..protocol import barracuda, blackshark, blackshark_v3x, razer_ble
+from ..protocol import barracuda, blackshark, blackshark_v2pro, blackshark_v3x, razer_ble
 from ..protocol.report import VENDOR_ID
 from .barracuda import BarracudaDevice
 from .blackshark import BlackSharkDevice
+from .blackshark_v2pro import BlackSharkV2ProDevice
 from .blackshark_v3x import BlackSharkV3XDevice
 from .deathadder35g import DeathAdder35GDevice
 from .device import RazerDevice
@@ -343,6 +344,8 @@ class DeviceManager:
             return self._build_kraken(meta, infos)
         if meta.pid in blackshark.PRODUCT_IDS:
             return self._build_blackshark(meta, infos)
+        if meta.pid in blackshark_v2pro.PRODUCT_IDS:
+            return self._build_blackshark_v2pro(meta, infos)
         if meta.pid in blackshark_v3x.PRODUCT_IDS:
             return self._build_blackshark_v3x(meta, infos)
         if meta.pid in barracuda.PRODUCT_IDS:
@@ -379,6 +382,21 @@ class DeviceManager:
                            meta.name, '; '.join(info.describe() for info in infos))
             return None
         return BlackSharkDevice(meta, ReportChannel(self.backend, control), self.persistence)
+
+    def _build_blackshark_v2pro(self, meta: DeviceInfo,
+                                infos: list) -> Optional[BlackSharkV2ProDevice]:
+        """The BlackShark V2 Pro's receiver: the vendor collection with 64-byte
+        reports both ways, written to through its interrupt endpoint."""
+        control = next((info for info in infos
+                        if info.usage_page == blackshark_v2pro.USAGE_PAGE
+                        and info.output_length >= blackshark_v2pro.REPORT_SIZE
+                        and info.input_length >= blackshark_v2pro.REPORT_SIZE), None)
+        if control is None:
+            logger.warning('%s is attached but exposes no 64-byte vendor report: %s',
+                           meta.name, '; '.join(info.describe() for info in infos))
+            return None
+        return BlackSharkV2ProDevice(
+            meta, ReportChannel(self.backend, control, interrupt=True), self.persistence)
 
     def _build_blackshark_v3x(self, meta: DeviceInfo,
                               infos: list) -> Optional[BlackSharkV3XDevice]:
