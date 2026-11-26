@@ -380,7 +380,22 @@ fn performance(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapsho
                     let rates: Vec<(i64, String)> = caps["supported_poll_rates"].as_array().map(|r| r.iter().filter_map(|v| v.as_i64()).map(|v| (v, format!("{v} Hz"))).collect()).unwrap_or_default();
                     let mut rate = edit.poll_rate.unwrap_or(0);
                     widgets::row(ui, t("Polling rate"), t("How often the mouse reports to the PC. Higher is smoother; on a wireless mouse it costs battery."), |ui| {
-                        if widgets::segmented(ui, &rates, &mut rate) {
+                        // Up to 8000 Hz there are six, which do not fit side by side.
+                        let changed = if rates.len() > 4 {
+                            let shown = rates.iter().find(|(v, _)| *v == rate).map_or("—".to_string(), |(_, label)| label.clone());
+                            let mut picked = None;
+                            widgets::select(ui, ("poll-rate", &serial), shown, 160.0, |ui| {
+                                for (value, label) in &rates {
+                                    if widgets::option(ui, *value == rate, label).clicked() {
+                                        picked = Some(*value);
+                                    }
+                                }
+                            });
+                            picked.filter(|p| *p != rate).inspect(|p| rate = *p).is_some()
+                        } else {
+                            widgets::segmented(ui, &rates, &mut rate)
+                        };
+                        if changed {
                             edit.poll_rate = Some(rate);
                             send.push(Command::Call { serial: serial.clone(), method: "set_poll_rate".into(), args: vec![json!(rate)], zone: None, then: Then::Performance });
                         }
