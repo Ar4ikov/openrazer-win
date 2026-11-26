@@ -270,6 +270,9 @@ pub fn uninstall(dir: &Path, removal: Removal, progress: &dyn Progress) -> Resul
     if taken > 0 {
         progress.note(tf("Took the Chroma DLL back from {} game(s)", &[&taken]));
     }
+    if let Some(note) = remove_usb_filter(dir) {
+        progress.note(note);
+    }
 
     progress.step(tf("Deleting {}…", &[&dir.display()]), 0.55);
     let manifest = Manifest::read(dir).unwrap_or_default();
@@ -341,6 +344,42 @@ fn take_back_chroma() -> usize {
         }
     }
     taken
+}
+
+/// Where `openrazer-win driver install` keeps libusb-win32's files, if it ran here.
+fn usb_filter_home() -> Option<PathBuf> {
+    let base = PathBuf::from(std::env::var_os("ProgramData")?).join("openrazer-win");
+    std::fs::read_dir(base).ok()?.flatten().map(|e| e.path()).find(|p| {
+        p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("libusb-win32-")) && p.join("install-filter.exe").is_file()
+    })
+}
+
+/// Take libusb-win32's filter off the DeathAdder 3.5G it was put on (issue
+/// #29), with the daemon's own command before it is deleted: with nothing left
+/// to talk to the mouse through it, the filter has no use. It asks for
+/// administrator rights; said no to, the filter stays and the note says how
+/// to take it off later.
+fn remove_usb_filter(dir: &Path) -> Option<String> {
+    usb_filter_home()?;
+    let cli = dir.join(DAEMON_EXE);
+    if !cli.is_file() {
+        return Some(t("libusb-win32's filter driver stays on the DeathAdder 3.5G: openrazer-win.exe was not there to take it off.").into());
+    }
+    let mut command = std::process::Command::new(cli);
+    command.args(["driver", "remove", "--purge"]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    match command.output() {
+        Ok(output) if output.status.success() => Some(t("Took libusb-win32's filter driver off the DeathAdder 3.5G").into()),
+        Ok(output) => {
+            let said = String::from_utf8_lossy(&output.stderr).trim().trim_start_matches("error:").trim().to_string();
+            Some(tf("libusb-win32's filter driver stays on the DeathAdder 3.5G ({}). Device Manager can take it off: the mouse's Properties, Driver, Roll back or Uninstall.", &[&said]))
+        }
+        Err(error) => Some(tf("libusb-win32's filter driver stays on the DeathAdder 3.5G ({}). Device Manager can take it off: the mouse's Properties, Driver, Roll back or Uninstall.", &[&error])),
+    }
 }
 
 /// Have Windows delete `file` once this process has exited.

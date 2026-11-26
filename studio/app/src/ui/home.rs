@@ -24,7 +24,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
             app.send(Command::Rescan);
         }
         if count > 0 {
-            let off = !app.settings.lights_before.is_empty();
+            let off = !app.settings.lights_before.is_empty() || !app.settings.effects_before.is_empty();
             let (glyph, text) = if off { (icon::BULB, t("Lights back on")) } else { (icon::POWER, t("All lights off")) };
             if ui.add(Button::secondary(text).icon(glyph).min_width(150.0)).clicked() {
                 lights(app, snap, off);
@@ -123,7 +123,8 @@ fn notices(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
 }
 
 /// Turn every light off by its brightness -- effects and colours stay as they
-/// are -- or put the brightness back.
+/// are -- or put the brightness back. A zone with no brightness that can be
+/// switched off is switched off, and back to the effect it had.
 fn lights(app: &mut App, snap: &Snapshot, back_on: bool) {
     if back_on {
         let before = std::mem::take(&mut app.settings.lights_before);
@@ -135,7 +136,35 @@ fn lights(app: &mut App, snap: &Snapshot, back_on: bool) {
                 }
             }
         }
+        let switched = std::mem::take(&mut app.settings.effects_before);
+        for (serial, zones) in switched {
+            for (zone, effect) in zones {
+                let zone_edit = app.edits.entry(serial.clone()).or_default().zones.entry(zone.clone()).or_default();
+                zone_edit.effect = effect;
+                let commands = effects::apply_commands(&serial, &zone, zone_edit, false);
+                for command in commands {
+                    app.send(command);
+                }
+            }
+        }
     } else {
+        for device in &snap.devices {
+            let Some(detail) = snap.details.get(&device.serial) else { continue };
+            let mut switched = std::collections::BTreeMap::new();
+            for zone in switch_zones(detail.caps.as_ref()) {
+                let zone_edit = app.edits.entry(device.serial.clone()).or_default().zones.entry(zone.clone()).or_default();
+                let effect = if zone_edit.effect.is_empty() { "on".to_string() } else { zone_edit.effect.clone() };
+                if effect == "none" {
+                    continue;
+                }
+                switched.insert(zone.clone(), effect);
+                zone_edit.effect = "none".into();
+                app.send(Command::Call { serial: device.serial.clone(), method: "set_none".into(), args: vec![], zone: Some(zone), then: Then::Lighting });
+            }
+            if !switched.is_empty() {
+                app.settings.effects_before.insert(device.serial.clone(), switched);
+            }
+        }
         for device in &snap.devices {
             let Some(detail) = snap.details.get(&device.serial) else { continue };
             let zones = brightness_zones(detail.caps.as_ref());
@@ -154,6 +183,13 @@ fn lights(app: &mut App, snap: &Snapshot, back_on: bool) {
         }
     }
     app.save_settings();
+}
+
+/// Zones with no brightness to turn down, that can be switched off instead.
+fn switch_zones(caps: Option<&serde_json::Value>) -> Vec<String> {
+    caps.and_then(|c| c["zones"].as_object())
+        .map(|z| z.iter().filter(|(_, v)| v["brightness"] != true && v["effects"].as_array().is_some_and(|e| e.iter().any(|e| e == "none"))).map(|(k, _)| k.clone()).collect())
+        .unwrap_or_default()
 }
 
 fn brightness_zones(caps: Option<&serde_json::Value>) -> Vec<String> {
@@ -219,9 +255,7 @@ fn card(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot, row:
                         app.open_device(&serial, None);
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if let Some(level) = detail.battery {
-                            super::widgets::battery(ui, level, detail.charging.unwrap_or(false));
-                        }
+                        super::widgets::battery_of(ui, &detail);
                     });
                 });
                 ui.horizontal(|ui| {
@@ -394,7 +428,10 @@ fn quick_settings(app: &mut App, ui: &mut egui::Ui, device: &Device, detail: &cr
                     }
                 }
                 None => {
-                    for preset in [400i64, 800, 1600, 3200] {
+                    // A mouse with fixed steps (the DeathAdder 3.5G) offers just those.
+                    let choices: Vec<i64> = caps["dpi_choices"].as_array().map(|c| c.iter().filter_map(serde_json::Value::as_i64).collect()).unwrap_or_default();
+                    let presets = if choices.is_empty() { vec![400i64, 800, 1600, 3200] } else { choices };
+                    for preset in presets {
                         if widgets::option(ui, preset == current, &preset.to_string()).clicked() {
                             edit.dpi = Some((preset, preset));
                             call = Some(Command::Call { serial: serial.clone(), method: "set_dpi".into(), args: vec![json!(preset), json!(preset)], zone: None, then: Then::Performance });
@@ -424,6 +461,19 @@ fn quick_settings(app: &mut App, ui: &mut egui::Ui, device: &Device, detail: &cr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lights_off_switches_off_what_has_no_brightness() {
+        // The DeathAdder 3.5G (issue #29): two lights that are on or off.
+        let caps = json!({ "zones": {
+            "logo": { "effects": ["none", "on"], "brightness": false },
+            "scroll": { "effects": ["none", "on"], "brightness": false },
+            "backlight": { "effects": ["none", "static"], "brightness": true },
+            "underglow": { "effects": ["static"], "brightness": false },
+        }});
+        assert_eq!(switch_zones(Some(&caps)), vec!["logo".to_string(), "scroll".to_string()]);
+        assert_eq!(brightness_zones(Some(&caps)), vec!["backlight".to_string()]);
+    }
 
     #[test]
     fn the_daemon_is_still_starting_until_its_first_look_is_done() {

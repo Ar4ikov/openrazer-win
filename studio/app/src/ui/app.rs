@@ -89,6 +89,8 @@ pub struct App {
     pub installed: Option<install::Installed>,
     pub started: Instant,
     tray_ok: bool,
+    /// What the tray icon's tooltip says now.
+    tray_tip: String,
     capture: Option<Capture>,
     /// The library macro the screenshot hook opened, so it is opened once.
     macros_opened: Option<usize>,
@@ -180,6 +182,7 @@ impl App {
             installed: install::installed(),
             started: Instant::now(),
             tray_ok,
+            tray_tip: String::new(),
             hide_frames: if background && tray_ok { 4 } else { 0 },
             capture,
             macros_opened: None,
@@ -266,6 +269,13 @@ impl App {
     }
 }
 
+/// Put `text` on the tray icon, if there is one.
+fn set_tray_tooltip(text: &str) {
+    if let Some(TrayIcon(tray)) = TRAY.lock().unwrap().as_ref() {
+        tray.set_tooltip(text);
+    }
+}
+
 fn quit() {
     drop(TRAY.lock().unwrap().take());
     std::process::exit(0);
@@ -285,6 +295,17 @@ impl eframe::App for App {
         let snap = self.shared.lock().unwrap().clone();
         self.sync(&snap);
         self.flush_pending(ctx);
+        // Worked out in the tray too: hovering the icon is how it is read there.
+        let batteries: Vec<(String, f64, bool)> = snap
+            .devices
+            .iter()
+            .filter_map(|d| snap.details.get(&d.serial).and_then(|x| x.battery.map(|level| (title(d, &snap), level, x.battery_seen.is_some()))))
+            .collect();
+        let tip = shell::tooltip(&batteries);
+        if tip != self.tray_tip {
+            set_tray_tooltip(&tip);
+            self.tray_tip = tip;
+        }
         // In the tray (or minimized) nothing is seen, so draw nothing: a page
         // that animates would otherwise keep asking for frames (issue #28).
         // Restoring the window brings a frame of its own.

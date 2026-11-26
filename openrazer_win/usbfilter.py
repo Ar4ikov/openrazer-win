@@ -23,6 +23,7 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import io
+import json
 import logging
 import os
 import platform
@@ -180,21 +181,55 @@ def install(pids: Iterable[int], fetch=None, run=None, home: Optional[str] = Non
     for pid in pids:
         _run_filter_tool(paths['install-filter.exe'], 'install', pid, run)
         done.append('filter on ' + hardware_id(pid))
+    _record(home, sorted(set(recorded_pids(home)) | set(pids)))
     return done
 
 
-def remove(pids: Iterable[int], run=None, home: Optional[str] = None) -> list:
-    """Take the filter off `pids`.  Needs administrator rights.  The files stay."""
-    arch = architecture()
-    tool = os.path.join(home or _home(), 'install-filter.exe')
-    if not os.path.exists(tool):
-        raise DriverError('{0} is missing; reinstall the driver first, or remove the filter '
-                          'with libusb-win32\'s own tools'.format(tool))
-    _check(tool, FILES[arch]['install-filter.exe'])
+def _record(home: str, pids: list) -> None:
+    with open(os.path.join(home, 'filtered.json'), 'w', encoding='utf-8') as handle:
+        json.dump({'pids': pids}, handle)
+
+
+def recorded_pids(home: Optional[str] = None) -> list:
+    """The product ids `install` has put the filter on, so it can come off unplugged ones too."""
+    try:
+        with open(os.path.join(home or _home(), 'filtered.json'), encoding='utf-8') as handle:
+            return sorted(int(pid) for pid in json.load(handle).get('pids', []))
+    except (OSError, ValueError, TypeError, AttributeError):
+        return []
+
+
+def installed_here(home: Optional[str] = None) -> bool:
+    """Whether `install` has run on this machine (its files are still kept)."""
+    return os.path.exists(os.path.join(home or _home(), 'install-filter.exe'))
+
+
+def remove(pids: Iterable[int], run=None, home: Optional[str] = None, purge: bool = False) -> list:
+    """Take the filter off `pids`.  Needs administrator rights.
+
+    ``libusb0.sys`` and ``libusb0.dll`` stay in System32: another program may
+    use them, and with no filter left they do nothing.  `purge` also deletes
+    the release's files kept here, as Studio's uninstall does.
+    """
+    home = home or _home()
+    pids = sorted(set(pids))
     done = []
-    for pid in sorted(set(pids)):
-        _run_filter_tool(tool, 'uninstall', pid, run)
-        done.append('filter off ' + hardware_id(pid))
+    if pids:
+        arch = architecture()
+        tool = os.path.join(home, 'install-filter.exe')
+        if not os.path.exists(tool):
+            raise DriverError('{0} is missing; reinstall the driver first, or remove the filter '
+                              'with libusb-win32\'s own tools'.format(tool))
+        _check(tool, FILES[arch]['install-filter.exe'])
+        for pid in pids:
+            _run_filter_tool(tool, 'uninstall', pid, run)
+            done.append('filter off ' + hardware_id(pid))
+        left = [pid for pid in recorded_pids(home) if pid not in pids]
+        if os.path.isdir(home):
+            _record(home, left)
+    if purge and os.path.isdir(home):
+        shutil.rmtree(home, ignore_errors=True)
+        done.append('deleted ' + home)
     return done
 
 

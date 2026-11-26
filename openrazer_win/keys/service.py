@@ -65,6 +65,47 @@ BRIGHTNESS_STEP = 10
 FN_MACRO_DEFAULTS = {'M1': 'KEY_F13', 'M2': 'KEY_F14', 'M3': 'KEY_F15', 'M4': 'KEY_F16'}
 
 
+def typematic() -> tuple:
+    """Windows' keyboard repeat: (delay before the first repeat, time between repeats), seconds.
+
+    What a key held on a keyboard does, from Control Panel's settings; a held
+    macro key or side button bound to one key repeats it the same way (issue #29).
+    """
+    delay, speed = 1, 31
+    if sys.platform == 'win32':
+        import ctypes
+        value = ctypes.c_uint()
+        user32 = ctypes.windll.user32
+        if user32.SystemParametersInfoW(0x16, 0, ctypes.byref(value), 0):  # SPI_GETKEYBOARDDELAY
+            delay = value.value
+        if user32.SystemParametersInfoW(0x0A, 0, ctypes.byref(value), 0):  # SPI_GETKEYBOARDSPEED
+            speed = value.value
+    # 0-3 is 250 ms to 1 s; 0-31 is about 2.5 to 30 repeats a second.
+    return 0.25 * (min(max(delay, 0), 3) + 1), 1.0 / (2.5 + min(max(speed, 0), 31) * 27.5 / 31)
+
+
+class _Repeat:
+    """Repeats one key while a binding is held, as a held key repeats."""
+
+    def __init__(self, press: Callable[[], None], timing=None):
+        self.stop = threading.Event()
+        self._press = press
+        self._timing = timing or typematic
+        threading.Thread(target=self._run, name='key-repeat', daemon=True).start()
+
+    def _run(self) -> None:
+        delay, interval = self._timing()
+        if self.stop.wait(delay):
+            return
+        while not self.stop.is_set():
+            try:
+                self._press()
+            except Exception:  # noqa: BLE001 - a failed repeat ends the repeating, nothing else
+                logger.debug('key repeat failed', exc_info=True)
+                return
+            self.stop.wait(interval)
+
+
 @lru_cache(maxsize=1)
 def load_key_data() -> dict:
     with open(KEYS_PATH, encoding='utf-8') as handle:
@@ -123,6 +164,8 @@ class _Binding:
         self.pressed_fn: set = set()
         #: Macro keys that went down unbound, and so sent their default key.
         self.defaulted: dict = {}
+        #: Macro keys held down whose binding is one key or shortcut: name -> keys.
+        self.holding: dict = {}
         self.game_mode = False
         #: Macro keys this keyboard has been seen to send.
         self.seen: set = set()
@@ -178,6 +221,10 @@ class KeyService:
         self._buttons: dict = {}
         #: Side buttons held down, and what was pressed for them.
         self._button_held: dict = {}
+        #: The key repeating for each held binding: holder -> :class:`_Repeat`.
+        self._repeats: dict = {}
+        #: (delay, interval) for those repeats; Windows' own when ``None``.
+        self.repeat_timing: Optional[Callable[[], tuple]] = None
         self.mouse_hook = mouse_hook if mouse_hook is not None else ButtonHook(self.handle_button)
 
     # -- lifecycle ---------------------------------------------------------
@@ -288,6 +335,10 @@ class KeyService:
             if self._recording is not None and self._recording.binding is binding:
                 self._recording = None
         binding.stop.set()
+        for name, keys in list(binding.holding.items()):
+            holder = (binding.serial, name)
+            self._work.put(lambda holder=holder, keys=keys: self._release_held(holder, keys))
+        binding.holding.clear()
 
     def handles(self, device) -> bool:
         with self._lock:
@@ -362,6 +413,10 @@ class KeyService:
     def _macro_key(self, binding: _Binding, name: str, default: Optional[str],
                    down: bool) -> None:
         if not down:
+            keys = binding.holding.pop(name, None)
+            if keys is not None:
+                holder = (binding.serial, name)
+                self._work.put(lambda: self._release_held(holder, keys))
             sent = binding.defaulted.pop(name, None)
             if sent is not None:
                 self.injector.key(sent, False)
@@ -390,8 +445,19 @@ class KeyService:
                 binding.defaulted[name] = output
                 self.injector.key(output, True)
             return
-        if action['type'] != 'disabled':
-            self._play_async(binding.serial, name, action)
+        if action['type'] == 'disabled':
+            return
+        keys = held_keys(action)
+        if keys is not None:
+            # One key or one shortcut: held while the macro key is, and repeated
+            # the way a held key repeats -- volume up keeps going (issue #29).
+            if name in binding.holding:
+                return
+            binding.holding[name] = keys
+            holder = (binding.serial, name)
+            self._work.put(lambda: self._hold(holder, keys))
+            return
+        self._play_async(binding.serial, name, action)
 
     # -- the keyboard hook -------------------------------------------------
     def handle_key(self, event: KeyEvent) -> bool:
@@ -579,30 +645,47 @@ class KeyService:
                 self._work.put(lambda: self.injector.mouse_button(action['button'], True))
             elif keys is not None:
                 self._button_held[name] = ('keys', keys)
-                self._work.put(lambda: [self.injector.raw(vk, scan, ext, True)
-                                        for vk, scan, ext in keys])
+                self._work.put(lambda: self._hold(('button', name), keys))
             else:
                 self._button_held[name] = ('played', None)
                 self._work.put(lambda: self._play_async(serial, name, action))
             return True
         held = self._button_held.pop(name, None)
         if held is not None:
-            self._work.put(lambda: self._let_go(held))
+            self._work.put(lambda: self._let_go(name, held))
         return True
 
-    def _let_go(self, held: tuple) -> None:
+    def _let_go(self, name: str, held: tuple) -> None:
         kind, what = held
         if kind == 'button':
             self.injector.mouse_button(what, False)
         elif kind == 'keys':
-            for vk, scan, ext in reversed(what):
-                self.injector.raw(vk, scan, ext, False)
+            self._release_held(('button', name), what)
 
     def _release_buttons(self) -> None:
         """Let go of whatever a side button still holds: the hook is going."""
         held, self._button_held = self._button_held, {}
-        for what in held.values():
-            self._work.put(lambda what=what: self._let_go(what))
+        for name, what in held.items():
+            self._work.put(lambda name=name, what=what: self._let_go(name, what))
+
+    # -- holding a one-key binding -------------------------------------------------
+    def _hold(self, holder, keys: list) -> None:
+        """Press `keys`, and keep the last one repeating until `_release_held`."""
+        for vk, scan, ext in keys:
+            self.injector.raw(vk, scan, ext, True)
+        last = keys[-1]
+        previous = self._repeats.pop(holder, None)
+        if previous is not None:
+            previous.stop.set()
+        self._repeats[holder] = _Repeat(lambda: self.injector.raw(last[0], last[1], last[2], True),
+                                        self.repeat_timing)
+
+    def _release_held(self, holder, keys: list) -> None:
+        repeat = self._repeats.pop(holder, None)
+        if repeat is not None:
+            repeat.stop.set()
+        for vk, scan, ext in reversed(keys):
+            self.injector.raw(vk, scan, ext, False)
 
     def play(self, action: dict) -> None:
         kind = action.get('type')

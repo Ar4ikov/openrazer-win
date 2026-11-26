@@ -188,7 +188,13 @@ class DeathAdder35GDevice:
         """It has no driver mode."""
 
     def restore(self) -> None:
-        """Send the whole saved state: the mouse came up at its defaults."""
+        """Send the whole saved state: the mouse came up at its defaults.
+
+        A light never set is on, as the mouse starts; that is written down, so
+        Studio has an effect to show for it rather than none."""
+        for zone in self._zones():
+            if (self.persistence.saved_zone(self.serial, zone) or {}).get('effect') is None:
+                self.persistence.set(self.serial, zone, 'effect', 'on')
         self._send()
 
     def close(self) -> None:

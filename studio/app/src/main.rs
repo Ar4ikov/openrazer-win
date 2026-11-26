@@ -9,6 +9,7 @@
 mod accent;
 mod appwatch;
 mod art;
+mod batterylog;
 mod chroma;
 mod daemon;
 mod images;

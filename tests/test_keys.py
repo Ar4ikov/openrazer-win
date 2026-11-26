@@ -484,6 +484,55 @@ def test_a_shortcut_on_a_button_is_held_as_long_as_the_button(mouse_rig):
     assert injector.sent[3][2] == LCTRL.scan
 
 
+VK_VOLUME_UP = 0xAF
+
+
+def _raw(injector):
+    return [(entry[1], entry[4]) for entry in injector.sent if entry[0] == 'raw']
+
+
+def test_a_held_macro_key_repeats_its_one_key_binding(rig):
+    """Issue #29: volume up on a macro key keeps going while the key is held."""
+    service, keys, device, fake, injector, _ = rig
+    keys.repeat_timing = lambda: (0.05, 0.02)
+    service.rpc_macro_set(device.serial, 'M1', {'type': 'keys', 'sequence': 'volumeup'})
+    fake.hold(M1)
+    assert wait_for(lambda: len(_raw(injector)) >= 4)
+    assert set(_raw(injector)) == {(VK_VOLUME_UP, True)}
+    fake.hold()
+    assert wait_for(lambda: _raw(injector) and _raw(injector)[-1] == (VK_VOLUME_UP, False))
+    count = len(_raw(injector))
+    time.sleep(0.15)
+    assert len(_raw(injector)) == count                     # the repeating stopped
+
+
+def test_a_quick_press_of_a_macro_key_types_its_key_once(rig):
+    service, keys, device, fake, injector, _ = rig
+    keys.repeat_timing = lambda: (0.5, 0.02)
+    service.rpc_macro_set(device.serial, 'M1', {'type': 'keys', 'sequence': 'volumeup'})
+    fake.hold(M1)
+    fake.hold()
+    assert wait_for(lambda: _raw(injector) == [(VK_VOLUME_UP, True), (VK_VOLUME_UP, False)])
+    time.sleep(0.6)
+    assert len(_raw(injector)) == 2
+
+
+def test_a_held_side_button_repeats_its_one_key_binding(mouse_rig):
+    service, keys, device, _, injector = mouse_rig
+    keys.repeat_timing = lambda: (0.05, 0.02)
+    service.rpc_macro_set(device.serial, 'MOUSE4', {'type': 'keys', 'sequence': 'volumeup'})
+    keys.handle_button('MOUSE4', True)
+    assert wait_for(lambda: len(_raw(injector)) >= 4)
+    keys.handle_button('MOUSE4', False)
+    assert wait_for(lambda: _raw(injector)[-1] == (VK_VOLUME_UP, False))
+
+
+def test_windows_repeat_settings_are_turned_into_seconds():
+    from openrazer_win.keys.service import typematic
+    delay, interval = typematic()
+    assert 0.25 <= delay <= 1.0 and 1 / 30.5 <= interval <= 1 / 2.4
+
+
 def test_a_button_can_be_another_button(mouse_rig):
     service, keys, device, _, injector = mouse_rig
     service.rpc_macro_set(device.serial, 'MOUSE4', {'type': 'button', 'button': 'middle'})

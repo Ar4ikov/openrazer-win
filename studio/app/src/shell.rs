@@ -191,4 +191,23 @@ impl Tray {
         }));
         Some(Tray { _icon: tray })
     }
+
+    /// What hovering the icon says. Windows shows 127 characters at most.
+    pub fn set_tooltip(&self, text: &str) {
+        let text: String = text.chars().take(127).collect();
+        let _ = self._icon.set_tooltip(Some(text));
+    }
+}
+
+/// The tray icon's tooltip: Studio's name, then each device's battery (issue #30).
+pub fn tooltip(batteries: &[(String, f64, bool)]) -> String {
+    let mut text = WINDOW_TITLE.to_string();
+    for (name, level, stale) in batteries {
+        let line = if *stale { format!("\n{name}: {level:.0}% ({})", t("last reported")) } else { format!("\n{name}: {level:.0}%") };
+        if text.chars().count() + line.chars().count() > 127 {
+            break;
+        }
+        text.push_str(&line);
+    }
+    text
 }

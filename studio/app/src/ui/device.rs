@@ -6,7 +6,7 @@ use super::app::{draw_picture, kind_label, scroll, App};
 use crate::settings::AppRule;
 use crate::worker::{Command, Device, Snapshot, Then};
 use egui::{vec2, Align, CornerRadius, Frame, Layout, Margin, Rect, RichText, Sense, Stroke};
-use openrazer_studio_core::theme::{self, icon, ACCENT, BORDER, SURFACE_HI, TEXT, TEXT_DIM};
+use openrazer_studio_core::theme::{self, icon, ACCENT, BORDER, SURFACE_HI, TEXT, TEXT_DIM, TEXT_FAINT};
 use openrazer_studio_core::widgets::{self, Button, IconButton};
 use openrazer_studio_core::{t, tf};
 use serde_json::json;
@@ -185,8 +185,8 @@ fn header(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
             ui.allocate_ui_with_layout(vec2(text_width, 22.0), Layout::left_to_right(Align::Center), |ui| {
                 ui.set_min_height(22.0);
                 ui.spacing_mut().item_spacing.x = 8.0;
-                if let Some(level) = detail.and_then(|d| d.battery) {
-                    super::widgets::battery(ui, level, detail.and_then(|d| d.charging).unwrap_or(false));
+                if let Some(detail) = detail {
+                    super::widgets::battery_of(ui, detail);
                 }
                 if let Some(effect) = snap.software.get(&device.serial) {
                     widgets::badge(ui, super::effects::label(effect), ACCENT);
@@ -437,7 +437,10 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
                         ui.label(RichText::new(format!("{level:.0}%")).font(theme::heavy(40.0)).color(colour));
                         ui.vertical(|ui| {
                             ui.add_space(12.0);
-                            ui.label(RichText::new(if charging { t("charging") } else { t("on battery") }).color(TEXT_DIM));
+                            match detail.battery_seen {
+                                Some(at) => ui.label(RichText::new(tf("last reported {}", &[&crate::batterylog::ago(at, crate::batterylog::now())])).color(TEXT_FAINT)),
+                                None => ui.label(RichText::new(if charging { t("charging") } else { t("on battery") }).color(TEXT_DIM)),
+                            };
                         });
                     });
                     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 8.0), Sense::hover());

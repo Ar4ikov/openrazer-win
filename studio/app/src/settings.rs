@@ -42,6 +42,9 @@ pub struct Settings {
     pub macros: Vec<LibraryMacro>,
     /// Brightness before "Lights off", by serial and zone, to put back.
     pub lights_before: BTreeMap<String, BTreeMap<String, f64>>,
+    /// The effect before "Lights off" of zones with no brightness, only on
+    /// and off (the DeathAdder 3.5G, issue #29), by serial and zone.
+    pub effects_before: BTreeMap<String, BTreeMap<String, String>>,
     pub recent_colours: Vec<[u8; 3]>,
     /// Games given the stand-in for Razer's Chroma SDK DLL, by their program.
     pub chroma_games: Vec<String>,
@@ -60,6 +63,7 @@ impl Default for Settings {
             default_profiles: BTreeMap::new(),
             macros: Vec::new(),
             lights_before: BTreeMap::new(),
+            effects_before: BTreeMap::new(),
             recent_colours: Vec::new(),
             chroma_games: Vec::new(),
         }

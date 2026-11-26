@@ -196,6 +196,25 @@ def test_remove_takes_the_filter_off(tmp_path, monkeypatch):
     assert ran.calls[0][1:] == ['uninstall', '--device=USB\\VID_1532&PID_0016']
 
 
+def test_remove_remembers_and_purges(tmp_path, monkeypatch):
+    """Studio's uninstall takes the filter off every mouse it went on, then the files."""
+    data, digest, digests = _archive()
+    monkeypatch.setattr(usbfilter, 'ZIP_SHA256', digest)
+    monkeypatch.setitem(usbfilter.FILES, 'amd64', digests)
+    monkeypatch.setattr(usbfilter, 'architecture', lambda: 'amd64')
+    home = str(tmp_path / 'home')
+    (tmp_path / 'drivers').mkdir()
+    usbfilter.install([PID, 0x0029], fetch=lambda url: data, run=_Ran(), home=home,
+                      system_dir=str(tmp_path))
+    assert usbfilter.recorded_pids(home) == [0x0016, 0x0029] and usbfilter.installed_here(home)
+    usbfilter.remove([0x0029], run=_Ran(), home=home)
+    assert usbfilter.recorded_pids(home) == [0x0016]
+    ran = _Ran()
+    done = usbfilter.remove(usbfilter.recorded_pids(home), run=ran, home=home, purge=True)
+    assert ran.calls[0][1:] == ['uninstall', '--device=USB\\VID_1532&PID_0016']
+    assert done[-1] == 'deleted ' + home and not os.path.exists(home)
+
+
 def test_the_pinned_hashes_are_the_real_release():
     # Taken from the release on 2026-11-24; GitHub lists the same digest.
     assert usbfilter.ZIP_SHA256 == '00004c92cdb99be36e17fb2377165eb97e63b48ba895bfc04a642ea9c3e26d94'

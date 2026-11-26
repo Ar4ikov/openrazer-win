@@ -5,7 +5,7 @@ use super::effects::{self, PALETTE};
 use crate::preview;
 use egui::{epaint::Mesh, pos2, vec2, Align, Color32, CornerRadius, Layout, Pos2, Rect, Response, RichText, Sense, Shape, Stroke, StrokeKind, Ui};
 use openrazer_studio_core::theme::{self, ACCENT, BORDER, BORDER_HI, BORDER_HOVER, SURFACE_ACTIVE, SURFACE_HI, SURFACE_HOVER, TEXT, TEXT_DIM, TEXT_FAINT, WELL};
-use openrazer_studio_core::{t, widgets};
+use openrazer_studio_core::{t, tf, widgets};
 
 /// The height of an effect tile.
 pub const TILE_HEIGHT: f32 = 84.0;
@@ -168,6 +168,25 @@ pub fn device_glyph(painter: &egui::Painter, rect: Rect, kind: &str, colour: Col
 
 /// A battery: outline, fill to `level`, a bolt when charging, and the number.
 /// Always the same width, so whatever follows it stays put.
+/// The battery of `detail`: as it is now, or faint, as it last was.
+pub fn battery_of(ui: &mut Ui, detail: &crate::worker::Detail) {
+    let Some(level) = detail.battery else { return };
+    match detail.battery_seen {
+        None => {
+            battery(ui, level, detail.charging.unwrap_or(false));
+        }
+        Some(at) => {
+            let (rect, response) = ui.allocate_exact_size(vec2(74.0, 20.0), Sense::hover());
+            let painter = ui.painter();
+            let body = Rect::from_min_size(pos2(rect.left(), rect.center().y - 6.5), vec2(24.0, 13.0));
+            painter.rect_stroke(body, CornerRadius::same(3), Stroke::new(1.2_f32, TEXT_FAINT), StrokeKind::Inside);
+            painter.rect_filled(Rect::from_min_size(pos2(body.right() + 1.0, body.center().y - 3.0), vec2(2.5, 6.0)), CornerRadius::same(1), TEXT_FAINT);
+            painter.text(pos2(body.right() + 9.0, rect.center().y), egui::Align2::LEFT_CENTER, format!("{level:.0}%"), theme::bold(12.5), TEXT_FAINT);
+            response.on_hover_text(tf("Last reported {}: the device is not answering now", &[&crate::batterylog::ago(at, crate::batterylog::now())]));
+        }
+    }
+}
+
 pub fn battery(ui: &mut Ui, level: f64, charging: bool) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(74.0, 20.0), Sense::hover());
     let painter = ui.painter();

@@ -58,6 +58,9 @@ pub struct Device {
 pub struct Detail {
     pub caps: Option<Value>,
     pub battery: Option<f64>,
+    /// When `battery` is the last real reading rather than what the device
+    /// says now (it says 0% while switched off), when it was taken (issue #30).
+    pub battery_seen: Option<u64>,
     pub charging: Option<bool>,
     pub dpi: Option<(i64, i64)>,
     pub dpi_stages: Option<(i64, Vec<(i64, i64)>)>,
@@ -185,7 +188,7 @@ pub fn spawn(shared: Shared, repaint: impl Fn() + Send + 'static) -> Sender<Comm
     std::thread::Builder::new()
         .name("daemon".into())
         .spawn(move || {
-            Worker { shared, client: None, battery_at: HashMap::new(), slow_at: None, repaint: Box::new(repaint) }.run(rx)
+            Worker { shared, client: None, battery_at: HashMap::new(), batteries: crate::batterylog::BatteryLog::load(), slow_at: None, repaint: Box::new(repaint) }.run(rx)
         })
         .expect("the worker thread starts");
     tx
@@ -195,6 +198,8 @@ struct Worker {
     shared: Shared,
     client: Option<Client>,
     battery_at: HashMap<String, Instant>,
+    /// The last real battery reading of each device.
+    batteries: crate::batterylog::BatteryLog,
     slow_at: Option<Instant>,
     repaint: Box<dyn Fn() + Send>,
 }
@@ -475,9 +480,12 @@ impl Worker {
     fn read_power(&mut self, serial: &str, settings: bool) {
         let Some(caps) = self.caps(serial) else { return };
         if caps["battery"] == true {
-            if let Ok(level) = self.with(|c| c.device(serial, "get_battery_level", vec![], None)) {
-                self.update(serial, |d| d.battery = level.as_f64());
-            }
+            let level = self.with(|c| c.device(serial, "get_battery_level", vec![], None)).ok().and_then(|v| v.as_f64());
+            let (shown, seen) = self.batteries.take(serial, level, crate::batterylog::now());
+            self.update(serial, |d| {
+                d.battery = shown;
+                d.battery_seen = seen;
+            });
             if let Ok(charging) = self.with(|c| c.device(serial, "is_charging", vec![], None)) {
                 self.update(serial, |d| d.charging = charging.as_bool());
             }

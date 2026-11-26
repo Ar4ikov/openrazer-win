@@ -1055,10 +1055,17 @@ def cmd_driver(args) -> int:
                                         else 'no filter on it yet: openrazer-win driver install'))
         return 0
 
-    if not pids:
+    if args.action == 'remove' and not args.pid:
+        # Off every mouse it was put on, plugged in or not.
+        pids = sorted(set(pids) | set(usbfilter.recorded_pids()))
+    if not pids and not (args.action == 'remove' and args.purge):
         raise CliError('no DeathAdder 3.5G is plugged in; plug it in first, or name it with '
                        '--pid 0016')
-    action = usbfilter.install if args.action == 'install' else usbfilter.remove
+    if args.action == 'install':
+        action = usbfilter.install
+    else:
+        def action(pids):
+            return usbfilter.remove(pids, purge=args.purge)
     if not usbfilter.is_admin():
         if args.result:
             raise CliError('this needs administrator rights')
@@ -1085,6 +1092,8 @@ def _driver_elevated(args, pids: list) -> int:
     os.close(handle)
     try:
         command = ['driver', args.action, '--result', result]
+        if args.purge:
+            command.append('--purge')
         for pid in pids:
             command += ['--pid', '{0:04x}'.format(pid)]
         try:
@@ -1679,6 +1688,8 @@ def build_parser() -> argparse.ArgumentParser:
     driver.add_argument('--pid', action='append', default=[],
                         help='product id in hex (0016 or 0029); default: those plugged in')
     driver.add_argument('--json', action='store_true')
+    driver.add_argument('--purge', action='store_true',
+                        help='remove: also delete the downloaded libusb-win32 files')
     driver.add_argument('--result', help=argparse.SUPPRESS)
     return parser
 
