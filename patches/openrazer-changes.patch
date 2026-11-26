@@ -1,7 +1,7 @@
 From 2cdac55c30f1dd8eedf8b3f38f82dfea879ffda9 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 19:14:12 +0000
-Subject: [PATCH 1/4] Studio: devices and batteries in the tray, tray names,
+Subject: [PATCH 1/5] Studio: devices and batteries in the tray, tray names,
  low-battery warning
 
 The tray icon's tooltip lists each device on its own line with its
@@ -352,7 +352,7 @@ index 5aa8445..e6b35c4 100644
 From 9d696b3d591c7ce7b09ae0d4f6a9baa44c15fb94 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:18:33 +0000
-Subject: [PATCH 2/4] Studio: a visible low-battery warning
+Subject: [PATCH 2/5] Studio: a visible low-battery warning
 
 The notification was asked for in the same call that added its icon,
 which Windows often answers with the icon alone. It now follows the
@@ -596,7 +596,7 @@ index e6b35c4..084c027 100644
 From 9dfd73247258484991476b8756c1671fe0e01711 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:38:19 +0000
-Subject: [PATCH 3/4] Studio: the low-battery window in Studio's look
+Subject: [PATCH 3/5] Studio: the low-battery window in Studio's look
 
 Near-black (NAV) with a thin border and a Razer-green edge down the left,
 the battery glyph in green, "LOW BATTERY" in small letter-spaced
@@ -715,7 +715,7 @@ index ea8ac30..3da4d7e 100644
 From 64bba954d448e0e34fddbcfc8cb4e346b8375fa2 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:51:48 +0000
-Subject: [PATCH 4/4] Studio: a one-line low-battery window; the Windows
+Subject: [PATCH 4/5] Studio: a one-line low-battery window; the Windows
  notification optional
 
 The warning window shrinks to one line (300 x 44): the green edge, the
@@ -882,6 +882,152 @@ index 084c027..aa5b756 100644
              if app.settings.low_battery_popup {
                  let mut seconds = f64::from(app.settings.low_battery_popup_seconds);
                  let mut changed = false;
+-- 
+2.43.0
+
+From f3a1240c7096a129e352c70c00c19bf74c75f216 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Thu, 26 Nov 2026 09:06:06 +0000
+Subject: [PATCH 5/5] Studio: the tray keeps a device's last battery while it
+ is offline
+
+The tray showed a device's battery only while a reading was in the
+snapshot, so it went as soon as the device stopped answering or left the
+list. Each device's last reading is now kept in settings.json (written
+only when a percentage changes) and shown as "Name: 63% (Offline)"
+while the device is listed without a reading or not listed at all,
+however long it has been away.
+---
+ studio/app/src/settings.rs | 13 +++++++++
+ studio/app/src/ui/app.rs   | 55 +++++++++++++++++++++++++++++++-------
+ 2 files changed, 58 insertions(+), 10 deletions(-)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index 4b55d62..32fbd87 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -62,6 +62,18 @@ pub struct Settings {
+     /// Whether a low battery is also announced as a Windows notification
+     /// (drawn by Windows; off by default, the window covers it).
+     pub low_battery_system_notification: bool,
++    /// Each device's last battery reading, by serial, so the tray still shows
++    /// it while the device is off, asleep or unplugged, however long for.
++    pub last_battery: BTreeMap<String, LastBattery>,
++}
++
++/// A device's last battery reading, as the tray shows it while it is offline.
++#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
++pub struct LastBattery {
++    /// The device's own name, for when it is no longer listed at all.
++    pub name: String,
++    /// The charge, in percent.
++    pub percent: u8,
+ }
+ 
+ impl Default for Settings {
+@@ -86,6 +98,7 @@ impl Default for Settings {
+             low_battery_popup: true,
+             low_battery_popup_seconds: 10,
+             low_battery_system_notification: false,
++            last_battery: BTreeMap::new(),
+         }
+     }
+ }
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index f4a9551..a82dbf2 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -395,31 +395,37 @@ impl App {
+     }
+ 
+     /// One tray line per device (its tray name and battery), and the
+-    /// low-battery notification, once per discharge.
++    /// low-battery notification, once per discharge. A device out of reach,
++    /// whether still listed without a reading or gone from the list, shows
++    /// its last reading with "(Offline)"; the readings are kept in the
++    /// settings file, so they last across restarts and long absences.
+     fn refresh_tray(&mut self, snap: &Snapshot) {
+-        let settings = &self.settings;
++        let offline = t("Offline");
+         let mut lines = Vec::with_capacity(snap.devices.len());
++        let mut readings: Vec<(String, crate::settings::LastBattery)> = Vec::new();
+         for device in &snap.devices {
+-            let name = settings
+-                .tray_names
+-                .get(&device.serial)
+-                .map(|name| name.trim())
+-                .filter(|name| !name.is_empty())
+-                .unwrap_or(&device.name)
+-                .to_owned();
++            let name = self.tray_name(&device.serial, &device.name);
+             let detail = snap.details.get(&device.serial);
+             let Some(level) = detail.and_then(|d| d.battery) else {
+-                lines.push(name);
++                lines.push(match self.settings.last_battery.get(&device.serial) {
++                    Some(last) => format!("{name}: {}% ({offline})", last.percent),
++                    None => name,
++                });
+                 continue;
+             };
+             let charging = detail.and_then(|d| d.charging).unwrap_or(false);
+             let percent = level.clamp(0.0, 100.0).round() as u8;
++            readings.push((
++                device.serial.clone(),
++                crate::settings::LastBattery { name: device.name.clone(), percent },
++            ));
+             lines.push(if charging {
+                 format!("{name}: {percent}% ({})", t("charging"))
+             } else {
+                 format!("{name}: {percent}%")
+             });
+ 
++            let settings = &self.settings;
+             if !settings.low_battery_warning || charging || percent >= settings.low_battery_rearm_at {
+                 self.tray_warned.remove(&device.serial);
+             } else if percent <= settings.low_battery_warn_at && self.tray_warned.insert(device.serial.clone()) {
+@@ -433,6 +439,24 @@ impl App {
+                 }
+             }
+         }
++        // Devices seen before but not listed now: their last reading, offline.
++        for (serial, last) in &self.settings.last_battery {
++            if !snap.devices.iter().any(|device| &device.serial == serial) {
++                let name = self.tray_name(serial, &last.name);
++                lines.push(format!("{name}: {}% ({offline})", last.percent));
++            }
++        }
++        // Keep new readings; the settings file is written only when one changed.
++        let mut changed = false;
++        for (serial, reading) in readings {
++            if self.settings.last_battery.get(&serial) != Some(&reading) {
++                self.settings.last_battery.insert(serial, reading);
++                changed = true;
++            }
++        }
++        if changed {
++            self.save_settings();
++        }
+         if lines != self.tray_lines {
+             if let Some(TrayIcon(tray)) = TRAY.lock().unwrap().as_mut() {
+                 tray.show_devices(&lines);
+@@ -441,6 +465,17 @@ impl App {
+         }
+     }
+ 
++    /// The name a device has in the tray: the one set for it, else `fallback`.
++    fn tray_name(&self, serial: &str, fallback: &str) -> String {
++        self.settings
++            .tray_names
++            .get(serial)
++            .map(|name| name.trim())
++            .filter(|name| !name.is_empty())
++            .unwrap_or(fallback)
++            .to_owned()
++    }
++
+     fn sync(&mut self, snap: &Snapshot) {
+         if self.selected.as_ref().is_none_or(|s| !snap.devices.iter().any(|d| &d.serial == s)) {
+             self.selected = snap.devices.first().map(|d| d.serial.clone());
 -- 
 2.43.0
 
