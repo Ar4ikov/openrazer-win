@@ -26,7 +26,7 @@ nothing can redirect a released Studio.
 ```bash
 pytest                              # 391 tests, no hardware required
 ruff check .
-python tools/simulate_devices.py    # every capability of all 276 USB devices
+python tools/simulate_devices.py    # every capability of all 284 USB devices
 ```
 
 Everything runs against the built-in emulator, so all three pass on any machine — Windows or not.

@@ -572,8 +572,8 @@ def misc_set_dock_brightness(brightness: int) -> RazerReport:
 
 def misc_set_dpi_xy(variable_storage: int, dpi_x: int, dpi_y: int) -> RazerReport:
     report = get_razer_report(0x04, 0x05, 0x07)
-    dpi_x = clamp(dpi_x, 100, 45000)
-    dpi_y = clamp(dpi_y, 100, 45000)
+    dpi_x = clamp(dpi_x, 100, 50000)
+    dpi_y = clamp(dpi_y, 100, 50000)
     report.set_argument(0, VarStore.VARSTORE)
     report.set_argument(1, (dpi_x >> 8) & 0xFF)
     report.set_argument(2, dpi_x & 0xFF)

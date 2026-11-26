@@ -26,7 +26,7 @@ on Windows.
 
 This is a full port. The protocol layer moves into user space on top of the Windows HID class driver,
 D-Bus is replaced by a loopback JSON-RPC daemon, and **every device quirk is transpiled directly from
-the upstream C sources** — so all 274 USB devices OpenRazer knows about behave the same way here as they
+the upstream C sources** — so all 282 USB devices OpenRazer knows about behave the same way here as they
 do on Linux, plus the Pro Type Ultra and the retail DeathAdder 2000 from upstream pull requests still in
 review, a Bluetooth headset upstream cannot reach at all, the BlackShark V2 HyperSpeed, the BlackShark
 V3 X HyperSpeed and the Barracuda X.
@@ -403,7 +403,7 @@ against every known product id, and emits a small program per (attribute, device
  {"op": "send"}]
 ```
 
-609 distinct recipes cover all 276 USB devices. `openrazer_win/devices/recipes.py` interprets them at
+616 distinct recipes cover all 284 USB devices. `openrazer_win/devices/recipes.py` interprets them at
 runtime. Tracking a new upstream release means re-running the transpiler, not rewriting Python.
 
 **The device database** comes from the same place: `tools/extract_device_db.py` imports upstream's
@@ -416,9 +416,9 @@ to have a backlight it does not have.
 
 | Category | Devices |
 |---|---:|
-| Mice | 118 |
-| Keyboards & laptops | 117 |
-| Accessories (docks, stands, ARGB controllers) | 17 |
+| Mice | 121 |
+| Keyboards & laptops | 120 |
+| Accessories (docks, stands, ARGB controllers) | 18 |
 | Headsets (Kraken protocol) | 8 |
 | Headsets (Bluetooth LE) | 1 |
 | Headsets (BlackShark V2 HyperSpeed) | 2 |
@@ -427,7 +427,7 @@ to have a backlight it does not have.
 | Mousepads | 8 |
 | Keypads | 7 |
 | eGPU enclosures | 2 |
-| **Total** | **285** |
+| **Total** | **292** |
 
 The **DeathAdder 3.5G** and its Black edition need a driver first. They take their settings
 through a USB request that Windows' own driver will not send, so `openrazer-win driver install`
@@ -436,7 +436,7 @@ a UAC prompt. It downloads libusb-win32 1.4.0.2 from its GitHub release, checks 
 a pinned hash, and filters these two mice only; the mouse keeps working as a mouse.
 `openrazer-win driver remove` takes it off again.
 
-169 have addressable matrices; 90 report battery level. The full searchable list is
+173 have addressable matrices; 95 report battery level. The full searchable list is
 [on the documentation site](https://ar4ikov.github.io/openrazer-win/#devices), or run
 `openrazer-win supported`.
 
@@ -655,7 +655,7 @@ pip install -e ".[dev]"
 
 pytest                              # 418 tests, no hardware needed
 ruff check .
-python tools/simulate_devices.py    # every capability of all 276 USB devices
+python tools/simulate_devices.py    # every capability of all 284 USB devices
 ```
 
 OpenRazer Studio and its installer are a Rust workspace in `studio/` — `core` (the daemon's

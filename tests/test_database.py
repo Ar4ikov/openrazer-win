@@ -1,6 +1,9 @@
 """Integrity of the generated device database, and a full-fleet simulation."""
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
 
 from openrazer_win.core.persistence import Persistence
@@ -44,6 +47,16 @@ def test_lookup_by_product_id(database):
 def test_search_by_name(database):
     assert any('blackwidow' in e.name.lower() for e in database.find('BlackWidow'))
     assert database.find('definitely not a razer product') == []
+
+
+def test_macro_keys_outlive_upstream_dropping_them(database):
+    # Upstream's daemon gave up its macro support, and the DEDICATED_MACRO_KEYS
+    # flag with it; this port still binds the keys, and Studio draws them.
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'tools'))
+    import extract_device_db
+    marked = {e.pid for e in database if e.dedicated_macro_keys}
+    assert marked == set(extract_device_db.DEDICATED_MACRO_KEY_PIDS)
+    assert {0x0203, 0x0201, 0x0040, 0x0244} <= marked   # BlackWidow Chroma, Tartarus, Nagas
 
 
 def test_mice_declare_a_maximum_dpi(database):

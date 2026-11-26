@@ -130,7 +130,7 @@ def test_dpi_is_encoded_big_endian():
 def test_dpi_is_clamped_to_the_supported_range():
     report = chroma.misc_set_dpi_xy(VarStore.VARSTORE, 10, 90000)
     assert (report.arguments[1] << 8) | report.arguments[2] == 100
-    assert (report.arguments[3] << 8) | report.arguments[4] == 45000
+    assert (report.arguments[3] << 8) | report.arguments[4] == 50000
 
 
 def test_dpi_stages_pack_seven_bytes_per_stage():

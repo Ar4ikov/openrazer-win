@@ -198,6 +198,8 @@ def test_a_speed_with_the_wave_is_allowed_over_rpc():
 
 
 # -- the retail DeathAdder 2000 (issue #20, openrazer/openrazer#2931) ---------
+# Upstream master carries it since 7dd238c, so its patch is gone; this checks
+# that the sync kept it the twin of the other DeathAdder 2000.
 
 def test_the_retail_deathadder_2000_is_the_other_one_under_a_second_id(recipes, persistence):
     for attribute in ('read:dpi', 'write:dpi', 'write:poll_rate', 'write:logo_matrix_effect_on',

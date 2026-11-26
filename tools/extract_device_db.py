@@ -283,6 +283,50 @@ LOCAL_DEVICES = [
 ]
 
 
+#: The product ids upstream's daemon marked with DEDICATED_MACRO_KEYS until it
+#: dropped its macro support (openrazer/openrazer 7edc0b5, on master after
+#: 477f4d6), which took the attribute with it but for the Tartarus Pro.  This
+#: port binds macro keys itself (openrazer_win/keys) and Studio draws M1-M5
+#: from the flag, so the list as upstream last had it is kept here.
+DEDICATED_MACRO_KEY_PIDS = frozenset({
+    0x0015,  # Razer Naga
+    0x0016,  # Razer DeathAdder 3.5G
+    0x001F,  # Razer Naga Epic
+    0x0029,  # Razer DeathAdder 3.5G Black
+    0x002E,  # Razer Naga 2012
+    0x0034,  # Razer Taipan
+    0x0036,  # Razer Naga Hex (Red)
+    0x0040,  # Razer Naga 2014
+    0x0041,  # Razer Naga Hex
+    0x0050,  # Razer Naga Hex V2
+    0x0053,  # Razer Naga Chroma
+    0x0065,  # Razer Basilisk Essential
+    0x0067,  # Razer Naga Trinity
+    0x008D,  # Razer Naga Left Handed Edition 2020
+    0x008F,  # Razer Naga Pro (Wired)
+    0x0090,  # Razer Naga Pro (Wireless)
+    0x0096,  # Razer Naga X
+    0x00A7,  # Razer Naga V2 Pro (Wired)
+    0x00A8,  # Razer Naga V2 Pro (Wireless)
+    0x010D,  # Razer BlackWidow Ultimate 2012
+    0x010E,  # Razer BlackWidow Stealth Edition
+    0x010F,  # Razer Anansi
+    0x0111,  # Razer Nostromo
+    0x0113,  # Razer Orbweaver
+    0x011A,  # Razer BlackWidow Ultimate 2013
+    0x011B,  # Razer BlackWidow (Classic)
+    0x0201,  # Razer Tartarus
+    0x0203,  # Razer BlackWidow Chroma
+    0x0204,  # Razer DeathStalker Chroma
+    0x0207,  # Razer Orbweaver Chroma
+    0x0208,  # Razer Tartarus Chroma
+    0x0211,  # Razer BlackWidow Chroma (Overwatch)
+    0x0221,  # BlackWidow Chroma V2
+    0x022B,  # Razer Tartarus V2
+    0x0244,  # Razer Tartarus Pro
+})
+
+
 def _pretty_name(cls) -> str:
     """Turn RazerBlackWidowChroma into 'Razer BlackWidow Chroma'."""
     doc = (cls.__doc__ or '').strip()
@@ -339,7 +383,8 @@ def extract(upstream: str, out_path: str) -> int:
             'type': dev_type,
             'has_matrix': bool(getattr(cls, 'HAS_MATRIX', False)),
             'matrix_dims': list(matrix) if matrix else None,
-            'dedicated_macro_keys': bool(getattr(cls, 'DEDICATED_MACRO_KEYS', False)),
+            'dedicated_macro_keys': bool(getattr(cls, 'DEDICATED_MACRO_KEYS', False))
+            or (vid == 0x1532 and pid in DEDICATED_MACRO_KEY_PIDS),
             'driver_mode': bool(getattr(cls, 'DRIVER_MODE', False)),
             'wave_dirs': list(getattr(cls, 'WAVE_DIRS', (1, 2))),
             'poll_rates': list(getattr(cls, 'POLL_RATES', None) or []) or None,
