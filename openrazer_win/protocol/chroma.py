@@ -572,8 +572,8 @@ def misc_set_dock_brightness(brightness: int) -> RazerReport:
 
 def misc_set_dpi_xy(variable_storage: int, dpi_x: int, dpi_y: int) -> RazerReport:
     report = get_razer_report(0x04, 0x05, 0x07)
-    dpi_x = clamp(dpi_x, 100, 45000)
-    dpi_y = clamp(dpi_y, 100, 45000)
+    dpi_x = clamp(dpi_x, 100, 50000)
+    dpi_y = clamp(dpi_y, 100, 50000)
     report.set_argument(0, VarStore.VARSTORE)
     report.set_argument(1, (dpi_x >> 8) & 0xFF)
     report.set_argument(2, dpi_x & 0xFF)
@@ -726,6 +726,22 @@ def misc_get_scroll_mode() -> RazerReport:
     report = get_razer_report(0x02, 0x94, 0x02)
     report.set_argument(0, VarStore.VARSTORE)
     return report
+
+
+def misc_set_scroll_mode2(scroll_mode: int) -> RazerReport:
+    """The newer scroll mode command (Basilisk V4 Pro): the mode in argument 1."""
+    report = get_razer_report(0x02, 0x30, 0x02)
+    report.set_argument(1, scroll_mode)
+    return report
+
+
+def misc_get_scroll_mode2() -> RazerReport:
+    return get_razer_report(0x02, 0xB0, 0x02)
+
+
+def misc_get_active_profile() -> RazerReport:
+    """The active onboard profile, 1-5, comes back in argument 0."""
+    return get_razer_report(0x05, 0x84, 0x01)
 
 
 def misc_set_scroll_acceleration(acceleration: bool) -> RazerReport:

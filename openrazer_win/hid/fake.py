@@ -280,6 +280,12 @@ def _single_profile_seed() -> dict:
 #: Products whose onboard memory has no profile list.
 SINGLE_PROFILE_PIDS = frozenset({0x007A, 0x007B})
 
+#: Mice that ignore the plain DPI command and only go by the DPI stages of
+#: their active profile: the Basilisk V4 Pro, wired and on its receiver
+#: (openrazer/openrazer#2975).  A DPI write leaves them as they were, and the
+#: DPI they report is the active stage's.
+STAGE_DPI_PIDS = frozenset({0x00E2, 0x00E3})
+
 
 #: Onboard-memory commands (class 0x02 bindings, 0x05 profiles, 0x06 macro reads).
 ONBOARD_COMMANDS = frozenset(((0x02, 0x84), (0x02, 0x8C), (0x02, 0x0C),
@@ -530,6 +536,10 @@ class FakeDeviceState:
         self.led_rgb: dict = {}
         self.dpi = (1800, 1800)
         self.dpi_stages = (1, [(800, 800), (1800, 1800), (3200, 3200)])
+        #: The DPI is the active stage's, and the plain DPI command does nothing.
+        self.dpi_from_stages = False
+        #: The wheel's mode on the newer command (class 0x02, 0x30 / 0xB0).
+        self.scroll_mode = 0
         self.poll_rate = 500
         #: The arguments of the two keyswitch optimization commands, kept apart
         #: so a test can tell a keyboard that was only sent one of them.  A
@@ -723,6 +733,7 @@ class FakeRazerDevice:
             serial or 'FAKE{0:010d}'.format(next(_SERIAL_COUNTER)))
         if product_id in SINGLE_PROFILE_PIDS:
             self.state.onboard = _single_profile_seed()
+        self.state.dpi_from_stages = product_id in STAGE_DPI_PIDS
         if headset and v3x:
             self.headset = FakeHeadsetV3X(self.state.serial,
                                           product_id in blackshark_v3x.WIRED_PRODUCT_IDS)
@@ -827,12 +838,21 @@ class FakeRazerDevice:
             rgb = state.led_rgb.get(args[1], (0, 0, 0))
             response.set_arguments(2, rgb)
         elif (cls, cmd) == (0x04, 0x05):  # set dpi
-            state.dpi = ((args[1] << 8) | args[2], (args[3] << 8) | args[4])
+            if not state.dpi_from_stages:
+                state.dpi = ((args[1] << 8) | args[2], (args[3] << 8) | args[4])
         elif (cls, cmd) == (0x04, 0x85):  # get dpi
-            response.set_argument(1, (state.dpi[0] >> 8) & 0xFF)
-            response.set_argument(2, state.dpi[0] & 0xFF)
-            response.set_argument(3, (state.dpi[1] >> 8) & 0xFF)
-            response.set_argument(4, state.dpi[1] & 0xFF)
+            dpi = state.dpi
+            if state.dpi_from_stages:
+                active, stages = state.dpi_stages
+                dpi = stages[active - 1] if 1 <= active <= len(stages) else dpi
+            response.set_argument(1, (dpi[0] >> 8) & 0xFF)
+            response.set_argument(2, dpi[0] & 0xFF)
+            response.set_argument(3, (dpi[1] >> 8) & 0xFF)
+            response.set_argument(4, dpi[1] & 0xFF)
+        elif (cls, cmd) == (0x02, 0x30):  # set scroll mode (newer command)
+            state.scroll_mode = args[1]
+        elif (cls, cmd) == (0x02, 0xB0):
+            response.set_argument(1, state.scroll_mode)
         elif (cls, cmd) == (0x04, 0x01):  # set dpi (byte form)
             state.dpi = (args[0] * 100, args[1] * 100)
         elif (cls, cmd) == (0x04, 0x81):

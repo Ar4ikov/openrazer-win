@@ -130,7 +130,7 @@ def test_dpi_is_encoded_big_endian():
 def test_dpi_is_clamped_to_the_supported_range():
     report = chroma.misc_set_dpi_xy(VarStore.VARSTORE, 10, 90000)
     assert (report.arguments[1] << 8) | report.arguments[2] == 100
-    assert (report.arguments[3] << 8) | report.arguments[4] == 45000
+    assert (report.arguments[3] << 8) | report.arguments[4] == 50000
 
 
 def test_dpi_stages_pack_seven_bytes_per_stage():
@@ -185,6 +185,47 @@ def test_every_builder_referenced_by_name_exists():
                  'razer_naga_trinity_effect_static',
                  'razer_basilisk_mobile_effect_static'):
         assert chroma.get_builder(name) is not None
+
+
+def test_the_newer_scroll_mode_and_profile_reports():
+    # openrazer/openrazer#2975: the Basilisk V4 Pro's wheel takes its mode in
+    # argument 1 of 0x02/0x30, with nothing in argument 0.
+    report = chroma.misc_set_scroll_mode2(2)
+    assert (report.command_class, report.command_id, report.data_size) == (0x02, 0x30, 0x02)
+    assert list(report.arguments[:2]) == [0x00, 0x02]
+    report = chroma.misc_get_scroll_mode2()
+    assert (report.command_class, report.command_id, report.data_size) == (0x02, 0xB0, 0x02)
+    report = chroma.misc_get_active_profile()
+    assert (report.command_class, report.command_id, report.data_size) == (0x05, 0x84, 0x01)
+    for name in ('razer_chroma_misc_set_scroll_mode2', 'razer_chroma_misc_get_scroll_mode2',
+                 'razer_chroma_misc_get_active_profile'):
+        assert chroma.get_builder(name) is not None
+
+
+#: Builders some recipes name that nothing in the device API reaches yet: the
+#: HyperPolling dongles' indicator LEDs.
+UNPORTED_BUILDERS = {
+    'razer_chroma_misc_get_hyperpolling_wireless_dongle_indicator_led_mode',
+    'razer_chroma_misc_get_hyperpolling_wireless_dongle_multi_indicator_led_modes',
+    'razer_chroma_misc_set_hyperpolling_wireless_dongle_multi_indicator_led_modes',
+}
+
+
+def test_every_builder_the_recipes_name_exists(recipes):
+    names = set()
+
+    def walk(steps):
+        for step in steps:
+            if step.get('op') == 'build':
+                names.add(step['fn'])
+            for key in ('steps', 'then', 'else', 'default'):
+                walk(step.get(key, ()))
+            for case in step.get('cases', ()):
+                walk(case['steps'])
+    for steps in recipes._pool:
+        walk(steps)
+    missing = sorted(name for name in names - UNPORTED_BUILDERS if name not in chroma.BUILDERS)
+    assert missing == []
 
 
 def test_unknown_builder_name_raises():

@@ -327,7 +327,12 @@ def parse_expr(expr: str, consts: dict[str, int]) -> Any:
 
     m = TERNARY_RE.match(expr)
     if m:
-        cond = COMPARE_RE.match(m.group(1).strip())
+        # ``(count == 4) ? a : b`` -- the test is often parenthesised.
+        test = m.group(1).strip()
+        while test.startswith('(') and test.endswith(')') and \
+                _match_paren(test, 0) == len(test) - 1:
+            test = test[1:-1].strip()
+        cond = COMPARE_RE.match(test)
         if cond:
             return {'k': 'ternary',
                     'test': {'left': parse_expr(cond.group(1), consts),
@@ -409,13 +414,45 @@ DECL_RE = re.compile(
 #: the Charging Pad and Mouse Dock Pro lost the mode switch their custom frames
 #: depend on, so they are inlined from the driver's own helper instead.
 #: Helpers that produce a value, and the variable the value is bound to.
-VALUE_HELPERS = {'razer_get_active_varstore': 'active_varstore'}
+#: ``razer_get_variable_storage`` asks the Basilisk V4 Pro for its active
+#: onboard profile (openrazer/openrazer#2975) and is VARSTORE for every other
+#: mouse.
+VALUE_HELPERS = {'razer_get_active_varstore': 'active_varstore',
+                 'razer_get_variable_storage': 'variable_storage'}
+
+#: Driver helpers too stateful to fold into steps -- they loop over a reply and
+#: rebuild an array from it -- that ``openrazer_win.devices.recipes`` carries
+#: as Python of its own instead (``NATIVE_HELPERS`` there).  A call becomes a
+#: ``native`` step; the value helpers the C body calls are run first and bound
+#: as variables, the way the body would have run them.
+NATIVE_HELPERS = ('razer_set_active_stage_dpi',)
 
 #: Where a helper's ``return <value>`` leaves the value for its caller.
 RETURN_VAR = '__return__'
 
 DEVICE_MODE_CALL_RE = re.compile(
     r'^(?:\w+\s*=\s*)?razer_set_device_mode\s*\(\s*\w+\s*,\s*([^,]+?)\s*,\s*([^)]+?)\s*\)$')
+
+#: ``if (razer_send_payload(device, &request, &response) == 0 && <test>)``:
+#: the send is part of the test, and a send that fails takes the else branch.
+SEND_TEST_RE = re.compile(
+    r'^razer_send_payload\s*\([^()]*\)\s*==\s*0\s*(?:&&\s*(.+))?$', re.S)
+
+NATIVE_CALL_RE = re.compile(
+    r'^(?:\w+\s*=\s*|return\s+)?(' + '|'.join(NATIVE_HELPERS) + r')\s*\(\s*\w+\s*(?:,(.*))?\)$')
+
+
+def constant_return(steps: list) -> Optional[Any]:
+    """The value a helper's steps return, when that is all they do.
+
+    Whatever follows the first ``stop`` never runs: ``if (x) return A;
+    return B;`` folds to ``A, stop, B, stop`` for a device where x holds.
+    """
+    if (len(steps) >= 2 and steps[0].get('op') == 'let'
+            and steps[0].get('name') == RETURN_VAR
+            and steps[0]['value'].get('k') == 'const' and steps[1].get('op') == 'stop'):
+        return steps[0]['value']['value']
+    return None
 
 
 class Emitter:
@@ -485,6 +522,13 @@ class Emitter:
         if node.kind == 'if':
             cond = ' '.join(node.text.split())
             then_nodes, else_nodes = node.children[0], node.children[1]
+            m = SEND_TEST_RE.match(cond)
+            if m:
+                step = {'op': 'if_sent', 'then': self.emit(then_nodes),
+                        'else': self.emit(else_nodes)}
+                if m.group(1):
+                    step['test'] = parse_expr(m.group(1), self.consts)
+                return [step]
             if re.search(r'\berr\b|\bretval\b', cond) and 'count' not in cond:
                 return []
             if DROP_CONDITIONS.search(cond):
@@ -552,6 +596,25 @@ class Emitter:
             step['result'] = result
         return step
 
+    def native_call(self, name: str, raw_args: str) -> list[dict]:
+        """A call to a helper the interpreter implements itself (NATIVE_HELPERS).
+
+        Its C body is not transpiled, but the value helpers it calls are: they
+        are run first, as this device's own steps, and leave their answers in
+        the variables the Python side reads.
+        """
+        steps: list[dict] = []
+        for helper, variable in VALUE_HELPERS.items():
+            if helper in self.helpers and any(_mentions(node, helper)
+                                              for node in self.helpers[name]):
+                step = self.inline_helper(helper, {}, result=variable)
+                value = constant_return(step['steps'])
+                steps.append(step if value is None else
+                             {'op': 'let', 'name': variable,
+                              'value': {'k': 'const', 'value': value}})
+        args = [parse_expr(arg, self.consts) for arg in split_args(raw_args)]
+        return steps + [{'op': 'native', 'fn': name, 'args': args}]
+
     def emit_pid_switch(self, node: Node) -> list[dict]:
         default_index: Optional[int] = None
         for index, (labels, _body) in enumerate(node.cases):
@@ -587,6 +650,9 @@ class Emitter:
         text = stmt.strip().rstrip(';').strip()
         if not text:
             return []
+        m = NATIVE_CALL_RE.match(text)
+        if m and m.group(1) in self.helpers:
+            return self.native_call(m.group(1), m.group(2) or '')
         if self.helper and re.match(r'return\b', text):
             inner = text[len('return'):].strip()
             if 'razer_send_payload' in inner:
@@ -603,12 +669,18 @@ class Emitter:
 
         # A helper whose value is used inside the statement, such as
         # ``razer_get_active_varstore(device)`` as a builder argument: ask the
-        # device first, then use the answer as a plain variable.
+        # device first, then use the answer as a plain variable.  Where all the
+        # helper does for this device is return a constant -- VARSTORE, for
+        # every mouse but the one ``razer_get_variable_storage`` asks -- the
+        # constant goes in its place and nothing is called.
         for name, variable in VALUE_HELPERS.items():
             call = re.compile(re.escape(name) + r'\s*\(\s*\w+\s*\)')
             if name in self.helpers and call.search(text):
-                return ([self.inline_helper(name, {}, result=variable)]
-                        + self.emit_stmt(call.sub(variable, text)))
+                step = self.inline_helper(name, {}, result=variable)
+                value = constant_return(step['steps'])
+                if value is not None:
+                    return self.emit_stmt(call.sub(str(value), text))
+                return [step] + self.emit_stmt(call.sub(variable, text))
         # ``return count;`` is the kernel's "handled, we're done" exit.  It
         # matters: the ARGB controller returns there and must NOT fall through
         # to the shared razer_send_payload tail.  Error returns carry no such
@@ -716,8 +788,43 @@ def parse_signature(raw_params: str) -> list:
     return names
 
 
-def find_delegation(nodes: list, consts: dict) -> Optional[tuple]:
-    """Detect a wrapper whose whole body is ``return other_handler(...)``."""
+#: ``razer_backlight_led_id(dev)`` as a wrapper's bound value: a helper that
+#: only picks a constant by product id.
+PID_HELPER_CALL_RE = re.compile(r'^(\w+)\s*\(\s*dev\s*\)$')
+PID_HELPER_RE = re.compile(
+    r'static\s+(?:unsigned\s+char|int|u8)\s+(\w+)\s*\(\s*struct\s+device\s*\*\s*dev\s*\)\s*\{')
+
+
+def fold_pid_helper(nodes: list, pids: set, consts: dict, blade_pids: set, driver: str,
+                    unhandled: list) -> Optional[tuple]:
+    """``(default, {pid: value})`` for a helper that only picks a constant.
+
+    ``razer_backlight_led_id()`` is BACKLIGHT_LED but for the Basilisk V4
+    Pro, whose underglow is UNDERGLOW_LED.  None when the helper does more
+    than return a constant for some device.
+    """
+    def value(pid):
+        return constant_return(Emitter(consts, pid, blade_pids, driver, unhandled,
+                                       helper=True).emit(nodes))
+    default = value(None)
+    if default is None:
+        return None
+    per_pid = {}
+    for pid in sorted(pids):
+        folded = value(pid)
+        if folded is None:
+            return None
+        if folded != default:
+            per_pid['{0:04x}'.format(pid)] = folded
+    return default, per_pid
+
+
+def find_delegation(nodes: list, consts: dict, pid_helpers=()) -> Optional[tuple]:
+    """Detect a wrapper whose whole body is ``return other_handler(...)``.
+
+    A bound value is a constant, or ``{'helper': name}`` for a call to one of
+    `pid_helpers`, which the caller folds per product id.
+    """
     statements = [n for n in nodes if n.kind == 'stmt' and n.text]
     if len(statements) != 1:
         return None
@@ -726,13 +833,16 @@ def find_delegation(nodes: list, consts: dict) -> Optional[tuple]:
         return None
     target = match.group(1)
     extra = [a for a in split_args(match.group(2)) if a not in STANDARD_PARAMS]
-    values = []
+    values: list = []
     for arg in extra:
         arg = arg.strip()
+        call = PID_HELPER_CALL_RE.match(arg)
         if arg in consts:
             values.append(consts[arg])
         elif re.fullmatch(r'0x[0-9A-Fa-f]+|\d+', arg):
             values.append(int(arg, 0))
+        elif call and call.group(1) in pid_helpers:
+            values.append({'helper': call.group(1)})
         else:
             return None
     return target, values
@@ -824,8 +934,9 @@ def extract_transport(driver_dir: str, consts: dict) -> dict:
 
 
 HELPER_RE = re.compile(
-    r'static\s+(?:int|unsigned\s+char)\s+(?:__must_check\s+)?'
-    r'(razer_set_device_mode|razer_get_active_varstore)\s*\(([^)]*)\)\s*\{')
+    r'static\s+(?:int|unsigned\s+char)\s+(?:__must_check\s+)?('
+    + '|'.join(['razer_set_device_mode', *VALUE_HELPERS, *NATIVE_HELPERS])
+    + r')\s*\(([^)]*)\)\s*\{')
 PROBE_RE = re.compile(r'static\s+int\s+(razer_\w+_probe)\s*\(([^)]*)\)\s*\{')
 
 
@@ -937,6 +1048,38 @@ def transpile(upstream: str, out_path: str) -> int:
 
         helpers = {m.group(1): _function_body(src, m) for m in HELPER_RE.finditer(src)}
 
+        # The product ids a helper tells apart, and those of the helpers it
+        # calls in turn.  A handler that calls one behaves differently for
+        # them even when its own body names none: the scroll wheel handlers
+        # only reach the Basilisk V4 Pro through razer_get_variable_storage().
+        helper_pids: dict = {}
+        for match in HELPER_RE.finditer(src):
+            helper_src = src[match.end() - 1:_match_brace(src, match.end() - 1)]
+            helper_pids[match.group(1)] = (helper_src, {
+                consts[name] for name in re.findall(r'USB_DEVICE_ID_\w+', helper_src)
+                if name in consts})
+        for _round in range(2):
+            for name, (helper_src, named) in helper_pids.items():
+                for other, (_src, other_named) in helper_pids.items():
+                    if other != name and re.search(r'\b' + other + r'\s*\(', helper_src):
+                        named |= other_named
+
+        def called_helper_pids(body: str, helper_pids=helper_pids) -> set:
+            found: set = set()
+            for name, (_src, named) in helper_pids.items():
+                if re.search(r'\b' + name + r'\s*\(', body):
+                    found |= named
+            return found
+
+        pid_helpers = {}
+        for match in PID_HELPER_RE.finditer(src):
+            helper_src = src[match.end() - 1:_match_brace(src, match.end() - 1)]
+            pids = {consts[name] for name in re.findall(r'USB_DEVICE_ID_\w+', helper_src)
+                    if name in consts}
+            if driver == 'kbd':
+                pids |= blade_pids
+            pid_helpers[match.group(1)] = (_function_body(src, match), pids)
+
         for match in FUNC_RE.finditer(src):
             attr_name = match.group(3)
             direction = match.group(2)
@@ -944,21 +1087,40 @@ def transpile(upstream: str, out_path: str) -> int:
             body_src = src[brace + 1:_match_brace(src, brace)]
             nodes = parse_block(body_src)
 
-            delegation = find_delegation(nodes, consts)
+            delegation = find_delegation(nodes, consts, pid_helpers)
             if delegation is not None:
                 target, values = delegation
                 target_params = signatures.get(target, [])
-                if len(values) == len(target_params):
+                bind: Optional[dict] = {}
+                pid_bind: dict = {}
+                for param, value in zip(target_params, values):
+                    if isinstance(value, dict):
+                        helper_nodes, helper_named = pid_helpers[value['helper']]
+                        folded = fold_pid_helper(helper_nodes, helper_named, consts,
+                                                 blade_pids, driver, unhandled)
+                        if folded is None:
+                            bind = None
+                            break
+                        bind[param] = folded[0]
+                        for pid_key, pid_value in folded[1].items():
+                            pid_bind.setdefault(pid_key, {})[param] = pid_value
+                    else:
+                        bind[param] = value
+                if bind is not None and len(values) == len(target_params):
                     target_attr = target[len('razer_attr_'):]
                     target_dir, _, target_name = target_attr.partition('_')
-                    attrs['{0}:{1}'.format(direction, attr_name)] = {
-                        'alias': '{0}:{1}'.format(target_dir, target_name),
-                        'bind': dict(zip(target_params, values)),
-                    }
+                    entry = {'alias': '{0}:{1}'.format(target_dir, target_name),
+                             'bind': bind}
+                    # A wrapper whose bound value depends on the product id,
+                    # such as the Basilisk V4 Pro's underglow behind backlight_*.
+                    if pid_bind:
+                        entry['pid_bind'] = pid_bind
+                    attrs['{0}:{1}'.format(direction, attr_name)] = entry
                     continue
 
             pids = {consts[name] for name in re.findall(r'USB_DEVICE_ID_\w+', body_src)
                     if name in consts}
+            pids |= called_helper_pids(body_src)
 
             attrs['{0}:{1}'.format(direction, attr_name)] = emit_per_pid(
                 nodes, pids, driver, helpers)

@@ -26,10 +26,10 @@
 
 这是一次完整移植。协议层移入用户空间，运行在 Windows HID 类驱动之上，
 D-Bus 被替换为回环 JSON-RPC 后台服务，**每一处设备特殊行为都直接从上游 C 源码转译而来**——
-因此 OpenRazer 已知的全部 274 个 USB 设备在这里的表现与 Linux 上一致，
-此外还有仍在上游拉取请求审查中的 Pro Type Ultra 和零售版 DeathAdder 2000、
-上游完全无法触及的一款蓝牙耳机，以及 BlackShark V2 HyperSpeed、BlackShark V3 X HyperSpeed
-和 Barracuda X。
+因此 OpenRazer 已知的全部 282 个 USB 设备在这里的表现与 Linux 上一致，
+此外还有仍在上游拉取请求审查中的 Pro Type Ultra 和 Basilisk V4 Pro、
+上游完全无法触及的一款蓝牙耳机，以及 BlackShark V2 HyperSpeed、BlackShark V2 Pro（2023）、
+BlackShark V3 X HyperSpeed 和 Barracuda X。
 
 <p align="center"><img src="docs/images/studio-lighting.png" alt="OpenRazer Studio：一把 BlackWidow 键盘，依据它自己的产品照片绘制，按图层逐键点亮" width="860"></p>
 
@@ -398,7 +398,7 @@ Windows 把每个接口暴露为独立的 HID 集合，因此移植版会打开�
  {"op": "send"}]
 ```
 
-609 条不同的配方覆盖全部 276 个 USB 设备。`openrazer_win/devices/recipes.py` 在运行时解释它们。
+637 条不同的配方覆盖全部 286 个 USB 设备。`openrazer_win/devices/recipes.py` 在运行时解释它们。
 跟进新的上游版本意味着重跑转译器，而不是重写 Python。
 
 **设备数据库**也来自同一处：`tools/extract_device_db.py` 在把仅限 Linux 的依赖
@@ -411,25 +411,26 @@ Windows 把每个接口暴露为独立的 HID 集合，因此移植版会打开�
 
 | 类别 | 设备 |
 |---|---:|
-| 鼠标 | 118 |
-| 键盘与笔记本 | 117 |
-| 配件（扩展坞、支架、ARGB 控制器） | 17 |
+| 鼠标 | 123 |
+| 键盘与笔记本 | 120 |
+| 配件（扩展坞、支架、ARGB 控制器） | 18 |
 | 耳机（Kraken 协议） | 8 |
 | 耳机（Bluetooth LE） | 1 |
 | 耳机（BlackShark V2 HyperSpeed） | 2 |
+| 耳机（BlackShark V2 Pro，2023） | 1 |
 | 耳机（BlackShark V3 X HyperSpeed） | 4 |
 | 耳机（Barracuda X） | 1 |
 | 鼠标垫 | 8 |
 | 键区 | 7 |
 | eGPU 外接显卡坞 | 2 |
-| **总计** | **285** |
+| **总计** | **295** |
 
 **DeathAdder 3.5G** 及其 Black 版本需要先安装驱动程序：它们通过 Windows 自带驱动不会发送的 USB
 请求接收设置。`openrazer-win driver install`（或 Studio 主页上的“安装驱动程序”）会在 UAC 确认后为它们
 安装 libusb-win32 过滤驱动：从 GitHub 下载 libusb-win32 1.4.0.2，按预先固定的哈希校验每个文件，
 并且只作用于这两款鼠标，鼠标仍可正常使用。`openrazer-win driver remove` 可将其移除。
 
-其中 169 个具有可寻址矩阵；90 个可报告电量。完整的可搜索列表在
+其中 175 个具有可寻址矩阵；98 个可报告电量。完整的可搜索列表在
 [文档站点](https://ar4ikov.github.io/openrazer-win/#devices)，或运行
 `openrazer-win supported`。
 
@@ -648,7 +649,7 @@ pip install -e ".[dev]"
 
 pytest                              # 418 项测试，无需硬件
 ruff check .
-python tools/simulate_devices.py    # 全部 276 个 USB 设备的每一项能力
+python tools/simulate_devices.py    # 全部 286 个 USB 设备的每一项能力
 ```
 
 OpenRazer Studio 及其安装程序是 `studio/` 下的一个 Rust 工作区——

@@ -127,8 +127,12 @@ struct Leds {
 }
 
 /// Mice whose matrix is the other way round from the drawing's guess.
-const MIRRORED_MICE: [u64; 1] = [
+const MIRRORED_MICE: [u64; 3] = [
     0x0099, // Basilisk V3: left lit right and the wheel lit the logo
+    // Basilisk V4 Pro, wired and on its receiver: logo, wheel, then five LEDs
+    // of underglow, as openrazer/openrazer#2975 and OpenRGB list them. That
+    // the underglow runs round the body as the V3's does is a guess.
+    0x00E2, 0x00E3,
 ];
 
 impl Leds {
@@ -1248,6 +1252,28 @@ mod tests {
         assert_eq!(geom_of(&v3, 1), geom_of(&plain, 0));
         for c in 2..11 {
             assert_eq!(geom_of(&v3, c), geom_of(&plain, 12 - c), "LED {c} is on the other side");
+        }
+    }
+
+    #[test]
+    fn a_basilisk_v4_pro_is_drawn_logo_first_like_the_v3() {
+        let label = |art: &Art, c: u8| art.shapes.iter().find(|s| s.region == Region::Cell(0, c)).unwrap().label.clone();
+        let geom_of = |art: &Art, c: u8| art.shapes.iter().find(|s| s.region == Region::Cell(0, c)).unwrap().bounds(art).center();
+        let plain = Art::build("mouse", &caps("mouse", Some([1, 7]), &["backlight", "logo", "scroll"]), None);
+        for pid in [0x00E2, 0x00E3] {
+            let mut v4 = caps("mouse", Some([1, 7]), &["backlight", "logo", "scroll"]);
+            v4["pid"] = json!(pid);
+            let v4 = Art::build("mouse", &v4, None);
+            assert_eq!(v4.shapes.iter().filter(|s| matches!(s.region, Region::Cell(..))).count(), 7);
+            assert_eq!(label(&v4, 0), "Logo");
+            assert_eq!(label(&v4, 1), "Scroll wheel");
+            assert_eq!(geom_of(&v4, 0), geom_of(&plain, 1));
+            for c in 2..7 {
+                assert_eq!(geom_of(&v4, c), geom_of(&plain, 8 - c), "LED {c} is on the other side");
+            }
+            for zone in ["backlight", "logo", "scroll"] {
+                assert!(v4.shapes.iter().any(|s| s.region == Region::Zone(zone)), "{zone}");
+            }
         }
     }
 

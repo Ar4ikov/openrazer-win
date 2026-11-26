@@ -18,7 +18,7 @@ from functools import lru_cache
 from typing import Any, Callable, Optional
 
 from ..protocol.chroma import get_builder
-from ..protocol.report import RazerReport
+from ..protocol.report import RazerReport, RazerReportError
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 RECIPES_PATH = os.path.join(DATA_DIR, 'recipes.json')
@@ -145,9 +145,10 @@ def _evaluate_raw(expr: str, env: Environment) -> Any:
             return b''
         return bytes(env.response.arguments[offset:])
 
-    # C's logical negation, spelled the way Python's parser expects.  The
+    # C's logical operators, spelled the way Python's parser expects.  The
     # result has to be stripped: eval-mode parsing rejects leading whitespace.
-    python_expr = re.sub(r'!(?!=)', ' not ', expr).strip()
+    python_expr = expr.replace('&&', ' and ').replace('||', ' or ')
+    python_expr = re.sub(r'!(?!=)', ' not ', python_expr).strip()
     try:
         tree = ast.parse(python_expr, mode='eval')
     except SyntaxError as error:
@@ -210,6 +211,14 @@ def _eval_node(node: ast.AST, env: Environment, source: str) -> Any:
     if isinstance(node, ast.IfExp):
         chosen = node.body if _eval_node(node.test, env, source) else node.orelse
         return _eval_node(chosen, env, source)
+
+    if isinstance(node, ast.BoolOp):
+        # C's && and || short-circuit and yield 0 or 1.
+        want = isinstance(node.op, ast.Or)
+        for operand in node.values:
+            if bool(_eval_node(operand, env, source)) == want:
+                return 1 if want else 0
+        return 0 if want else 1
 
     raise RecipeError('unsupported expression: {0}'.format(source))
 
@@ -334,6 +343,30 @@ def _execute(steps: list, env: Environment, send: Sender) -> Environment:
             if response is not None:
                 env.response = response
 
+        elif op == 'if_sent':
+            # ``if (razer_send_payload(...) == 0 && test)``: the send is part
+            # of the test, and one that fails takes the else branch.
+            report = env.reports.get('request')
+            if report is None:
+                raise NotSupported('recipe reached a send with no report built')
+            try:
+                response = send(report, True)
+            except RazerReportError:
+                response = None
+            env.sent += 1
+            passed = response is not None
+            if passed:
+                env.response = response
+                if 'test' in step:
+                    passed = bool(evaluate(step['test'], env))
+            _execute(step['then'] if passed else step.get('else', []), env, send)
+
+        elif op == 'native':
+            helper = NATIVE_HELPERS.get(step['fn'])
+            if helper is None:
+                raise RecipeError('no Python implementation of {0}'.format(step['fn']))
+            helper(env, send, *[evaluate(arg, env) for arg in step['args']])
+
         elif op == 'call':
             _call(step, env, send)
 
@@ -436,6 +469,67 @@ def _report(env: Environment, target: str) -> RazerReport:
 
 
 # ---------------------------------------------------------------------------
+# Driver helpers carried as Python
+# ---------------------------------------------------------------------------
+#
+# A few driver helpers loop over a reply and rebuild an array from it, which
+# the transpiler does not fold into steps.  Each one here is a line-by-line
+# copy of its C function; the transpiler turns a call to it into a ``native``
+# step (NATIVE_HELPERS in tools/transpile_recipes.py) and runs the value
+# helpers it calls first, so their answers arrive as variables.
+
+#: RAZER_MOUSE_MAX_DPI_STAGES in razermouse_driver.h.
+MAX_DPI_STAGES = 5
+
+
+def _set_active_stage_dpi(env: Environment, send: Sender, dpi_x: int, dpi_y: int) -> None:
+    """``razer_set_active_stage_dpi()`` of the Basilisk V4 Pro (openrazer/openrazer#2975).
+
+    That mouse ignores the plain DPI command and only uses the DPI stages of
+    its active onboard profile, so the active stage is rewritten instead: read
+    the stages, replace the active one, write them all back.  Expects
+    ``variable_storage``, which ``razer_get_variable_storage()`` sets.
+    """
+    storage = int(env.vars['variable_storage'])
+    request = get_builder('razer_chroma_misc_get_dpi_stages')(storage)
+    request.transaction_id = 0x1F
+    response = send(request, True)
+    env.sent += 1
+    if response is None:
+        raise RecipeError('the DPI stages could not be read')
+    args = response.arguments
+    active_stage = args[1]
+    stages_count = min(args[2], MAX_DPI_STAGES)
+    if not 1 <= active_stage <= stages_count:
+        raise RecipeError('active DPI stage {0} is not one of the {1} stages'.format(
+            active_stage, stages_count))
+    # Each stage is 7 bytes: stage number, DPI X, DPI Y, 2 reserved bytes.
+    dpi: list = []
+    offset = 4
+    for _ in range(stages_count):
+        if offset + 4 > response.data_size:
+            raise RecipeError('the DPI stages reply is shorter than its stage count')
+        dpi.append((args[offset] << 8) | args[offset + 1])
+        dpi.append((args[offset + 2] << 8) | args[offset + 3])
+        offset += 7
+    dpi[(active_stage - 1) * 2] = int(dpi_x) & 0xFFFF
+    dpi[(active_stage - 1) * 2 + 1] = int(dpi_y) & 0xFFFF
+    request = get_builder('razer_chroma_misc_set_dpi_stages')(
+        storage, stages_count, active_stage, dpi)
+    request.transaction_id = 0x1F
+    response = send(request, True)
+    env.sent += 1
+    if response is not None:
+        env.response = response
+
+
+#: Helper name in the C driver -> its Python copy, ``fn(env, send, *args)``.
+NATIVE_HELPERS: dict = {
+    'razer_set_active_stage_dpi': _set_active_stage_dpi,
+}
+
+
+# ---------------------------------------------------------------------------
 # The recipe table
 # ---------------------------------------------------------------------------
 
@@ -443,7 +537,7 @@ def _report(env: Environment, target: str) -> RazerReport:
 #: matching case can degrade to a bare ``send`` with nothing built -- that means
 #: the device does not implement the attribute, not that the call should fail
 #: at transport time.
-ACTIONABLE_OPS = frozenset(('build', 'for_each_row', 'send_argb'))
+ACTIONABLE_OPS = frozenset(('build', 'for_each_row', 'send_argb', 'native'))
 
 #: The wave of the newer ("extended") lighting commands carries one byte more
 #: than its direction, which the kernel driver always sends as 0x28 and marks
@@ -473,7 +567,7 @@ def is_actionable(steps: list) -> bool:
             return True
         if step['op'] == 'call' and is_actionable(step['steps']):
             return True
-        if step['op'] == 'if_count':
+        if step['op'] in ('if_count', 'if_sent'):
             if is_actionable(step['then']) or is_actionable(step.get('else', [])):
                 return True
         elif step['op'] in ('switch_count', 'switch_var'):
@@ -523,6 +617,7 @@ class RecipeTable:
 
         bindings: dict = {}
         seen = set()
+        pid_key = '{0:04x}'.format(pid)
         while True:
             entry = table.get(attribute)
             if entry is None:
@@ -533,12 +628,15 @@ class RecipeTable:
             if attribute in seen:
                 raise RecipeError('alias loop at {0}'.format(attribute))
             seen.add(attribute)
-            # An outer wrapper's bindings win over the inner one's defaults.
+            # An outer wrapper's bindings win over the inner one's defaults,
+            # and a value bound for this product id over the wrapper's own.
+            for key, value in entry.get('pid_bind', {}).get(pid_key, {}).items():
+                bindings.setdefault(key, value)
             for key, value in entry.get('bind', {}).items():
                 bindings.setdefault(key, value)
             attribute = entry['alias']
 
-        ref = entry['pids'].get('{0:04x}'.format(pid), entry['default'])
+        ref = entry['pids'].get(pid_key, entry['default'])
         if not self._actionable[ref]:
             raise NotSupported(
                 'device 0x{0:04x} does not implement {1}'.format(pid, attribute))
