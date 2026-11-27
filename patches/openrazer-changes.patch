@@ -1200,7 +1200,7 @@ index aa5b756..afe358b 100644
 -- 
 2.43.0
 
-From 13405adf29d96fe9b34e4ce54052fc33e0948a35 Mon Sep 17 00:00:00 2001
+From a3a1666f3a7a3dcd9b26ee2757e7a3291a713609 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Fri, 27 Nov 2026 10:01:50 +0000
 Subject: [PATCH 7/7] Studio: remember when each device was last charged
@@ -1215,8 +1215,8 @@ it. The device page's Battery panel shows "Last charged to 98% on
  studio/app/src/settings.rs  | 46 +++++++++++++++++++++++++++++++++++++
  studio/app/src/shell.rs     | 30 ++++++++++++++++++++++++
  studio/app/src/ui/app.rs    |  8 +++++++
- studio/app/src/ui/device.rs | 19 +++++++++++++++
- 4 files changed, 103 insertions(+)
+ studio/app/src/ui/device.rs | 20 ++++++++++++++++
+ 4 files changed, 104 insertions(+)
 
 diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
 index 879ab19..67f870c 100644
@@ -1357,18 +1357,19 @@ index fe183cf..44e6eae 100644
              self.save_settings();
          }
 diff --git a/studio/app/src/ui/device.rs b/studio/app/src/ui/device.rs
-index 22a1426..3023b49 100644
+index 22a1426..0ef3718 100644
 --- a/studio/app/src/ui/device.rs
 +++ b/studio/app/src/ui/device.rs
-@@ -425,6 +425,7 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+@@ -421,6 +421,8 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+     let Some(caps) = detail.caps.clone() else { return };
+     let serial = device.serial.clone();
+     let mut later: Vec<(String, Command)> = Vec::new();
++    // Read before `edit` borrows `app` mutably for the rest of the page.
++    let last_charged = last_charged(app, &device.serial);
+     let edit = app.edits.entry(serial.clone()).or_default();
      let has_battery = caps["battery"] == true;
      let has_saving = caps["idle_time"] == true || has_battery && detail.low_battery.is_some();
- 
-+    let last_charged = last_charged(app, &device.serial);
-     let two = has_battery && has_saving;
-     widgets::columns(ui, if two { 0.42 } else { 1.0 }, if two { TWO_COLUMNS } else { f32::INFINITY }, |ui, column| {
-         let saving_here = has_saving && if two { column == 1 } else { column == 0 };
-@@ -443,9 +444,16 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+@@ -443,9 +445,16 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
                      let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 8.0), Sense::hover());
                      ui.painter().rect_filled(rect, CornerRadius::same(4), SURFACE_HI);
                      ui.painter().rect_filled(Rect::from_min_size(rect.min, vec2(rect.width() * (level / 100.0).clamp(0.0, 1.0) as f32, rect.height())), CornerRadius::same(4), colour);
@@ -1385,7 +1386,7 @@ index 22a1426..3023b49 100644
                  }
              });
          }
-@@ -514,6 +522,17 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+@@ -514,6 +523,17 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
  // -- profiles -------------------------------------------------------------------------------
  
  /// The profile the daemon writes this device's changes into, if any.
