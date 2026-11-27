@@ -1,7 +1,7 @@
 From 2cdac55c30f1dd8eedf8b3f38f82dfea879ffda9 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 19:14:12 +0000
-Subject: [PATCH 1/6] Studio: devices and batteries in the tray, tray names,
+Subject: [PATCH 1/7] Studio: devices and batteries in the tray, tray names,
  low-battery warning
 
 The tray icon's tooltip lists each device on its own line with its
@@ -352,7 +352,7 @@ index 5aa8445..e6b35c4 100644
 From 9d696b3d591c7ce7b09ae0d4f6a9baa44c15fb94 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:18:33 +0000
-Subject: [PATCH 2/6] Studio: a visible low-battery warning
+Subject: [PATCH 2/7] Studio: a visible low-battery warning
 
 The notification was asked for in the same call that added its icon,
 which Windows often answers with the icon alone. It now follows the
@@ -596,7 +596,7 @@ index e6b35c4..084c027 100644
 From 9dfd73247258484991476b8756c1671fe0e01711 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:38:19 +0000
-Subject: [PATCH 3/6] Studio: the low-battery window in Studio's look
+Subject: [PATCH 3/7] Studio: the low-battery window in Studio's look
 
 Near-black (NAV) with a thin border and a Razer-green edge down the left,
 the battery glyph in green, "LOW BATTERY" in small letter-spaced
@@ -715,7 +715,7 @@ index ea8ac30..3da4d7e 100644
 From 64bba954d448e0e34fddbcfc8cb4e346b8375fa2 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:51:48 +0000
-Subject: [PATCH 4/6] Studio: a one-line low-battery window; the Windows
+Subject: [PATCH 4/7] Studio: a one-line low-battery window; the Windows
  notification optional
 
 The warning window shrinks to one line (300 x 44): the green edge, the
@@ -888,7 +888,7 @@ index 084c027..aa5b756 100644
 From f3a1240c7096a129e352c70c00c19bf74c75f216 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Thu, 26 Nov 2026 09:06:06 +0000
-Subject: [PATCH 5/6] Studio: the tray keeps a device's last battery while it
+Subject: [PATCH 5/7] Studio: the tray keeps a device's last battery while it
  is offline
 
 The tray showed a device's battery only while a reading was in the
@@ -1034,7 +1034,7 @@ index f4a9551..a82dbf2 100644
 From 0ad6717cba9c795f5904eb3a98381ed7be79dfa3 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Thu, 26 Nov 2026 09:11:30 +0000
-Subject: [PATCH 6/6] Studio: show or hide a device in the tray, and forget an
+Subject: [PATCH 6/7] Studio: show or hide a device in the tray, and forget an
  offline one
 
 Settings > System tray gets a switch per device, connected or offline,
@@ -1197,6 +1197,212 @@ index aa5b756..afe358b 100644
                  app.save_settings();
              }
              widgets::divider(ui);
+-- 
+2.43.0
+
+From 13405adf29d96fe9b34e4ce54052fc33e0948a35 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Fri, 27 Nov 2026 10:01:50 +0000
+Subject: [PATCH 7/7] Studio: remember when each device was last charged
+
+Studio records, per device, the highest charge of its last charge and
+the day (local time), in settings.json: a charge is seen when the device
+reports charging or reads at least 3 points above its lowest since the
+last charge; a charge to less than full counts and the next replaces
+it. The device page's Battery panel shows "Last charged to 98% on
+25 Nov 2026", also while the device reports no level.
+---
+ studio/app/src/settings.rs  | 46 +++++++++++++++++++++++++++++++++++++
+ studio/app/src/shell.rs     | 30 ++++++++++++++++++++++++
+ studio/app/src/ui/app.rs    |  8 +++++++
+ studio/app/src/ui/device.rs | 19 +++++++++++++++
+ 4 files changed, 103 insertions(+)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index 879ab19..67f870c 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -67,6 +67,51 @@ pub struct Settings {
+     pub last_battery: BTreeMap<String, LastBattery>,
+     /// Devices left out of the tray, by serial (their warnings still come).
+     pub tray_hidden: BTreeSet<String>,
++    /// When each device was last charged, by serial.
++    pub charges: BTreeMap<String, Charge>,
++}
++
++/// When a device was last charged: the highest charge it reached and the
++/// day. A charge is seen when the device reports charging, or when a reading
++/// is at least 3 points above the lowest since the last charge (a gauge's
++/// one-point wobble isn't one). A charge to less than full counts; the next
++/// charge replaces the record.
++#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(default)]
++pub struct Charge {
++    /// The highest charge, in percent, of the last charge.
++    pub percent: u8,
++    /// The day of the last charge, `YYYY-MM-DD` local time; empty before the first.
++    pub date: String,
++    low: u8,
++    dropped: bool,
++    seen: bool,
++}
++
++impl Charge {
++    /// Takes a reading; returns whether the record changed.
++    pub fn observe(&mut self, percent: u8, charging: bool, today: &str) -> bool {
++        let before = self.clone();
++        if !self.seen {
++            self.seen = true;
++            self.low = percent;
++            if !charging {
++                return true;
++            }
++        }
++        if charging || percent >= self.low.saturating_add(3) {
++            self.percent = if self.dropped || self.date.is_empty() { percent } else { self.percent.max(percent) };
++            self.dropped = false;
++            self.date = today.to_owned();
++            self.low = percent;
++        } else if percent < self.low {
++            self.low = percent;
++            if !self.date.is_empty() && percent < self.percent {
++                self.dropped = true;
++            }
++        }
++        *self != before
++    }
+ }
+ 
+ /// A device's last battery reading, as the tray shows it while it is offline.
+@@ -102,6 +147,7 @@ impl Default for Settings {
+             low_battery_system_notification: false,
+             last_battery: BTreeMap::new(),
+             tray_hidden: BTreeSet::new(),
++            charges: BTreeMap::new(),
+         }
+     }
+ }
+diff --git a/studio/app/src/shell.rs b/studio/app/src/shell.rs
+index 3a739ca..ca7aac7 100644
+--- a/studio/app/src/shell.rs
++++ b/studio/app/src/shell.rs
+@@ -302,6 +302,36 @@ pub fn notify(title: &str, text: &str) {
+ #[cfg(not(windows))]
+ pub fn notify(_title: &str, _text: &str) {}
+ 
++/// Today in local time, `YYYY-MM-DD`.
++pub fn today() -> String {
++    #[cfg(windows)]
++    let (year, month, day) = {
++        use windows_sys::Win32::System::SystemInformation::GetLocalTime;
++        // SAFETY: GetLocalTime writes one SYSTEMTIME, valid all-zero.
++        let time = unsafe {
++            let mut time = std::mem::zeroed();
++            GetLocalTime(&mut time);
++            time
++        };
++        (i64::from(time.wYear), i64::from(time.wMonth), i64::from(time.wDay))
++    };
++    #[cfg(not(windows))]
++    let (year, month, day) = {
++        // Elsewhere the UTC day (Howard Hinnant's days-to-civil).
++        let days = std::time::SystemTime::now()
++            .duration_since(std::time::UNIX_EPOCH)
++            .map_or(0, |since| since.as_secs() / 86_400) as i64;
++        let z = days + 719_468;
++        let (era, doe) = (z.div_euclid(146_097), z.rem_euclid(146_097));
++        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
++        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
++        let mp = (5 * doy + 2) / 153;
++        let month = if mp < 10 { mp + 3 } else { mp - 9 };
++        (yoe + era * 400 + i64::from(month <= 2), month, doy - (153 * mp + 2) / 5 + 1)
++    };
++    format!("{year:04}-{month:02}-{day:02}")
++}
++
+ /// Where a window of `size` points sits at the bottom centre of the main
+ /// display's work area (above the taskbar), for a display at
+ /// `pixels_per_point`.
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index fe183cf..44e6eae 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -403,6 +403,7 @@ impl App {
+         let offline = t("Offline");
+         let mut lines = Vec::with_capacity(snap.devices.len());
+         let mut readings: Vec<(String, crate::settings::LastBattery)> = Vec::new();
++        let mut charge_readings: Vec<(String, u8, bool)> = Vec::new();
+         for device in &snap.devices {
+             let name = self.tray_name(&device.serial, &device.name);
+             let hidden = self.settings.tray_hidden.contains(&device.serial);
+@@ -419,6 +420,7 @@ impl App {
+             };
+             let charging = detail.and_then(|d| d.charging).unwrap_or(false);
+             let percent = level.clamp(0.0, 100.0).round() as u8;
++            charge_readings.push((device.serial.clone(), percent, charging));
+             readings.push((
+                 device.serial.clone(),
+                 crate::settings::LastBattery { name: device.name.clone(), percent },
+@@ -461,6 +463,12 @@ impl App {
+                 changed = true;
+             }
+         }
++        if !charge_readings.is_empty() {
++            let today = shell::today();
++            for (serial, percent, charging) in charge_readings {
++                changed |= self.settings.charges.entry(serial).or_default().observe(percent, charging, &today);
++            }
++        }
+         if changed {
+             self.save_settings();
+         }
+diff --git a/studio/app/src/ui/device.rs b/studio/app/src/ui/device.rs
+index 22a1426..3023b49 100644
+--- a/studio/app/src/ui/device.rs
++++ b/studio/app/src/ui/device.rs
+@@ -425,6 +425,7 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+     let has_battery = caps["battery"] == true;
+     let has_saving = caps["idle_time"] == true || has_battery && detail.low_battery.is_some();
+ 
++    let last_charged = last_charged(app, &device.serial);
+     let two = has_battery && has_saving;
+     widgets::columns(ui, if two { 0.42 } else { 1.0 }, if two { TWO_COLUMNS } else { f32::INFINITY }, |ui, column| {
+         let saving_here = has_saving && if two { column == 1 } else { column == 0 };
+@@ -443,9 +444,16 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+                     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 8.0), Sense::hover());
+                     ui.painter().rect_filled(rect, CornerRadius::same(4), SURFACE_HI);
+                     ui.painter().rect_filled(Rect::from_min_size(rect.min, vec2(rect.width() * (level / 100.0).clamp(0.0, 1.0) as f32, rect.height())), CornerRadius::same(4), colour);
++                    if let Some(text) = &last_charged {
++                        ui.add_space(6.0);
++                        ui.label(widgets::dim(text));
++                    }
+                 }
+                 None => {
+                     ui.label(widgets::dim(t("Not reported yet.")));
++                    if let Some(text) = &last_charged {
++                        ui.label(widgets::dim(text));
++                    }
+                 }
+             });
+         }
+@@ -514,6 +522,17 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+ // -- profiles -------------------------------------------------------------------------------
+ 
+ /// The profile the daemon writes this device's changes into, if any.
++/// "Last charged to 98% on 25 Nov 2026", from the record kept in the settings.
++fn last_charged(app: &App, serial: &str) -> Option<String> {
++    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
++    let charge = app.settings.charges.get(serial).filter(|charge| !charge.date.is_empty())?;
++    let mut parts = charge.date.split('-');
++    let (year, month, day) = (parts.next()?, parts.next()?, parts.next()?);
++    let month = MONTHS.get(month.parse::<usize>().ok()?.checked_sub(1)?)?;
++    let date = format!("{} {month} {year}", day.trim_start_matches('0'));
++    Some(tf("Last charged to {}% on {}", &[&charge.percent, &date]))
++}
++
+ fn active_profile(profiles: &[serde_json::Value]) -> Option<&str> {
+     profiles.iter().find(|p| p["active"] == true).and_then(|p| p["name"].as_str())
+ }
 -- 
 2.43.0
 
