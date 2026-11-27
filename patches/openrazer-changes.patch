@@ -1,7 +1,7 @@
 From 2cdac55c30f1dd8eedf8b3f38f82dfea879ffda9 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 19:14:12 +0000
-Subject: [PATCH 1/7] Studio: devices and batteries in the tray, tray names,
+Subject: [PATCH 1/8] Studio: devices and batteries in the tray, tray names,
  low-battery warning
 
 The tray icon's tooltip lists each device on its own line with its
@@ -352,7 +352,7 @@ index 5aa8445..e6b35c4 100644
 From 9d696b3d591c7ce7b09ae0d4f6a9baa44c15fb94 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:18:33 +0000
-Subject: [PATCH 2/7] Studio: a visible low-battery warning
+Subject: [PATCH 2/8] Studio: a visible low-battery warning
 
 The notification was asked for in the same call that added its icon,
 which Windows often answers with the icon alone. It now follows the
@@ -596,7 +596,7 @@ index e6b35c4..084c027 100644
 From 9dfd73247258484991476b8756c1671fe0e01711 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:38:19 +0000
-Subject: [PATCH 3/7] Studio: the low-battery window in Studio's look
+Subject: [PATCH 3/8] Studio: the low-battery window in Studio's look
 
 Near-black (NAV) with a thin border and a Razer-green edge down the left,
 the battery glyph in green, "LOW BATTERY" in small letter-spaced
@@ -715,7 +715,7 @@ index ea8ac30..3da4d7e 100644
 From 64bba954d448e0e34fddbcfc8cb4e346b8375fa2 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:51:48 +0000
-Subject: [PATCH 4/7] Studio: a one-line low-battery window; the Windows
+Subject: [PATCH 4/8] Studio: a one-line low-battery window; the Windows
  notification optional
 
 The warning window shrinks to one line (300 x 44): the green edge, the
@@ -888,7 +888,7 @@ index 084c027..aa5b756 100644
 From f3a1240c7096a129e352c70c00c19bf74c75f216 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Thu, 26 Nov 2026 09:06:06 +0000
-Subject: [PATCH 5/7] Studio: the tray keeps a device's last battery while it
+Subject: [PATCH 5/8] Studio: the tray keeps a device's last battery while it
  is offline
 
 The tray showed a device's battery only while a reading was in the
@@ -1034,7 +1034,7 @@ index f4a9551..a82dbf2 100644
 From 0ad6717cba9c795f5904eb3a98381ed7be79dfa3 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Thu, 26 Nov 2026 09:11:30 +0000
-Subject: [PATCH 6/7] Studio: show or hide a device in the tray, and forget an
+Subject: [PATCH 6/8] Studio: show or hide a device in the tray, and forget an
  offline one
 
 Settings > System tray gets a switch per device, connected or offline,
@@ -1203,7 +1203,7 @@ index aa5b756..afe358b 100644
 From a3a1666f3a7a3dcd9b26ee2757e7a3291a713609 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Fri, 27 Nov 2026 10:01:50 +0000
-Subject: [PATCH 7/7] Studio: remember when each device was last charged
+Subject: [PATCH 7/8] Studio: remember when each device was last charged
 
 Studio records, per device, the highest charge of its last charge and
 the day (local time), in settings.json: a charge is seen when the device
@@ -1404,6 +1404,185 @@ index 22a1426..0ef3718 100644
  fn active_profile(profiles: &[serde_json::Value]) -> Option<&str> {
      profiles.iter().find(|p| p["active"] == true).and_then(|p| p["name"].as_str())
  }
+-- 
+2.43.0
+
+From 23efd9592fa84ef2343c25bd2baf2d96644d6a72 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Fri, 27 Nov 2026 13:06:47 +0000
+Subject: [PATCH 8/8] Studio: preliminary and final charge level, shown in the
+ device header
+
+Readings while charging are no longer the level: the first reading at
+least 20 seconds after charging stopped is recorded as preliminary, the
+first at least 10 minutes after replaces it as final (charging again
+restarts both), as OpenLogi does. The device header shows it beside the
+battery: "Charged to 78% on 25 Nov 2026", with "(preliminary)" until
+the final level is in.
+---
+ studio/app/src/settings.rs  | 68 ++++++++++++++++++++++++++-----------
+ studio/app/src/ui/app.rs    |  5 ++-
+ studio/app/src/ui/device.rs | 11 ++++--
+ 3 files changed, 62 insertions(+), 22 deletions(-)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index 67f870c..94d5b8c 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -71,44 +71,74 @@ pub struct Settings {
+     pub charges: BTreeMap<String, Charge>,
+ }
+ 
+-/// When a device was last charged: the highest charge it reached and the
+-/// day. A charge is seen when the device reports charging, or when a reading
+-/// is at least 3 points above the lowest since the last charge (a gauge's
+-/// one-point wobble isn't one). A charge to less than full counts; the next
++/// When a device was last charged: the level it settled at, and the day.
++/// A charge is seen when the device reports charging, or when a reading is at
++/// least 3 points above the lowest since the last charge (a gauge's one-point
++/// wobble isn't one). Readings while charging are not the level; the first
++/// reading at least 20 seconds after charging stopped is recorded as
++/// preliminary, the first at least 10 minutes after replaces it as final.
++/// Charging again restarts both. A charge to less than full counts; the next
+ /// charge replaces the record.
+ #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+ #[serde(default)]
+ pub struct Charge {
+-    /// The highest charge, in percent, of the last charge.
++    /// The level, in percent, of the last charge.
+     pub percent: u8,
+     /// The day of the last charge, `YYYY-MM-DD` local time; empty before the first.
+     pub date: String,
++    /// Whether the level is still the preliminary one.
++    pub preliminary: bool,
+     low: u8,
+-    dropped: bool,
+     seen: bool,
++    /// The day of a charge whose level is still settling; empty when none.
++    pending: String,
++    /// When it stopped charging, seconds since the Unix epoch; 0 while it
++    /// charges or when nothing is settling.
++    settling_since: u64,
++    preliminary_taken: bool,
+ }
+ 
+ impl Charge {
+-    /// Takes a reading; returns whether the record changed.
+-    pub fn observe(&mut self, percent: u8, charging: bool, today: &str) -> bool {
++    /// Seconds after charging stopped for the preliminary level.
++    pub const PRELIMINARY_SECS: u64 = 20;
++    /// Seconds after charging stopped for the final level.
++    pub const FINAL_SECS: u64 = 10 * 60;
++
++    /// Takes a reading at `now` (seconds since the Unix epoch); returns
++    /// whether the record changed.
++    pub fn observe(&mut self, percent: u8, charging: bool, today: &str, now: u64) -> bool {
+         let before = self.clone();
+         if !self.seen {
+             self.seen = true;
+             self.low = percent;
+-            if !charging {
+-                return true;
+-            }
+         }
+-        if charging || percent >= self.low.saturating_add(3) {
+-            self.percent = if self.dropped || self.date.is_empty() { percent } else { self.percent.max(percent) };
+-            self.dropped = false;
+-            self.date = today.to_owned();
+-            self.low = percent;
++        if charging {
++            self.pending = today.to_owned();
++            self.settling_since = 0;
++            self.preliminary_taken = false;
++        } else if self.pending.is_empty() && percent >= self.low.saturating_add(3) {
++            self.pending = today.to_owned();
++            self.settling_since = now.max(1);
++            self.preliminary_taken = false;
++        } else if !self.pending.is_empty() {
++            if self.settling_since == 0 {
++                self.settling_since = now.max(1);
++            }
++            let waited = now.saturating_sub(self.settling_since);
++            if waited >= Self::FINAL_SECS {
++                self.percent = percent;
++                self.date = std::mem::take(&mut self.pending);
++                self.preliminary = false;
++                self.settling_since = 0;
++                self.low = percent;
++            } else if waited >= Self::PRELIMINARY_SECS && !self.preliminary_taken {
++                self.percent = percent;
++                self.date.clone_from(&self.pending);
++                self.preliminary = true;
++                self.preliminary_taken = true;
++            }
+         } else if percent < self.low {
+             self.low = percent;
+-            if !self.date.is_empty() && percent < self.percent {
+-                self.dropped = true;
+-            }
+         }
+         *self != before
+     }
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index 44e6eae..ee4e3bc 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -465,8 +465,11 @@ impl App {
+         }
+         if !charge_readings.is_empty() {
+             let today = shell::today();
++            let now = std::time::SystemTime::now()
++                .duration_since(std::time::UNIX_EPOCH)
++                .map_or(0, |since| since.as_secs());
+             for (serial, percent, charging) in charge_readings {
+-                changed |= self.settings.charges.entry(serial).or_default().observe(percent, charging, &today);
++                changed |= self.settings.charges.entry(serial).or_default().observe(percent, charging, &today, now);
+             }
+         }
+         if changed {
+diff --git a/studio/app/src/ui/device.rs b/studio/app/src/ui/device.rs
+index 0ef3718..51f6a6e 100644
+--- a/studio/app/src/ui/device.rs
++++ b/studio/app/src/ui/device.rs
+@@ -157,6 +157,8 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
+ 
+ /// The device's picture, name and state, and the profile picker on the right.
+ fn header(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
++    // Read first: later code on this page borrows `app` mutably.
++    let charged = last_charged(app, &device.serial);
+     let detail = snap.details.get(&device.serial);
+     let caps = detail.and_then(|d| d.caps.as_ref());
+     let width = ui.available_width();
+@@ -188,6 +190,9 @@ fn header(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+                 if let Some(level) = detail.and_then(|d| d.battery) {
+                     super::widgets::battery(ui, level, detail.and_then(|d| d.charging).unwrap_or(false));
+                 }
++                if let Some(text) = &charged {
++                    ui.add(egui::Label::new(RichText::new(text).size(13.0).color(TEXT_DIM)).truncate());
++                }
+                 if let Some(effect) = snap.software.get(&device.serial) {
+                     widgets::badge(ui, super::effects::label(effect), ACCENT);
+                 }
+@@ -523,7 +528,8 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+ // -- profiles -------------------------------------------------------------------------------
+ 
+ /// The profile the daemon writes this device's changes into, if any.
+-/// "Last charged to 98% on 25 Nov 2026", from the record kept in the settings.
++/// "Charged to 98% on 25 Nov 2026", with "(preliminary)" until the final
++/// level is in, from the record kept in the settings.
+ fn last_charged(app: &App, serial: &str) -> Option<String> {
+     const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+     let charge = app.settings.charges.get(serial).filter(|charge| !charge.date.is_empty())?;
+@@ -531,7 +537,8 @@ fn last_charged(app: &App, serial: &str) -> Option<String> {
+     let (year, month, day) = (parts.next()?, parts.next()?, parts.next()?);
+     let month = MONTHS.get(month.parse::<usize>().ok()?.checked_sub(1)?)?;
+     let date = format!("{} {month} {year}", day.trim_start_matches('0'));
+-    Some(tf("Last charged to {}% on {}", &[&charge.percent, &date]))
++    let text = tf("Charged to {}% on {}", &[&charge.percent, &date]);
++    Some(if charge.preliminary { tf("{} (preliminary)", &[&text]) } else { text })
+ }
+ 
+ fn active_profile(profiles: &[serde_json::Value]) -> Option<&str> {
 -- 
 2.43.0
 
