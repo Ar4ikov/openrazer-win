@@ -13,7 +13,10 @@ from ..core.persistence import default_config_dir
 logger = logging.getLogger(__name__)
 
 #: Every integration there is a switch for.
-NAMES = ('accent', 'chroma')
+NAMES = ('accent', 'chroma', 'openrgb')
+
+#: Integrations that listen on a port of the user's choosing.
+PORTS = ('openrgb',)
 
 
 class IntegrationSettings:
@@ -42,15 +45,33 @@ class IntegrationSettings:
                 name, ', '.join(NAMES)))
         with self._lock:
             self._data[name] = bool(enabled)
-            directory = os.path.dirname(self.path)
-            os.makedirs(directory, exist_ok=True)
-            handle = tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=directory,
-                                                 delete=False, suffix='.tmp')
-            try:
-                json.dump(self._data, handle, indent=1, sort_keys=True)
-            finally:
-                handle.close()
-            os.replace(handle.name, self.path)
+            self._write()
+
+    def port(self, name: str, default: int) -> int:
+        """The port `name` listens on: the one chosen, or `default`."""
+        with self._lock:
+            chosen = self._data.get(name + '_port')
+        return chosen if type(chosen) is int and 0 < chosen < 65536 else default
+
+    def set_port(self, name: str, port: int) -> None:
+        if name not in PORTS:
+            raise ValueError('{0} has no port to choose'.format(name))
+        if type(port) is not int or not 0 < port < 65536:
+            raise ValueError('a port is a number from 1 to 65535, not {0!r}'.format(port))
+        with self._lock:
+            self._data[name + '_port'] = port
+            self._write()
+
+    def _write(self) -> None:
+        directory = os.path.dirname(self.path)
+        os.makedirs(directory, exist_ok=True)
+        handle = tempfile.NamedTemporaryFile('w', encoding='utf-8', dir=directory,
+                                             delete=False, suffix='.tmp')
+        try:
+            json.dump(self._data, handle, indent=1, sort_keys=True)
+        finally:
+            handle.close()
+        os.replace(handle.name, self.path)
 
     def as_dict(self) -> dict:
         with self._lock:

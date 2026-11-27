@@ -26,6 +26,8 @@ from ..core.profiles import (
 from ..devices.recipes import NotSupported, RecipeError
 from ..effects.engine import EffectEngine, zone_order
 from ..integrations import AccentWatch, IntegrationSettings, read_accent
+from ..openrgb import PORT as OPENRGB_PORT
+from ..openrgb import OpenRGBBridge, OpenRGBServer
 from . import protocol
 from .protocol import (
     DEVICE_ERROR, DEVICE_NOT_FOUND, INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST,
@@ -127,7 +129,8 @@ class DaemonService:
                  profiles: Optional[ProfileStore] = None,
                  enable_keys: bool = False, keys=None, macros=None,
                  integrations: Optional[IntegrationSettings] = None,
-                 chroma_port: int = CHROMA_PORT, snaptap=None):
+                 chroma_port: int = CHROMA_PORT, snaptap=None,
+                 openrgb_port: Optional[int] = None):
         self.persistence = persistence or Persistence()
         self.profiles = profiles if profiles is not None else ProfileStore()
         self.manager = DeviceManager(backend=backend, persistence=self.persistence)
@@ -168,6 +171,14 @@ class DaemonService:
         self.chroma_server: Optional[ChromaServer] = None
         #: Why games cannot reach the daemon, when they cannot.
         self.chroma_error: Optional[str] = None
+        self.openrgb = OpenRGBBridge(lambda: self.manager.devices, self._openrgb_call,
+                                     self.persistence, effects=self.effects,
+                                     busy=self.chroma.drawing, on_release=self._after_game)
+        #: Given, for a test; otherwise the one chosen, or OpenRGB's own.
+        self.openrgb_port = (openrgb_port if openrgb_port is not None
+                             else self.integrations.port('openrgb', OPENRGB_PORT))
+        self.openrgb_server: Optional[OpenRGBServer] = None
+        self.openrgb_error: Optional[str] = None
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -184,6 +195,8 @@ class DaemonService:
             self.accent.start()
         if self.integrations.enabled('chroma'):
             self._start_chroma()
+        if self.integrations.enabled('openrgb'):
+            self._start_openrgb()
         self.state = 'ready'
 
     def _initialise(self, device) -> bool:
@@ -220,6 +233,7 @@ class DaemonService:
     def stop(self) -> None:
         self.accent.stop()
         self._stop_chroma()
+        self._stop_openrgb()
         if self.effects is not None:
             self.effects.stop()
         for device in self.manager.devices:
@@ -263,12 +277,16 @@ class DaemonService:
             # then be reached to stop it.
             for serial in known - present:
                 self.effects.clear_serial(serial)
+        server = self.openrgb_server
+        if server is not None:
+            # OpenRGB's clients are told, and ask for the devices again.
+            server.devices_changed()
 
     # -- integrations --------------------------------------------------------
     def _paint_accent(self, device, colour) -> None:
         """Light every part of `device` that takes a colour in `colour`."""
-        if self.chroma.drawing(device):
-            return      # a game has it; it is told when the game is done
+        if self.chroma.drawing(device) or self.openrgb.drawing(device):
+            return      # a game or OpenRGB has it; it is told when they are done
         zones = [zone for zone, caps in (device.capabilities().get('zones') or {}).items()
                  if 'static' in (caps.get('effects') or [])]
         if not zones:
@@ -316,10 +334,37 @@ class DaemonService:
             server.stop()
         self.chroma.stop()
 
+    def _openrgb_call(self, serial: str, method: str, args, kwargs) -> None:
+        """A mode chosen in OpenRGB, put on the device the way Studio would put it."""
+        self.rpc_call(serial, method, args, kwargs)
+
+    def _start_openrgb(self) -> None:
+        if self.openrgb_server is not None:
+            return
+        try:
+            server = OpenRGBServer(self.openrgb, port=self.openrgb_port, rescan=self.rpc_rescan)
+        except OSError as error:
+            self.openrgb_error = ("port {0} is taken, most likely by OpenRGB's own SDK server: "
+                                  "{1}".format(self.openrgb_port, error))
+            logger.warning('OpenRGB cannot reach the daemon: %s', self.openrgb_error)
+            return
+        self.openrgb_error = None
+        server.start()
+        self.openrgb_server = server
+        logger.info('answering OpenRGB on port %d', server.port)
+
+    def _stop_openrgb(self) -> None:
+        server, self.openrgb_server = self.openrgb_server, None
+        if server is not None:
+            server.stop()
+        self.openrgb.stop()
+        self.openrgb_error = None
+
     def rpc_integration_status(self) -> dict:
         switches = self.integrations.as_dict()
         colour = read_accent()
         server = self.chroma_server
+        openrgb = self.openrgb_server
         return {
             'accent': {'enabled': switches['accent'], 'available': colour is not None,
                        'colour': list(colour) if colour else None},
@@ -327,13 +372,24 @@ class DaemonService:
                            listening=server is not None,
                            port=server.server_address[1] if server is not None else self.chroma_port,
                            error=self.chroma_error),
+            'openrgb': dict(self.openrgb.status(), enabled=switches['openrgb'],
+                            listening=openrgb is not None,
+                            port=openrgb.port if openrgb is not None else self.openrgb_port,
+                            clients=openrgb.clients() if openrgb is not None else [],
+                            error=self.openrgb_error),
         }
 
-    def rpc_integration_set(self, name: str, enabled: bool) -> dict:
+    def rpc_integration_set(self, name: str, enabled: bool, port: Optional[int] = None) -> dict:
+        """Switch `name` on or off; for OpenRGB, `port` moves it to another port too."""
         try:
+            if port is not None:
+                self.integrations.set_port(name, port)
             self.integrations.set(name, bool(enabled))
         except ValueError as error:
             raise RpcError(INVALID_PARAMS, str(error)) from error
+        if port is not None and port != self.openrgb_port:
+            self.openrgb_port = port
+            self._stop_openrgb()        # started again below, on the new port
         if name == 'accent':
             if enabled:
                 self.accent.start()
@@ -344,6 +400,11 @@ class DaemonService:
                 self._start_chroma()
             else:
                 self._stop_chroma()
+        elif name == 'openrgb':
+            if enabled:
+                self._start_openrgb()
+            else:
+                self._stop_openrgb()
         return self.rpc_integration_status()
 
     # -- Snap Tap ------------------------------------------------------------

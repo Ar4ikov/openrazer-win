@@ -163,8 +163,8 @@ pub enum Command {
     /// Put libusb-win32's filter driver on the DeathAdder 3.5G, or take it off
     /// (issue #29). Asks for administrator rights.
     Driver { install: bool },
-    /// Switch one of the daemon's integrations on or off.
-    Integration { name: String, enabled: bool },
+    /// Switch one of the daemon's integrations on or off; OpenRGB's also to another port.
+    Integration { name: String, enabled: bool, port: Option<u16> },
     /// Change Snap Tap: whichever of `snaptap.set`'s parameters are given.
     SnapTap(Value),
 }
@@ -647,8 +647,12 @@ impl Worker {
                 self.read_software();
                 self.load_persistence();
             }
-            Command::Integration { name, enabled } => {
-                let result = self.with(|c| c.call("integration.set", json!({ "name": name, "enabled": enabled })));
+            Command::Integration { name, enabled, port } => {
+                let mut params = json!({ "name": name, "enabled": enabled });
+                if let Some(port) = port {
+                    params["port"] = json!(port);
+                }
+                let result = self.with(|c| c.call("integration.set", params));
                 self.report(&result, None);
                 if let Ok(status) = result {
                     self.shared.lock().unwrap().integrations = status;

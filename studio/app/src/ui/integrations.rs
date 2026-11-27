@@ -41,7 +41,7 @@ fn apps() -> Vec<Item> {
 
 fn devices() -> Vec<Item> {
     vec![
-        Item { glyph: icon::SYNC, name: "OpenRGB", text: t("Razer devices in an OpenRGB setup, and other brands' lights following Studio."), status: Status::Planned },
+        Item { glyph: icon::SYNC, name: "OpenRGB", text: t("Other brands' lights, through OpenRGB, following the effects chosen in Studio."), status: Status::Planned },
         Item { glyph: icon::BULB, name: "Philips Hue", text: t("Room lights matching the desk."), status: Status::Idea },
         Item { glyph: icon::BULB, name: "Nanoleaf", text: t("Panels on the wall in step with the keyboard."), status: Status::Idea },
         Item { glyph: icon::BULB, name: "WLED", text: t("LED strips behind the monitor or desk."), status: Status::Idea },
@@ -61,21 +61,23 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
                 accent(app, ui, &snap.integrations);
             }
         });
+        openrgb(app, ui, &snap.integrations);
         developers(ui);
         grid(ui, "apps", t("Apps and games"), apps());
         grid(ui, "devices", t("Other devices"), devices());
     });
 }
 
-/// A switch for one of the daemon's integrations, or why there is none.
-fn switch(app: &mut App, ui: &mut egui::Ui, status: &Value, name: &str, label: &str, help: &str) -> bool {
+/// A switch for one of the daemon's integrations, or why there is none:
+/// a daemon older than `since` has no such integration.
+fn switch(app: &mut App, ui: &mut egui::Ui, status: &Value, name: &str, since: &str, label: &str, help: &str) -> bool {
     let mut on = status[name]["enabled"] == true;
     let known = status[name].is_object();
     widgets::row(ui, label, help, |ui| {
         if !known {
-            ui.label(widgets::faint(t("Needs the daemon from Studio 1.6.0 or later, running")));
+            ui.label(widgets::faint(tf("Needs the daemon from Studio {} or later, running", &[&since])));
         } else if widgets::toggle(ui, &mut on).changed() {
-            app.send(Command::Integration { name: name.into(), enabled: on });
+            app.send(Command::Integration { name: name.into(), enabled: on, port: None });
         }
     });
     on
@@ -90,7 +92,7 @@ fn accent(app: &mut App, ui: &mut egui::Ui, status: &Value) {
         },
         |ui| {
             widgets::help(ui, t("Every device in the colour Windows is set to, following it when it changes."));
-            let on = switch(app, ui, status, "accent", t("Follow the accent colour"), t("While on, a new colour chosen in Windows' personalisation settings is put on every device."));
+            let on = switch(app, ui, status, "accent", "1.6.0", t("Follow the accent colour"), t("While on, a new colour chosen in Windows' personalisation settings is put on every device."));
             widgets::divider(ui);
             widgets::row(ui, t("The colour now"), "", |ui| {
                 let colour = crate::accent::colour();
@@ -113,7 +115,7 @@ fn games(app: &mut App, ui: &mut egui::Ui, status: &Value) {
         },
         |ui| {
             widgets::help(ui, t("Games made for Razer Chroma light your devices as they would with Synapse: health, ammunition, the keys a game uses."));
-            let on = switch(app, ui, status, "chroma", t("Let games light devices"), t("While a game shows something, it has the devices; when it closes, your own lighting comes back."));
+            let on = switch(app, ui, status, "chroma", "1.6.0", t("Let games light devices"), t("While a game shows something, it has the devices; when it closes, your own lighting comes back."));
             let chroma = &status["chroma"];
             if on {
                 if chroma["listening"] == true {
@@ -129,6 +131,47 @@ fn games(app: &mut App, ui: &mut egui::Ui, status: &Value) {
             widgets::divider(ui);
             game_list(app, ui);
             widgets::help(ui, t("Leave out games with anti-cheat, such as online shooters: it may take a file it does not know for a cheat. Games built on Razer's newer SDK check that the file is Razer's own, and light nothing here."));
+        },
+    );
+}
+
+/// OpenRGB's SDK server, answered by the daemon: OpenRGB sees the devices here.
+fn openrgb(app: &mut App, ui: &mut egui::Ui, status: &Value) {
+    widgets::panel_with(
+        ui,
+        "OpenRGB",
+        |ui| {
+            widgets::badge(ui, t("Works now"), ACCENT);
+        },
+        |ui| {
+            widgets::help(ui, t("OpenRGB, and programs built on its SDK, see every device here and light it: key by key in Direct mode, or with one of the device's own effects."));
+            let on = switch(app, ui, status, "openrgb", "1.7.0", t("Let OpenRGB light devices"), t("While a program draws in Direct mode, it has the device; when it disconnects, your own lighting comes back. An effect it chooses, such as Static or Wave, is kept."));
+            let openrgb = &status["openrgb"];
+            if !openrgb.is_object() {
+                return;
+            }
+            let port = openrgb["port"].as_u64().unwrap_or(6742);
+            if on {
+                if openrgb["listening"] == true {
+                    let clients: Vec<&str> = openrgb["clients"].as_array().map(|c| c.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+                    let text = if clients.is_empty() {
+                        tf("Listening on port {}. Nothing is connected yet.", &[&port])
+                    } else {
+                        tf("Listening on port {}. Connected: {}", &[&port, &clients.join(", ")])
+                    };
+                    widgets::status_dot(ui, ACCENT, &text);
+                } else if openrgb["error"].is_string() {
+                    widgets::status_dot(ui, theme::WARN, &tf("Port {} is in use, most likely by OpenRGB's own SDK server. Stop that server, or choose another port below.", &[&port]));
+                }
+            }
+            widgets::divider(ui);
+            widgets::row(ui, t("Port"), t("In OpenRGB, add 127.0.0.1 and this port under SDK Client. 6742 is OpenRGB's own."), |ui| {
+                let mut value = port as f64;
+                if widgets::number_field(ui, "openrgb-port", &mut value, 1.0..=65535.0, 0, "", 90.0) {
+                    app.send(Command::Integration { name: "openrgb".into(), enabled: on, port: Some(value as u16) });
+                }
+            });
+            widgets::help(ui, t("In OpenRGB's settings, under Supported Devices, untick its Razer entries, so that no device is driven by two programs at once."));
         },
     );
 }

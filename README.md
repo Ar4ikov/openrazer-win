@@ -106,6 +106,7 @@ openrazer-win effect music red --zone left   # an effect for one ear, the other 
 
 openrazer-win integration accent on # every device in the Windows accent colour, and following it
 openrazer-win integration chroma on # games made for Razer Chroma light your devices
+openrazer-win integration openrgb on # OpenRGB, and programs on its SDK, see and light them
 
 openrazer-win profile save night    # remember what is showing now
 openrazer-win profile               # list saved profiles
@@ -266,8 +267,8 @@ Razer owners to look for it, in English, Russian or Simplified Chinese.
 - **Macros** — a library of macros, built step by step (press, hold, let go, wait), recorded in the
   window, or as text to type or a program to open, then put on any macro key of any keyboard.
 - **Integrations** — what works today, with its switches: **games with Razer Chroma**, the
-  **Windows accent colour** on every device, *Music*, and the local API; and what is planned, to
-  vote on.
+  **Windows accent colour** on every device, **OpenRGB**, *Music*, and the local API; and what is
+  planned, to vote on.
 - **Updates** — what changed in each version, in English, Russian or Simplified Chinese, and a new one downloaded and
   installed when you say so. Studio looks about once a day and never interrupts; a new version is a
   small mark in the navigation. It can be skipped, and the checks turned off.
@@ -356,6 +357,42 @@ With **Windows accent colour** on, every device takes the colour Windows is set 
 again the moment it is changed in *Settings › Personalisation › Colours*; a device plugged in later
 is told too. One device or one ear can follow it on its own instead: *Accent colour* is an effect
 under *Lighting*, and `openrazer-win effect accent`.
+
+### OpenRGB
+
+[OpenRGB](https://openrgb.org) lights many brands' devices from one program, and programs built on
+its SDK — Artemis, effect plugins, scripts using `openrgb-python` — reach devices through it, over a
+small protocol on port 6742. With **OpenRGB** on (Studio's *Integrations*, or
+`openrazer-win integration openrgb on`), the daemon answers that protocol itself, with every device
+it drives in it:
+
+- In OpenRGB, connect to `127.0.0.1`, port `6742`, from the *SDK Client* tab. The Razer devices
+  appear beside the rest, and OpenRGB's effects and profiles reach them. A program written against
+  the SDK connects the same way.
+- Each device is one controller, named and typed as the daemon knows it: a keyboard or keypad is a
+  matrix of its keys, a mousepad or a strip a row of LEDs, a mouse's logo and wheel a zone each, a
+  headset's ears two zones.
+- Its modes are the device's own effects, as far as it has them — Static, Breathing, Spectrum
+  Cycle, Wave, Reactive, Starlight, Off — and Direct. An effect chosen in OpenRGB is put on the
+  device as Studio would put it there: kept, back after a restart, and in the profile the device
+  follows.
+- Direct is a colour for each LED, sent as often as a program likes; the newest is passed on, up to
+  30 times a second. While a program draws on a device that way it has the device, as a game has it
+  through Chroma, and when the last one drawing on it disconnects, the device gets back what it had.
+  Nothing drawn in Direct is saved as your lighting.
+- A device plugged in or unplugged is announced to the programs connected, which ask for the list
+  again.
+
+OpenRGB can drive Razer devices itself, which would have two programs writing to one device: in its
+settings, under *Supported Devices*, untick its Razer entries. If OpenRGB's own SDK server is
+running, it holds port 6742, and Studio and `openrazer-win integration` say so; choose another port
+in Studio, or `openrazer-win integration openrgb on --port 6743`, and connect to that one.
+
+The daemon speaks the SDK's protocol up to version 5. OpenRGB 1.0 and later speak 6 and fall back
+to 5 here, as they do with any older server; `openrgb-python` speaks 4. Profiles kept on the server
+are not offered — the list is empty — because profiles are Studio's. A device with nothing to
+colour LED by LED, such as an LED that is only on or off, has its effects but no Direct, and a
+headset with no lights at all is not listed.
 
 ## How it works
 
@@ -644,6 +681,7 @@ each product id is in the database.
 | Nothing at all listed | Only Razer devices (vendor `1532`) are handled. |
 | The control panel says the daemon did not start | It shows what the daemon printed; the same is in `%LOCALAPPDATA%\openrazer-win\daemon-start.log`. |
 | Devices do nothing after the daemon starts with Windows | `openrazer-win daemon status` lists devices still waiting to be set up; the daemon keeps retrying them. If it reports an older version, `openrazer-win daemon restart`. |
+| OpenRGB lists no Razer devices from here | `openrazer-win integration` says whether the daemon is listening and on which port, and who is connected. Connect from OpenRGB's *SDK Client* tab to `127.0.0.1` and that port. |
 | A game made for Razer Chroma lights nothing | `openrazer-win integration` says whether games can reach the daemon, and which is showing something. Add the game under *Integrations › Games* in Studio and restart it. A game built on Razer's newer SDK, which checks Razer's signature, cannot be lit. |
 | Macro keys do nothing | `openrazer-win macro` says whether the keyboard's keys are being handled; `openrazer-win macro watch` shows whether its key report arrives at all. |
 

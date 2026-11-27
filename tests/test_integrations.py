@@ -93,7 +93,7 @@ def test_the_watch_runs_until_stopped():
 def test_switches_are_off_until_turned_on_and_are_remembered(tmp_path):
     path = str(tmp_path / 'i.json')
     settings = IntegrationSettings(path)
-    assert settings.as_dict() == {'accent': False, 'chroma': False}
+    assert settings.as_dict() == {'accent': False, 'chroma': False, 'openrgb': False}
     settings.set('accent', True)
     assert IntegrationSettings(path).enabled('accent')
     with pytest.raises(ValueError):
