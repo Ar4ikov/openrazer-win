@@ -63,7 +63,12 @@ Examples:
                                              colour, following it when it changes
   openrazer-win integration chroma on        games that support Razer Chroma light
                                              your devices, as they do with Synapse
-  openrazer-win integration chroma off"""
+  openrazer-win integration chroma off
+  openrazer-win integration openrgb on       OpenRGB, and programs on its SDK, see
+                                             and light your devices, on port 6742
+  openrazer-win integration openrgb on --port 6743
+                                             on another port, when OpenRGB's own SDK
+                                             server has 6742"""
 
 SNAPTAP_HELP = """\
 Of two opposing keys, the one pressed last wins: the other is released for as
@@ -732,7 +737,13 @@ def cmd_integration(args) -> int:
         if args.name:
             if args.state is None:
                 raise CliError('on or off?  openrazer-win integration {0} on'.format(args.name))
-            status = client.call('integration.set', name=args.name, enabled=args.state == 'on')
+            params = {'name': args.name, 'enabled': args.state == 'on'}
+            if args.port is not None:
+                params['port'] = args.port
+            status = client.call('integration.set', **params)
+        elif args.port is not None:
+            raise CliError('a port for what?  openrazer-win integration openrgb on --port {0}'.format(
+                args.port))
         else:
             status = client.call('integration.status')
     except RpcError as error:
@@ -755,7 +766,19 @@ def cmd_integration(args) -> int:
     print(line)
     for app in chroma.get('apps') or []:
         print('            {0}{1}'.format(app, '  (showing)' if app == chroma.get('showing') else ''))
-    return 1 if chroma['enabled'] and not chroma.get('listening') else 0
+    failed = chroma['enabled'] and not chroma.get('listening')
+    openrgb = status.get('openrgb')
+    if openrgb is not None:     # absent from daemons before 1.7.0
+        line = 'openrgb     {0}'.format(_shown(openrgb['enabled']))
+        if openrgb.get('listening'):
+            clients = openrgb.get('clients') or []
+            line += '   listening on port {0}; {1}'.format(
+                openrgb['port'], 'connected: ' + ', '.join(clients) if clients else 'nothing connected')
+        elif openrgb.get('error'):
+            line += '   {0}'.format(openrgb['error'])
+        print(line)
+        failed = failed or (openrgb['enabled'] and not openrgb.get('listening'))
+    return 1 if failed else 0
 
 
 def _snaptap_changes(args, status: dict) -> dict:
@@ -1640,11 +1663,14 @@ def build_parser() -> argparse.ArgumentParser:
     buttons.add_argument('--device', '-d')
 
     integration = add('integration', cmd_integration,
-                      'turn integrations on and off: the Windows accent colour, Chroma games',
+                      'turn integrations on and off: the Windows accent colour, Chroma '
+                      'games, OpenRGB',
                       formatter_class=argparse.RawDescriptionHelpFormatter,
                       epilog=INTEGRATION_HELP)
-    integration.add_argument('name', nargs='?', choices=('accent', 'chroma'))
+    integration.add_argument('name', nargs='?', choices=('accent', 'chroma', 'openrgb'))
     integration.add_argument('state', nargs='?', choices=('on', 'off'))
+    integration.add_argument('--port', type=int,
+                             help='for openrgb: the port to listen on (default 6742)')
     integration.add_argument('--json', action='store_true')
 
     snaptap = add('snaptap', cmd_snaptap,
