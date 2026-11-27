@@ -8,6 +8,12 @@ with a USB ``SET_REPORT`` of report type 0 whenever any of it changes::
 
 Nothing can be read back, so the state lives in persistence, and all of it is
 sent again whenever the mouse turns up: it starts at its defaults each time.
+
+Nor does the mouse say when it has not taken a request.  One that arrives
+while it is still busy with the last is acknowledged and dropped, so Studio's
+*Off*, which switches the logo and then the wheel a few milliseconds apart,
+left the wheel as it was (issue #29).  Requests are therefore spaced out, and
+the whole state goes once more when the changes stop.
 """
 from __future__ import annotations
 
@@ -36,6 +42,14 @@ DEFAULT_DPI = 3500
 DEFAULT_POLL = 1000
 #: Upstream's pause after each request.
 WAIT_S = 0.003
+#: The least time between two requests.  Upstream's 3 ms is enough for a
+#: person clicking; two calls from a program come quicker than that.
+GAP_S = 0.2
+#: How long after the last change the state is sent again, and how many times
+#: that is tried: a new polling rate restarts the mouse, which is then gone
+#: from the bus for a moment.
+SETTLE_S = 0.6
+SETTLE_TRIES = 3
 
 
 def nearest(value: int, choices) -> int:
@@ -51,6 +65,8 @@ class DeathAdder35GDevice:
         self.persistence = persistence or Persistence()
         self._lock = threading.RLock()
         self.hid_collections: list = []
+        self._last_sent = 0.0
+        self._settle: Optional[threading.Timer] = None
 
     # -- identity ----------------------------------------------------------
     @property
@@ -126,6 +142,9 @@ class DeathAdder35GDevice:
                        or DEFAULT_POLL, POLL_CODES)
 
     def _leds(self) -> int:
+        if self.info.pid not in LIGHTED_PIDS:
+            # The Black has no lights, and its bits are always set (razercfg).
+            return 0x03
         byte = 0
         for zone, bit in LED_BITS.items():
             effect = (self.persistence.saved_zone(self.serial, zone) or {}).get('effect', 'on')
@@ -137,15 +156,49 @@ class DeathAdder35GDevice:
         """The four bytes upstream sends: poll, DPI, profile, lights."""
         return bytes((POLL_CODES[self._poll()], DPI_CODES[self._dpi()], 0x01, self._leds()))
 
-    def _send(self) -> None:
-        payload = self.state_bytes()
+    def _write(self) -> None:
+        """Send the state now, at least :data:`GAP_S` after the last request."""
         with self._lock:
+            wait = self._last_sent + GAP_S - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            payload = self.state_bytes()
             try:
                 self.libusb.control_out(self.info.vid, self.info.pid, 0x21, 0x09, 0x0010, 0x0000,
                                         payload)
             except Exception as error:  # noqa: BLE001 - any failure of the library is the device's
                 raise DeviceError('{0}: {1}'.format(self.name, error)) from error
+            finally:
+                self._last_sent = time.monotonic()
             time.sleep(WAIT_S)
+
+    def _send(self) -> None:
+        self._write()
+        self._arm_settle(SETTLE_TRIES)
+
+    def _arm_settle(self, tries: int) -> None:
+        """Send the state once more when nothing has changed for a while."""
+        with self._lock:
+            if self._settle is not None:
+                self._settle.cancel()
+            self._settle = None
+            if SETTLE_S is None or tries <= 0:
+                return
+            timer = threading.Timer(SETTLE_S, self._resend, args=(tries,))
+            timer.daemon = True
+            self._settle = timer
+            timer.start()
+
+    def _resend(self, tries: int) -> None:
+        with self._lock:
+            if self._settle is None or self._settle is not threading.current_thread():
+                return  # a later change has its own
+            self._settle = None
+            try:
+                self._write()
+            except DeviceError as error:
+                logger.debug('could not send %s its state again: %s', self.name, error)
+                self._arm_settle(tries - 1)
 
     # -- lighting ------------------------------------------------------------
     def _set_zone(self, zone: str, effect: str) -> None:
@@ -198,4 +251,8 @@ class DeathAdder35GDevice:
         self._send()
 
     def close(self) -> None:
-        """Nothing is held open between requests."""
+        """Nothing is held open between requests; a resend still due is dropped."""
+        with self._lock:
+            if self._settle is not None:
+                self._settle.cancel()
+                self._settle = None

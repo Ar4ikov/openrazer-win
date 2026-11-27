@@ -5,9 +5,13 @@ import json
 import os
 import zipfile
 
+import threading
+import time
+
 import pytest
 
 from openrazer_win import usbfilter
+from openrazer_win.core import deathadder35g
 from openrazer_win.core.deathadder35g import DeathAdder35GDevice
 from openrazer_win.core.manager import DeviceManager
 from openrazer_win.core.persistence import Persistence
@@ -19,6 +23,13 @@ PID = 0x0016
 @pytest.fixture
 def persistence(tmp_path):
     return Persistence(str(tmp_path / 'state.json'))
+
+
+@pytest.fixture(autouse=True)
+def no_pacing(monkeypatch):
+    """Requests go at once and only once, unless a test is about the pacing."""
+    monkeypatch.setattr(deathadder35g, 'GAP_S', 0.0)
+    monkeypatch.setattr(deathadder35g, 'SETTLE_S', None)
 
 
 def _manager(persistence, filtered=(PID,), pid=PID):
@@ -81,10 +92,63 @@ def test_a_failing_library_is_a_device_error(persistence):
         device.set_dpi(900)
 
 
+def test_requests_are_spaced_out(persistence, monkeypatch):
+    # The mouse drops a request that comes while it is busy with the last one,
+    # which is how Studio's Off left the wheel lit (issue #29).
+    monkeypatch.setattr(deathadder35g, 'GAP_S', 0.05)
+    manager, backend = _manager(persistence)
+    device = manager.scan()[0]
+    times = []
+    send = backend.libusb.control_out
+
+    def timed(*args, **kwargs):
+        times.append(time.monotonic())
+        return send(*args, **kwargs)
+    backend.libusb.control_out = timed
+    device.set_none('logo')
+    device.set_none('scroll')
+    assert times[1] - times[0] >= 0.045
+    assert backend.libusb.sent[-1][-1] == bytes((1, 1, 1, 0))
+
+
+def test_the_state_goes_again_once_the_changes_stop(persistence, monkeypatch):
+    monkeypatch.setattr(deathadder35g, 'SETTLE_S', 0.05)
+    manager, backend = _manager(persistence)
+    device = manager.scan()[0]
+    device.set_none('logo')
+    device.set_none('scroll')
+    assert len(backend.libusb.sent) == 2
+    time.sleep(0.2)
+    # One more, of the final state, not one per change.
+    assert [sent[-1] for sent in backend.libusb.sent] == [bytes((1, 1, 1, 2)), bytes((1, 1, 1, 0)),
+                                                         bytes((1, 1, 1, 0))]
+    device.close()
+
+
+def test_a_resend_that_fails_is_tried_again(persistence, monkeypatch):
+    # A new polling rate restarts the mouse, which is off the bus for a moment.
+    monkeypatch.setattr(deathadder35g, 'SETTLE_S', 0.03)
+    manager, backend = _manager(persistence)
+    device = manager.scan()[0]
+    device.set_poll_rate(500)
+    backend.libusb.fail = True
+    time.sleep(0.05)
+    backend.libusb.fail = False
+    deadline = time.monotonic() + 1.0
+    while len(backend.libusb.sent) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert [sent[-1] for sent in backend.libusb.sent] == [bytes((2, 1, 1, 3))] * 2
+    device.close()
+    assert not any(isinstance(t, threading.Timer) and t.is_alive() for t in threading.enumerate())
+
+
 def test_the_black_edition_has_no_lights(persistence):
-    manager, _ = _manager(persistence, filtered=(0x0029,), pid=0x0029)
+    manager, backend = _manager(persistence, filtered=(0x0029,), pid=0x0029)
     device = manager.scan()[0]
     assert device.capabilities()['zones'] == {}
+    device.restore()
+    # Its light bits are always set, as razercfg sends them.
+    assert backend.libusb.sent[-1][-1] == bytes((1, 1, 1, 3))
     from openrazer_win.devices.recipes import NotSupported
     with pytest.raises(NotSupported):
         device.set_on('logo')
