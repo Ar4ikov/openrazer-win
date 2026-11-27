@@ -6,6 +6,31 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-28
+
+### Added
+
+- **OpenRGB integration.** Switched on, the daemon answers OpenRGB's SDK
+  protocol, so OpenRGB, and the programs built on its SDK, see every device
+  openrazer-win drives and light it
+  ([#34](https://github.com/Ar4ikov/openrazer-win/issues/34)):
+  - a keyboard is a matrix of its keys, and a device with per-LED lighting
+    takes a colour per LED in OpenRGB's *Direct* mode; a mouse's logo and
+    wheel take a colour each;
+  - the device's own effects are OpenRGB modes: Off, Static, Breathing,
+    Spectrum Cycle, Wave, Reactive and Starlight, with their colours, speed
+    and direction. A mode chosen in OpenRGB is kept, as if chosen in Studio;
+  - while a program draws in Direct mode it has the device, and when it
+    disconnects the device gets its own lighting back;
+  - devices coming and going are announced to connected programs.
+
+  It is off by default and listens on 127.0.0.1 only, on OpenRGB's port
+  6742 or another one. Turn it on in Studio's *Integrations* page, or with
+  `openrazer-win integration openrgb on [--port N]`, then add 127.0.0.1 and
+  the port in OpenRGB's *SDK Client* tab. Untick OpenRGB's own Razer entries
+  so that no device is driven by two programs. Protocol versions up to 5
+  are spoken, which OpenRGB 0.9 and later use.
+
 ## [1.6.13] - 2026-11-28
 
 ### Added
