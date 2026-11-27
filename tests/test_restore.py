@@ -112,3 +112,70 @@ def test_the_unused_colour_slots_keep_what_they_held(persistence):
         assert persistence.saved_zone(device.serial, 'backlight')['colors'][:6] == [9, 9, 9, 4, 5, 6]
     finally:
         device.close()
+
+
+# -- the polling rate (issue #33) ----------------------------------------------
+BLACKWIDOW_V4 = 0x0287
+
+
+def _service(backend, persistence):
+    from openrazer_win.daemon.server import DaemonService
+    return DaemonService(backend=backend, persistence=persistence, enable_effects=False,
+                         enable_keys=False)
+
+
+def test_the_daemon_gives_a_keyboard_back_its_polling_rate(tmp_path):
+    from openrazer_win.daemon.demo import build_demo_backend
+    backend = build_demo_backend((BLACKWIDOW_V4,))
+    fake = backend.devices[0]
+    persistence = Persistence(str(tmp_path / 'p.json'))
+    service = _service(backend, persistence)
+    service.start()
+    try:
+        serial = service.rpc_list_devices()[0]['serial']
+        service.rpc_call(serial, 'set_poll_rate', [2000])
+        assert fake.state.poll_rate == 2000
+    finally:
+        service.stop()
+    # Handed back to its firmware, it goes to the rate in its onboard memory.
+    fake.state.poll_rate = 4000
+    service = _service(backend, persistence)
+    service.start()
+    try:
+        assert fake.state.poll_rate == 2000
+    finally:
+        service.stop()
+
+
+def test_a_device_that_kept_its_rate_is_not_written_to(tmp_path):
+    from openrazer_win.daemon.demo import build_demo_backend
+    backend = build_demo_backend((BLACKWIDOW_V4,))
+    fake = backend.devices[0]
+    persistence = Persistence(str(tmp_path / 'p.json'))
+    service = _service(backend, persistence)
+    service.start()
+    try:
+        service.rpc_call(service.rpc_list_devices()[0]['serial'], 'set_poll_rate', [2000])
+    finally:
+        service.stop()
+    fake.state.sent.clear()
+    service = _service(backend, persistence)
+    service.start()
+    try:
+        assert not [r for r in fake.sent_reports if (r.command_class, r.command_id) == (0x00, 0x40)]
+    finally:
+        service.stop()
+
+
+def test_nothing_is_written_when_no_rate_was_ever_set(tmp_path):
+    from openrazer_win.daemon.demo import build_demo_backend
+    backend = build_demo_backend((BLACKWIDOW_V4,))
+    fake = backend.devices[0]
+    fake.state.poll_rate = 4000
+    service = _service(backend, Persistence(str(tmp_path / 'p.json')))
+    service.start()
+    try:
+        assert fake.state.poll_rate == 4000
+        assert not [r for r in fake.sent_reports if (r.command_class, r.command_id) == (0x00, 0x40)]
+    finally:
+        service.stop()

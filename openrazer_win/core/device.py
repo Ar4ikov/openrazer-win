@@ -1163,3 +1163,27 @@ class RazerDevice:
                     self.set_spectrum(zone)
             except (NotSupported, DeviceError, RecipeError):
                 logger.debug('could not restore %s on %s', zone, self.name, exc_info=True)
+
+    def restore_poll_rate(self) -> None:
+        """Give the device back the polling rate last set here, as upstream's daemon does.
+
+        Most devices keep it, but a BlackWidow V4 goes back to the rate in its
+        onboard memory when the daemon takes it over or hands it back (issue
+        #33).  The device is asked first, so one that kept the rate is not
+        written to."""
+        saved = self.persistence.get_device_value(self.serial, 'poll_rate', None)
+        capabilities = self.capabilities()
+        if not saved or not capabilities.get('poll_rate'):
+            return
+        if saved not in (capabilities.get('supported_poll_rates') or [saved]):
+            return
+        try:
+            if self.get_poll_rate() == saved:
+                return
+        except (NotSupported, DeviceError, RecipeError):
+            pass
+        try:
+            self.run('write:poll_rate', str(saved).encode('ascii'), polling_rate=saved)
+            logger.info('%s: polling rate back to %d Hz', self.name, saved)
+        except (NotSupported, DeviceError, RecipeError):
+            logger.debug('could not restore the polling rate of %s', self.name, exc_info=True)

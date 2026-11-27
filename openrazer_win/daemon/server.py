@@ -199,6 +199,10 @@ class DaemonService:
             handled = self.keys is not None and self.keys.attach(device)
             device.enter_driver_mode(keys_handled=handled)
             device.restore()
+            # After the mode switch, which on some keyboards resets it (issue #33).
+            restore_poll_rate = getattr(device, 'restore_poll_rate', None)
+            if restore_poll_rate is not None:
+                restore_poll_rate()
             if self.effects is not None:
                 # A per-key or live effect is part of what the device was showing.
                 self.effects.restore(device)
