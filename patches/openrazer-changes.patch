@@ -1586,7 +1586,7 @@ index 0ef3718..51f6a6e 100644
 -- 
 2.43.0
 
-From 3fc096ceee6b72d4763011ac256381e0c38f6796 Mon Sep 17 00:00:00 2001
+From 5f62540fa6a064c57580d1bac7ffe02e9d17884f Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Fri, 27 Nov 2026 16:38:23 +0000
 Subject: [PATCH 9/9] Studio: a click on the tray icon also puts the window
@@ -1597,12 +1597,12 @@ when the window is showing (visible, not minimized, not parked) it is
 parked in the tray, as close-to-tray does; otherwise it is shown. The
 menu's Open still only opens.
 ---
- studio/app/src/shell.rs  | 17 +++++++++++++++--
+ studio/app/src/shell.rs  | 19 ++++++++++++++++---
  studio/app/src/ui/app.rs |  4 ++++
- 2 files changed, 19 insertions(+), 2 deletions(-)
+ 2 files changed, 20 insertions(+), 3 deletions(-)
 
 diff --git a/studio/app/src/shell.rs b/studio/app/src/shell.rs
-index ca7aac7..aed8eb3 100644
+index ca7aac7..5da3c69 100644
 --- a/studio/app/src/shell.rs
 +++ b/studio/app/src/shell.rs
 @@ -21,7 +21,7 @@ mod win {
@@ -1630,7 +1630,7 @@ index ca7aac7..aed8eb3 100644
      /// Put the window in the tray. See the top of this file for why it is
      /// parked, not hidden.
      pub fn hide() {
-@@ -112,6 +121,7 @@ mod win {
+@@ -112,10 +121,11 @@ mod win {
          true
      }
      pub fn show() {}
@@ -1638,6 +1638,11 @@ index ca7aac7..aed8eb3 100644
      pub fn hide() {}
  }
  
+-pub use win::{claim_single_instance, hide, show};
++pub use win::{claim_single_instance, hide, show, toggle};
+ 
+ /// The program's icon: a green ring with a bright core, drawn rather than
+ /// shipped, so the tray, the window and the executable all agree.
 @@ -144,6 +154,9 @@ pub fn icon_rgba(size: u32) -> Vec<u8> {
  
  pub enum TrayAction {
