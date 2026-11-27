@@ -428,3 +428,30 @@ def test_the_deathadder_3_5g_is_named_as_out_of_reach(persistence, caplog):
     assert service.rpc_unsupported() == [
         {'pid': 0x0016, 'product': 'Razer DeathAdder 3.5G', 'reason': 'windows'}]
     manager.close()
+
+
+def test_the_scroll_wheel_says_which_modes_it_has(persistence):
+    # The Basilisk V4 Pro has a third, tactile with twice the steps (issue #31).
+    from .conftest import make_device
+    for pid, modes in ((0x00E2, [0, 1, 2]), (0x0099, [0, 1])):
+        device, _ = make_device(pid, persistence)
+        try:
+            caps = device.capabilities()
+            assert caps['scroll_mode'] and caps['scroll_modes'] == modes
+            assert caps['scroll_acceleration'] and caps['scroll_smart_reel']
+            device.set_scroll_mode(modes[-1])
+            with pytest.raises(ValueError):
+                device.set_scroll_mode(modes[-1] + 1)
+        finally:
+            device.close()
+
+
+def test_a_mouse_without_a_wheel_mode_has_no_modes(persistence):
+    from .conftest import MOUSE_PID, make_device
+    device, _ = make_device(MOUSE_PID, persistence)
+    try:
+        caps = device.capabilities()
+        if not caps['scroll_mode']:
+            assert caps['scroll_modes'] == []
+    finally:
+        device.close()

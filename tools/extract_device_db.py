@@ -415,6 +415,11 @@ def extract(upstream: str, out_path: str) -> int:
             'methods': methods,
             'transport': 'hid',
         }
+        # Only where a device has more than upstream's default tactile and free
+        # spin, so the other entries stay as they were.
+        scroll_modes = tuple(getattr(cls, 'SCROLL_MODES', None) or (0, 1))
+        if 'set_scroll_mode' in methods and scroll_modes != (0, 1):
+            entry['scroll_modes'] = list(scroll_modes)
         key = (vid, pid)
         if key in seen:
             print(f'warning: duplicate VID:PID {vid:04x}:{pid:04x} ({cls.__name__})',

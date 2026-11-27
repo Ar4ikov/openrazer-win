@@ -44,6 +44,8 @@ class DeviceInfo:
     driver_mode: bool = False
     wave_dirs: tuple = (1, 2)
     poll_rates: Optional[tuple] = None
+    #: The scroll wheel's modes, where upstream lists more than tactile and free spin.
+    scroll_modes: Optional[tuple] = None
     dpi_max: Optional[int] = None
     image: Optional[str] = None
     #: Pictures of each colour it is sold in, as ``(colour, url)`` pairs, for
@@ -96,6 +98,7 @@ class DeviceInfo:
             'dedicated_macro_keys': self.dedicated_macro_keys,
             'wave_dirs': list(self.wave_dirs),
             'poll_rates': list(self.poll_rates) if self.poll_rates else None,
+            **({'scroll_modes': list(self.scroll_modes)} if self.scroll_modes else {}),
             'dpi_max': self.dpi_max,
             'image': self.image,
             'images': dict(self.images),
@@ -155,6 +158,7 @@ def _load(path: str = DEVICES_PATH) -> DeviceDatabase:
             driver_mode=raw.get('driver_mode', False),
             wave_dirs=tuple(raw.get('wave_dirs') or (1, 2)),
             poll_rates=tuple(raw['poll_rates']) if raw.get('poll_rates') else None,
+            scroll_modes=tuple(raw['scroll_modes']) if raw.get('scroll_modes') else None,
             dpi_max=raw.get('dpi_max'),
             image=raw.get('image'),
             images=tuple((raw.get('images') or {}).items()),

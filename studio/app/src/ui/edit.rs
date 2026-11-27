@@ -82,6 +82,9 @@ pub struct DeviceEdit {
     pub dpi_linked: bool,
     pub stages: Option<(i64, Vec<(i64, i64)>)>,
     pub poll_rate: Option<i64>,
+    pub scroll_mode: Option<i64>,
+    pub scroll_acceleration: Option<bool>,
+    pub smart_reel: Option<bool>,
     pub keyswitch: Option<String>,
     pub idle_minutes: Option<f32>,
     pub low_battery: Option<f32>,
@@ -116,6 +119,9 @@ impl DeviceEdit {
                 self.stages = detail.dpi_stages.clone();
             }
             self.poll_rate = self.poll_rate.or(detail.poll_rate);
+            self.scroll_mode = self.scroll_mode.or(detail.scroll_mode);
+            self.scroll_acceleration = self.scroll_acceleration.or(detail.scroll_acceleration);
+            self.smart_reel = self.smart_reel.or(detail.smart_reel);
             self.keyswitch = self.keyswitch.take().or_else(|| detail.keyswitch.clone());
             self.idle_minutes = self.idle_minutes.or(detail.idle_time.map(|s| s as f32 / 60.0));
             self.low_battery = self.low_battery.or(detail.low_battery.map(|v| v as f32));
@@ -201,6 +207,9 @@ impl DeviceEdit {
         }
         self.stages = detail.dpi_stages.clone().or(self.stages.take());
         self.poll_rate = detail.poll_rate.or(self.poll_rate);
+        self.scroll_mode = detail.scroll_mode.or(self.scroll_mode);
+        self.scroll_acceleration = detail.scroll_acceleration.or(self.scroll_acceleration);
+        self.smart_reel = detail.smart_reel.or(self.smart_reel);
         self.keyswitch = detail.keyswitch.clone().or(self.keyswitch.take());
         self.idle_minutes = detail.idle_time.map(|s| s as f32 / 60.0).or(self.idle_minutes);
         self.low_battery = detail.low_battery.map(|v| v as f32).or(self.low_battery);

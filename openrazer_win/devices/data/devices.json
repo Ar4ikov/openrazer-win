@@ -5590,7 +5590,12 @@
     "set_static_effect",
     "set_wave_effect"
    ],
-   "transport": "hid"
+   "transport": "hid",
+   "scroll_modes": [
+    0,
+    1,
+    2
+   ]
   },
   {
    "class_name": "RazerBasiliskV4ProWireless",
@@ -5666,7 +5671,12 @@
     "set_static_effect",
     "set_wave_effect"
    ],
-   "transport": "hid"
+   "transport": "hid",
+   "scroll_modes": [
+    0,
+    1,
+    2
+   ]
   },
   {
    "class_name": "RazerViperV4ProWired",

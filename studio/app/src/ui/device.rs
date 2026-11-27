@@ -77,6 +77,65 @@ pub struct DeviceUi {
     pub onboard_hypershift: bool,
 }
 
+/// The labels of the scroll wheel's modes, in the order the device numbers them.
+fn scroll_mode_labels(modes: &[i64]) -> Vec<(i64, String)> {
+    // With a third mode the steps tell the two tactile ones apart.
+    let fine = modes.contains(&2);
+    modes
+        .iter()
+        .map(|&mode| {
+            let label = match mode {
+                0 if fine => t("Tactile, 24 steps"),
+                0 => t("Tactile"),
+                1 => t("Free spin"),
+                2 => t("Tactile, 48 steps"),
+                _ => return (mode, mode.to_string()),
+            };
+            (mode, label.to_string())
+        })
+        .collect()
+}
+
+/// The wheel: tactile or free spin, and the switches some mice add to it.
+fn scroll_wheel(ui: &mut egui::Ui, caps: &serde_json::Value, serial: &str, edit: &mut super::edit::DeviceEdit, send: &mut Vec<Command>) {
+    let modes: Vec<i64> = caps["scroll_modes"].as_array().map(|m| m.iter().filter_map(serde_json::Value::as_i64).collect()).unwrap_or_else(|| vec![0, 1]);
+    let call = |method: &str, value: serde_json::Value| Command::Call { serial: serial.to_string(), method: method.into(), args: vec![value], zone: None, then: Then::Performance };
+    widgets::panel(ui, t("Scroll wheel"), |ui| {
+        let labels = scroll_mode_labels(&modes);
+        let mode = edit.scroll_mode.unwrap_or(-1);
+        widgets::row(ui, t("Scrolling"), t("Tactile scrolls in steps you can feel. Free spin lets the wheel run on by itself."), |ui| {
+            // A list, as "Free spin" and the steps do not fit side by side in every language.
+            let shown = labels.iter().find(|(m, _)| *m == mode).map_or("—".to_string(), |(_, label)| label.clone());
+            let mut picked = None;
+            widgets::select(ui, ("scroll-mode", serial), shown, 200.0, |ui| {
+                for (value, label) in &labels {
+                    if widgets::option(ui, *value == mode, label).clicked() {
+                        picked = Some(*value);
+                    }
+                }
+            });
+            if let Some(mode) = picked.filter(|p| *p != mode) {
+                edit.scroll_mode = Some(mode);
+                send.push(call("set_scroll_mode", json!(mode)));
+            }
+        });
+        if caps["scroll_acceleration"] == true {
+            let mut on = edit.scroll_acceleration.unwrap_or(false);
+            if widgets::toggle_row(ui, t("Scroll acceleration"), t("The faster you turn the wheel, the further the page moves."), &mut on) {
+                edit.scroll_acceleration = Some(on);
+                send.push(call("set_scroll_acceleration", json!(on)));
+            }
+        }
+        if caps["scroll_smart_reel"] == true {
+            let mut on = edit.smart_reel.unwrap_or(false);
+            if widgets::toggle_row(ui, t("Smart Reel"), t("A hard flick switches the wheel to free spin, and it goes back to tactile when it slows down."), &mut on) {
+                edit.smart_reel = Some(on);
+                send.push(call("set_scroll_smart_reel", json!(on)));
+            }
+        }
+    });
+}
+
 /// A profile is lighting, so a device with none has nothing to put in one.
 fn keeps_profiles(caps: Option<&serde_json::Value>) -> bool {
     !caps.is_some_and(|c| c["zones"].as_object().is_some_and(|z| z.is_empty()))
@@ -87,7 +146,7 @@ fn tabs_for(device: &Device, snap: &Snapshot) -> Vec<Tab> {
     let caps = detail.and_then(|d| d.caps.as_ref());
     let mut tabs = vec![];
     if let Some(caps) = caps {
-        if caps["dpi"] == true || caps["poll_rate"] == true || caps["keyswitch_optimization"] == true || super::snaptap::shown_on(device) {
+        if caps["dpi"] == true || caps["poll_rate"] == true || caps["keyswitch_optimization"] == true || caps["scroll_mode"] == true || super::snaptap::shown_on(device) {
             tabs.push(Tab::Performance);
         }
         if caps["zones"].as_object().is_some_and(|z| !z.is_empty()) {
@@ -222,7 +281,7 @@ fn performance(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapsho
     let mut later: Vec<(String, Command)> = Vec::new();
     let edit = app.edits.entry(serial.clone()).or_default();
     let has_dpi = caps["dpi"] == true;
-    let has_side = caps["dpi_stages"] == true && edit.stages.is_some() || caps["poll_rate"] == true || caps["keyswitch_optimization"] == true;
+    let has_side = caps["dpi_stages"] == true && edit.stages.is_some() || caps["poll_rate"] == true || caps["keyswitch_optimization"] == true || caps["scroll_mode"] == true;
     if !has_dpi && !has_side {
         return; // a keyboard here only for Snap Tap, below
     }
@@ -379,7 +438,7 @@ fn performance(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapsho
                 widgets::panel(ui, t("Polling rate"), |ui| {
                     let rates: Vec<(i64, String)> = caps["supported_poll_rates"].as_array().map(|r| r.iter().filter_map(|v| v.as_i64()).map(|v| (v, format!("{v} Hz"))).collect()).unwrap_or_default();
                     let mut rate = edit.poll_rate.unwrap_or(0);
-                    widgets::row(ui, t("Polling rate"), t("How often the mouse reports to the PC. Higher is smoother; on a wireless mouse it costs battery."), |ui| {
+                    widgets::row(ui, t("Polling rate"), t("How often the device reports to the PC. Higher is smoother; on a wireless device it costs battery."), |ui| {
                         // Up to 8000 Hz there are six, which do not fit side by side.
                         let changed = if rates.len() > 4 {
                             let shown = rates.iter().find(|(v, _)| *v == rate).map_or("—".to_string(), |(_, label)| label.clone());
@@ -401,6 +460,9 @@ fn performance(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapsho
                         }
                     });
                 });
+            }
+            if caps["scroll_mode"] == true {
+                scroll_wheel(ui, &caps, &serial, edit, &mut send);
             }
             // A keyboard's own settings: another one goes in as a second row.
             if caps["keyswitch_optimization"] == true {

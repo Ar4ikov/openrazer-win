@@ -725,11 +725,21 @@ class RazerDevice:
         self.persistence.set_device_value(self.serial, 'keyswitch_optimization', name)
 
     # -- mouse extras ------------------------------------------------------
+    def scroll_modes(self) -> list:
+        """The wheel's modes: 0 tactile, 1 free spin, and on a Basilisk V4 Pro
+        2, tactile with twice the steps (upstream's ``SCROLL_MODES``)."""
+        if not self._feature('read:scroll_mode', 'get_scroll_mode'):
+            return []
+        return list(self.info.scroll_modes or (0, 1))
+
     def get_scroll_mode(self) -> int:
         env = self.run('read:scroll_mode', require_response=True)
         return int(env.response.arguments[1])
 
     def set_scroll_mode(self, mode: int) -> None:
+        if int(mode) not in self.scroll_modes():
+            raise ValueError('scroll mode is one of {0}, not {1!r}'.format(
+                ', '.join(str(m) for m in self.scroll_modes()), mode))
         self.run('write:scroll_mode', str(int(mode)).encode('ascii'),
                  scroll_mode=int(mode))
 
@@ -1100,6 +1110,10 @@ class RazerDevice:
             'keyswitch_optimization': self._feature('read:keyswitch_optimization',
                                                     'get_keyswitch_optimization'),
             'scroll_mode': self._feature('read:scroll_mode', 'get_scroll_mode'),
+            'scroll_modes': self.scroll_modes(),
+            'scroll_acceleration': self._feature('read:scroll_acceleration',
+                                                 'get_scroll_acceleration'),
+            'scroll_smart_reel': self._feature('read:scroll_smart_reel', 'get_scroll_smart_reel'),
             'custom_frame': self._feature('write:matrix_custom_frame', 'set_key_row'),
             'onboard_buttons': self.info.pid in ONBOARD_BUTTON_PIDS,
             'software_effects': self._software_effects_possible(),

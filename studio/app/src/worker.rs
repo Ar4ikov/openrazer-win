@@ -65,6 +65,10 @@ pub struct Detail {
     pub dpi: Option<(i64, i64)>,
     pub dpi_stages: Option<(i64, Vec<(i64, i64)>)>,
     pub poll_rate: Option<i64>,
+    /// The scroll wheel's mode, and its acceleration and Smart Reel switches.
+    pub scroll_mode: Option<i64>,
+    pub scroll_acceleration: Option<bool>,
+    pub smart_reel: Option<bool>,
     pub idle_time: Option<i64>,
     pub low_battery: Option<f64>,
     pub game_mode: Option<bool>,
@@ -473,6 +477,21 @@ impl Worker {
         if caps["poll_rate"] == true {
             if let Ok(rate) = self.with(|c| c.device(serial, "get_poll_rate", vec![], None)) {
                 self.update(serial, |d| d.poll_rate = rate.as_i64());
+            }
+        }
+        if caps["scroll_mode"] == true {
+            if let Ok(mode) = self.with(|c| c.device(serial, "get_scroll_mode", vec![], None)) {
+                self.update(serial, |d| d.scroll_mode = mode.as_i64());
+            }
+        }
+        if caps["scroll_acceleration"] == true {
+            if let Ok(on) = self.with(|c| c.device(serial, "get_scroll_acceleration", vec![], None)) {
+                self.update(serial, |d| d.scroll_acceleration = on.as_bool());
+            }
+        }
+        if caps["scroll_smart_reel"] == true {
+            if let Ok(on) = self.with(|c| c.device(serial, "get_scroll_smart_reel", vec![], None)) {
+                self.update(serial, |d| d.smart_reel = on.as_bool());
             }
         }
     }
