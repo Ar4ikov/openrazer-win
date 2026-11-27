@@ -6,6 +6,34 @@ uses [semantic versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.13] - 2026-11-28
+
+### Added
+
+- **The scroll wheel in Studio.** Mice whose wheel switches between tactile
+  and free spin get a *Scroll wheel* panel on the *Performance* tab, with
+  scroll acceleration and Smart Reel where the mouse has them. The Basilisk
+  V4 Pro also offers its tactile mode with 48 steps
+  ([#31](https://github.com/Ar4ikov/openrazer-win/issues/31)).
+
+### Fixed
+
+- **A polling rate set in Studio survives a daemon restart.** A BlackWidow
+  V4 went back to the rate in its onboard memory whenever the daemon took
+  it over or handed it back. The daemon now gives every device the rate it
+  was last set to, if the device has lost it
+  ([#33](https://github.com/Ar4ikov/openrazer-win/issues/33)).
+- **DeathAdder 3.5G: Off and All lights off switch off the wheel too.** The
+  mouse dropped the second of two quick requests, so the wheel stayed as it
+  was. Requests are now spaced out, and the whole state is sent once more
+  when the changes stop
+  ([#29](https://github.com/Ar4ikov/openrazer-win/issues/29)).
+- **The Basilisk V4 Pro's five underglow LEDs are drawn as the band across
+  its back** that they are, and its receiver shows a dash rather than DPI 0
+  while the mouse is on its cable
+  ([#31](https://github.com/Ar4ikov/openrazer-win/issues/31)).
+- The hint under the polling rate no longer calls a keyboard a mouse.
+
 ## [1.6.12] - 2026-11-26
 
 ### Added
