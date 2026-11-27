@@ -271,8 +271,9 @@ def test_a_mode_is_put_on_the_device_and_kept(sdk, service):
     keyboard = device(service, 'BlackWidow Chroma')
     sent = len(fake(service, keyboard).sent_reports)
     sdk.set_mode(index, 'Static', colors=[RED])
-    assert until(lambda: service.persistence.get(keyboard.serial, 'backlight', 'effect') == 'static')
-    assert service.persistence.get(keyboard.serial, 'backlight', 'colors')[:3] == list(RED)
+    # The effect is saved before its colours: wait for both.
+    assert until(lambda: service.persistence.get(keyboard.serial, 'backlight', 'effect') == 'static'
+                 and service.persistence.get(keyboard.serial, 'backlight', 'colors')[:3] == list(RED))
     assert len(fake(service, keyboard).sent_reports) > sent
     board = sdk.controller(index)
     assert board.modes[board.active_mode].name == 'Static'
@@ -283,8 +284,8 @@ def test_a_wave_goes_the_way_it_is_asked_to(sdk, service):
     index = sdk.index('Razer BlackWidow Chroma')
     keyboard = device(service, 'BlackWidow Chroma')
     sdk.set_mode(index, 'Wave', direction=p.DIRECTION_RIGHT)
-    assert until(lambda: service.persistence.get(keyboard.serial, 'backlight', 'effect') == 'wave')
-    assert service.persistence.get(keyboard.serial, 'backlight', 'wave_dir') == 2
+    assert until(lambda: service.persistence.get(keyboard.serial, 'backlight', 'effect') == 'wave'
+                 and service.persistence.get(keyboard.serial, 'backlight', 'wave_dir') == 2)
     board = sdk.controller(index)
     assert board.modes[board.active_mode].direction == p.DIRECTION_RIGHT
 
@@ -320,8 +321,8 @@ def test_a_client_on_protocol_3_is_read_in_protocol_3(service):
         index = sdk.index('Razer Huntsman V2 Tenkeyless')
         keyboard = device(service, 'Huntsman V2')
         sdk.set_mode(index, 'Static', colors=[BLUE], brightness=40)
-        assert until(lambda: service.persistence.get(keyboard.serial, 'backlight', 'effect') == 'static')
-        assert service.persistence.get(keyboard.serial, 'backlight', 'colors')[:3] == list(BLUE)
+        assert until(lambda: service.persistence.get(keyboard.serial, 'backlight', 'effect') == 'static'
+                     and service.persistence.get(keyboard.serial, 'backlight', 'colors')[:3] == list(BLUE))
         assert until(lambda: service.persistence.get(keyboard.serial, 'backlight', 'brightness') == 40)
     finally:
         sdk.close()
@@ -426,8 +427,8 @@ def test_the_device_gets_its_lighting_back_when_the_client_goes(sdk, service):
     sdk.send(index, p.UPDATE_LEDS, p.leds_data([RED] * 132))
     assert until(lambda: service.openrgb.drawing(keyboard))
     sdk.close()
-    assert until(lambda: not service.openrgb.drawing(keyboard))
-    assert restored
+    # Let go first, then given its lighting back.
+    assert until(lambda: not service.openrgb.drawing(keyboard) and restored)
     assert service.persistence.get(keyboard.serial, 'backlight', 'colors')[:3] == list(BLUE)
 
 
