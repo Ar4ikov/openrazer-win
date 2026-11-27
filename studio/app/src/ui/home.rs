@@ -413,6 +413,8 @@ fn quick_settings(app: &mut App, ui: &mut egui::Ui, device: &Device, detail: &cr
             let stages = edit.stages.clone().filter(|(_, s)| !s.is_empty());
             let shown = match &stages {
                 Some((active, list)) => list.get((*active - 1).max(0) as usize).map(|(x, _)| tf("Stage {} · {}", &[active, x])).unwrap_or_default(),
+                // 0 is a receiver whose mouse is on its cable or asleep: nothing to show.
+                None if current <= 0 => "—".to_string(),
                 None => current.to_string(),
             };
             widgets::select(ui, ("home-dpi", &serial), shown, ui.available_width(), |ui| match &stages {

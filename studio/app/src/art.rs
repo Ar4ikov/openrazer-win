@@ -124,16 +124,25 @@ struct Leds {
     /// A mouse whose matrix starts with the logo, not the wheel, and runs
     /// round the body the other way.
     mirrored: bool,
+    /// A mouse whose underglow is one band across the back, not round the body.
+    rear: bool,
 }
 
 /// Mice whose matrix is the other way round from the drawing's guess.
 const MIRRORED_MICE: [u64; 3] = [
     0x0099, // Basilisk V3: left lit right and the wheel lit the logo
     // Basilisk V4 Pro, wired and on its receiver: logo, wheel, then five LEDs
-    // of underglow, as openrazer/openrazer#2975 and OpenRGB list them. That
-    // the underglow runs round the body as the V3's does is a guess.
+    // of underglow, as openrazer/openrazer#2975 and OpenRGB list them, in the
+    // order its owner confirmed (issue #31).
     0x00E2, 0x00E3,
 ];
+
+/// Mice whose underglow is a band across the back, under the palm: the
+/// Basilisk V4 Pro, from its owner's photo (issue #31).
+const REAR_GLOW_MICE: [u64; 2] = [0x00E2, 0x00E3];
+
+/// How far down the drawing a back band starts, as a share of its height.
+const REAR_BAND: f32 = 0.82;
 
 impl Leds {
     fn from(caps: &Value) -> Leds {
@@ -145,7 +154,8 @@ impl Leds {
         zones.sort_by_key(|z| ZONES.iter().position(|o| o == z));
         let board = caps["pid"].as_u64().and_then(layout::board);
         let mirrored = caps["pid"].as_u64().is_some_and(|pid| MIRRORED_MICE.contains(&pid));
-        Leds { rows, columns, zones, macro_keys: caps["dedicated_macro_keys"] == true, board, mirrored }
+        let rear = caps["pid"].as_u64().is_some_and(|pid| REAR_GLOW_MICE.contains(&pid));
+        Leds { rows, columns, zones, macro_keys: caps["dedicated_macro_keys"] == true, board, mirrored, rear }
     }
     fn cells(&self) -> usize {
         self.rows * self.columns
@@ -630,7 +640,7 @@ fn keyboard(traced: Option<Trace>, leds: &Leds, keypad: bool, forced: Option<Var
         for (i, at) in points.into_iter().enumerate() {
             let col = run.first + i as u8;
             if (col as usize) < leds.columns {
-                shapes.push(Shape { region: Region::Cell(run.row, col), geom: Geom::Dot(at, fit.unit * 0.16), label: format!("LED {}·{}", run.row, col + 1) });
+                shapes.push(Shape { region: Region::Cell(run.row, col), geom: Geom::Dot(at, fit.unit * 0.16), label: format!("LED {}В·{}", run.row, col + 1) });
             }
         }
     }
@@ -638,7 +648,7 @@ fn keyboard(traced: Option<Trace>, leds: &Leds, keypad: bool, forced: Option<Var
         let extra: Vec<(u8, u8)> = (6..leds.rows).flat_map(|r| (0..leds.columns).map(move |c| (r as u8, c as u8))).collect();
         let points = spaced(&trace.contour, extra.len());
         for ((row, col), at) in extra.into_iter().zip(points) {
-            shapes.push(Shape { region: Region::Cell(row, col), geom: Geom::Dot(at, fit.unit * 0.16), label: format!("LED {}·{}", row, col + 1) });
+            shapes.push(Shape { region: Region::Cell(row, col), geom: Geom::Dot(at, fit.unit * 0.16), label: format!("LED {}В·{}", row, col + 1) });
         }
     }
     let mut art = Art::finish(trace, shapes, photo, variant, fit.unit);
@@ -810,12 +820,17 @@ fn mouse_shapes(trace: &Trace, leds: &Leds) -> Vec<Shape> {
     let w = trace.bbox_w();
     let (scroll_r, logo_r) = (w * 0.075, w * 0.14);
     let (scroll_geom, logo_geom) = mouse_spots(trace, scroll_r, logo_r);
+    let (top, h) = (trace.bbox[1] as f32, trace.bbox_h());
+    // The outline the underglow follows: the back alone, or down one side,
+    // round the back and up the other.
+    let glow_run = if leds.rear { contour_run(trace, |_, y| y > top + REAR_BAND * h) } else { contour_run(trace, |_, y| y > top + 0.18 * h) };
     let mut shapes = Vec::new();
     for zone in &leds.zones {
         let shape = match *zone {
             "scroll" => Shape { region: Region::Zone("scroll"), geom: scroll_geom.clone(), label: "Scroll wheel".into() },
             "logo" => Shape { region: Region::Zone("logo"), geom: logo_geom.clone(), label: "Logo".into() },
             "left" | "right" => Shape { region: Region::Zone(zone), geom: Geom::Strip(side_run(trace, *zone == "left"), w * 0.025), label: zone.to_string() },
+            "backlight" if leds.rear => Shape { region: Region::Zone("backlight"), geom: Geom::Strip(glow_run.clone(), w * 0.03), label: "Backlight".into() },
             "backlight" => Shape { region: Region::Zone("backlight"), geom: Geom::Body, label: "Backlight".into() },
             other => Shape { region: Region::Zone(other), geom: Geom::Dot(pos2(centre_x(trace), trace.bbox[3] as f32 - w * 0.12), w * 0.06), label: other.into() },
         };
@@ -826,9 +841,7 @@ fn mouse_shapes(trace: &Trace, leds: &Leds) -> Vec<Shape> {
     let n = leds.cells();
     if n > 1 {
         let mut spots: Vec<(Geom, String)> = vec![(scroll_geom, "Scroll wheel".into()), (logo_geom, "Logo".into())];
-        let (top, h) = (trace.bbox[1] as f32, trace.bbox_h());
-        let run = contour_run(trace, |_, y| y > top + 0.18 * h);
-        let mut points = run_points(&run, n.saturating_sub(2));
+        let mut points = run_points(&glow_run, n.saturating_sub(2));
         if leds.mirrored {
             spots.swap(0, 1);
             points.reverse();
@@ -1018,7 +1031,7 @@ fn strips(leds: &Leds) -> Art {
         canvas.fill_rounded(rect, 9.0);
         for col in 0..leds.columns {
             let at = pos2(30.0 + col as f32 * pitch + pitch / 2.0 - 4.0, y);
-            shapes.push(Shape { region: Region::Cell(row as u8, col as u8), geom: Geom::Dot(at, 4.5), label: format!("{} · LED {}", row + 1, col + 1) });
+            shapes.push(Shape { region: Region::Cell(row as u8, col as u8), geom: Geom::Dot(at, 4.5), label: format!("{} В· LED {}", row + 1, col + 1) });
         }
     }
     let trace = canvas.into_trace();
@@ -1267,9 +1280,18 @@ mod tests {
             assert_eq!(v4.shapes.iter().filter(|s| matches!(s.region, Region::Cell(..))).count(), 7);
             assert_eq!(label(&v4, 0), "Logo");
             assert_eq!(label(&v4, 1), "Scroll wheel");
-            assert_eq!(geom_of(&v4, 0), geom_of(&plain, 1));
+            // The drawings are cropped to what they light, so compare from the body's corner.
+            let at = |art: &Art, c: u8| geom_of(art, c) - egui::vec2(art.bbox[0], art.bbox[1]);
+            assert_eq!(at(&v4, 0), at(&plain, 1));
+            // The five run across the back, the other way from a plain mouse's (issue #31).
+            let (top, bottom) = (v4.bbox[1], v4.bbox[3]);
             for c in 2..7 {
-                assert_eq!(geom_of(&v4, c), geom_of(&plain, 8 - c), "LED {c} is on the other side");
+                assert!(geom_of(&v4, c).y > top + 0.6 * (bottom - top), "LED {c} is at the back");
+            }
+            let across = |art: &Art, a: u8, b: u8| (geom_of(art, b).x - geom_of(art, a).x).signum();
+            assert_eq!(across(&v4, 2, 6), across(&plain, 6, 2));
+            for c in 2..6 {
+                assert_eq!(across(&v4, c, c + 1), across(&v4, 2, 6), "LED {c} then {}", c + 1);
             }
             for zone in ["backlight", "logo", "scroll"] {
                 assert!(v4.shapes.iter().any(|s| s.region == Region::Zone(zone)), "{zone}");
