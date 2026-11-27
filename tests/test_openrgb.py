@@ -331,8 +331,9 @@ def test_a_mode_puts_an_end_to_a_host_drawn_effect(sdk, service):
     keyboard = device(service, 'BlackWidow Chroma')
     service.rpc_effect(keyboard.serial, 'spectrum_soft', {})
     sdk.set_mode(sdk.index('Razer BlackWidow Chroma'), 'Static', colors=[RED])
-    assert until(lambda: not service.effects.drawing(keyboard))
-    assert service.effects.saved(keyboard.serial) is None
+    # Stopped first, then forgotten: wait for both, not the first alone.
+    assert until(lambda: not service.effects.drawing(keyboard)
+                 and service.effects.saved(keyboard.serial) is None)
 
 
 # -- Direct ---------------------------------------------------------------------
