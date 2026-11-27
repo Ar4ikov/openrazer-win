@@ -1,7 +1,7 @@
 From 2cdac55c30f1dd8eedf8b3f38f82dfea879ffda9 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 19:14:12 +0000
-Subject: [PATCH 1/8] Studio: devices and batteries in the tray, tray names,
+Subject: [PATCH 1/9] Studio: devices and batteries in the tray, tray names,
  low-battery warning
 
 The tray icon's tooltip lists each device on its own line with its
@@ -352,7 +352,7 @@ index 5aa8445..e6b35c4 100644
 From 9d696b3d591c7ce7b09ae0d4f6a9baa44c15fb94 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:18:33 +0000
-Subject: [PATCH 2/8] Studio: a visible low-battery warning
+Subject: [PATCH 2/9] Studio: a visible low-battery warning
 
 The notification was asked for in the same call that added its icon,
 which Windows often answers with the icon alone. It now follows the
@@ -596,7 +596,7 @@ index e6b35c4..084c027 100644
 From 9dfd73247258484991476b8756c1671fe0e01711 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:38:19 +0000
-Subject: [PATCH 3/8] Studio: the low-battery window in Studio's look
+Subject: [PATCH 3/9] Studio: the low-battery window in Studio's look
 
 Near-black (NAV) with a thin border and a Razer-green edge down the left,
 the battery glyph in green, "LOW BATTERY" in small letter-spaced
@@ -715,7 +715,7 @@ index ea8ac30..3da4d7e 100644
 From 64bba954d448e0e34fddbcfc8cb4e346b8375fa2 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Wed, 25 Nov 2026 22:51:48 +0000
-Subject: [PATCH 4/8] Studio: a one-line low-battery window; the Windows
+Subject: [PATCH 4/9] Studio: a one-line low-battery window; the Windows
  notification optional
 
 The warning window shrinks to one line (300 x 44): the green edge, the
@@ -888,7 +888,7 @@ index 084c027..aa5b756 100644
 From f3a1240c7096a129e352c70c00c19bf74c75f216 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Thu, 26 Nov 2026 09:06:06 +0000
-Subject: [PATCH 5/8] Studio: the tray keeps a device's last battery while it
+Subject: [PATCH 5/9] Studio: the tray keeps a device's last battery while it
  is offline
 
 The tray showed a device's battery only while a reading was in the
@@ -1034,7 +1034,7 @@ index f4a9551..a82dbf2 100644
 From 0ad6717cba9c795f5904eb3a98381ed7be79dfa3 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Thu, 26 Nov 2026 09:11:30 +0000
-Subject: [PATCH 6/8] Studio: show or hide a device in the tray, and forget an
+Subject: [PATCH 6/9] Studio: show or hide a device in the tray, and forget an
  offline one
 
 Settings > System tray gets a switch per device, connected or offline,
@@ -1203,7 +1203,7 @@ index aa5b756..afe358b 100644
 From a3a1666f3a7a3dcd9b26ee2757e7a3291a713609 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Fri, 27 Nov 2026 10:01:50 +0000
-Subject: [PATCH 7/8] Studio: remember when each device was last charged
+Subject: [PATCH 7/9] Studio: remember when each device was last charged
 
 Studio records, per device, the highest charge of its last charge and
 the day (local time), in settings.json: a charge is seen when the device
@@ -1410,7 +1410,7 @@ index 22a1426..0ef3718 100644
 From 23efd9592fa84ef2343c25bd2baf2d96644d6a72 Mon Sep 17 00:00:00 2001
 From: openrazer-win contributor <contributor@localhost>
 Date: Fri, 27 Nov 2026 13:06:47 +0000
-Subject: [PATCH 8/8] Studio: preliminary and final charge level, shown in the
+Subject: [PATCH 8/9] Studio: preliminary and final charge level, shown in the
  device header
 
 Readings while charging are no longer the level: the first reading at
@@ -1583,6 +1583,95 @@ index 0ef3718..51f6a6e 100644
  }
  
  fn active_profile(profiles: &[serde_json::Value]) -> Option<&str> {
+-- 
+2.43.0
+
+From 3fc096ceee6b72d4763011ac256381e0c38f6796 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Fri, 27 Nov 2026 16:38:23 +0000
+Subject: [PATCH 9/9] Studio: a click on the tray icon also puts the window
+ back in the tray
+
+The tray icon's left click always showed the window. It now toggles:
+when the window is showing (visible, not minimized, not parked) it is
+parked in the tray, as close-to-tray does; otherwise it is shown. The
+menu's Open still only opens.
+---
+ studio/app/src/shell.rs  | 17 +++++++++++++++--
+ studio/app/src/ui/app.rs |  4 ++++
+ 2 files changed, 19 insertions(+), 2 deletions(-)
+
+diff --git a/studio/app/src/shell.rs b/studio/app/src/shell.rs
+index ca7aac7..aed8eb3 100644
+--- a/studio/app/src/shell.rs
++++ b/studio/app/src/shell.rs
+@@ -21,7 +21,7 @@ mod win {
+     use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HWND, POINT};
+     use windows_sys::Win32::System::Threading::CreateMutexW;
+     use windows_sys::Win32::UI::WindowsAndMessaging::{
+-        FindWindowW, GetWindowLongPtrW, GetWindowPlacement, IsIconic, SetForegroundWindow, SetWindowLongPtrW,
++        FindWindowW, GetWindowLongPtrW, GetWindowPlacement, IsIconic, IsWindowVisible, SetForegroundWindow, SetWindowLongPtrW,
+         SetWindowPlacement, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_RESTORE, SW_SHOW, SW_SHOWMINNOACTIVE, WINDOWPLACEMENT,
+         WPF_SETMINPOSITION, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+     };
+@@ -83,6 +83,15 @@ mod win {
+         }
+     }
+ 
++    /// Back to the tray when the window is showing (visible, not minimized,
++    /// not parked); shown otherwise.
++    pub fn toggle() {
++        let showing = window().is_some_and(|hwnd| unsafe {
++            !parked(hwnd) && IsWindowVisible(hwnd) != 0 && IsIconic(hwnd) == 0
++        });
++        if showing { hide() } else { show() }
++    }
++
+     /// Put the window in the tray. See the top of this file for why it is
+     /// parked, not hidden.
+     pub fn hide() {
+@@ -112,6 +121,7 @@ mod win {
+         true
+     }
+     pub fn show() {}
++    pub fn toggle() {}
+     pub fn hide() {}
+ }
+ 
+@@ -144,6 +154,9 @@ pub fn icon_rgba(size: u32) -> Vec<u8> {
+ 
+ pub enum TrayAction {
+     Open,
++    /// The tray icon was clicked: open the window, or put it back in the tray
++    /// when it is showing.
++    Toggle,
+     RestartDaemon,
+     Quit,
+ }
+@@ -193,7 +206,7 @@ impl Tray {
+         }));
+         TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
+             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+-                on_action(TrayAction::Open);
++                on_action(TrayAction::Toggle);
+             }
+         }));
+         Some(Tray { icon: tray, menu, rows: Vec::new(), rows_separator: None })
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index ee4e3bc..68579e3 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -142,6 +142,10 @@ impl App {
+                 shell::show();
+                 ctx.request_repaint();
+             }
++            TrayAction::Toggle => {
++                shell::toggle();
++                ctx.request_repaint();
++            }
+             TrayAction::RestartDaemon => {
+                 let _ = tray_tx.send(Command::RestartDaemon);
+             }
 -- 
 2.43.0
 
