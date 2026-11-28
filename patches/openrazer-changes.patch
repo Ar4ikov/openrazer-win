@@ -1,0 +1,1682 @@
+From 2cdac55c30f1dd8eedf8b3f38f82dfea879ffda9 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Wed, 25 Nov 2026 19:14:12 +0000
+Subject: [PATCH 1/9] Studio: devices and batteries in the tray, tray names,
+ low-battery warning
+
+The tray icon's tooltip lists each device on its own line with its
+battery (and "charging"), and the menu shows the same lines, greyed,
+above Open, Restart and Quit. Each device can be given a name for the
+tray in Settings > System tray (empty: its own name; nowhere else
+changes).
+
+A Windows notification announces a low battery once per discharge:
+at or below a level (15 % by default) and again only after the device
+has charged to a second level (25 %) or is charging. Both levels, and
+the warning itself, are set in Settings > System tray. Shown with the
+Shell notify-icon balloon through windows-sys, no new dependency.
+---
+ studio/app/src/settings.rs    |  14 +++++
+ studio/app/src/shell.rs       | 107 +++++++++++++++++++++++++++++++++-
+ studio/app/src/ui/app.rs      |  55 ++++++++++++++++-
+ studio/app/src/ui/settings.rs |  40 +++++++++++++
+ 4 files changed, 211 insertions(+), 5 deletions(-)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index 4fd6d01..608cb07 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -45,6 +45,16 @@ pub struct Settings {
+     pub recent_colours: Vec<[u8; 3]>,
+     /// Games given the stand-in for Razer's Chroma SDK DLL, by their program.
+     pub chroma_games: Vec<String>,
++    /// The name each device has in the tray, by serial; empty or missing is
++    /// the device's own name. Used by the tray only.
++    pub tray_names: BTreeMap<String, String>,
++    /// Whether a device's low battery is announced with a Windows notification.
++    pub low_battery_warning: bool,
++    /// The charge, in percent, at or below which it is announced.
++    pub low_battery_warn_at: u8,
++    /// The charge, in percent, at or above which a device counts as charged
++    /// again, so its next discharge is announced too.
++    pub low_battery_rearm_at: u8,
+ }
+ 
+ impl Default for Settings {
+@@ -62,6 +72,10 @@ impl Default for Settings {
+             lights_before: BTreeMap::new(),
+             recent_colours: Vec::new(),
+             chroma_games: Vec::new(),
++            tray_names: BTreeMap::new(),
++            low_battery_warning: true,
++            low_battery_warn_at: 15,
++            low_battery_rearm_at: 25,
+         }
+     }
+ }
+diff --git a/studio/app/src/shell.rs b/studio/app/src/shell.rs
+index ec99918..d575d84 100644
+--- a/studio/app/src/shell.rs
++++ b/studio/app/src/shell.rs
+@@ -150,9 +150,16 @@ pub enum TrayAction {
+ 
+ /// The tray icon and its menu.  Must be built on the UI thread and kept alive.
+ pub struct Tray {
+-    _icon: tray_icon::TrayIcon,
++    icon: tray_icon::TrayIcon,
++    menu: tray_icon::menu::Menu,
++    /// The device lines at the top of the menu, and the separator under them.
++    rows: Vec<tray_icon::menu::MenuItem>,
++    rows_separator: Option<tray_icon::menu::PredefinedMenuItem>,
+ }
+ 
++/// A tray tooltip holds 127 characters on Windows.
++const TOOLTIP_MAX: usize = 127;
++
+ impl Tray {
+     pub fn new(on_action: impl Fn(TrayAction) + Send + Sync + 'static) -> Option<Tray> {
+         use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+@@ -165,7 +172,7 @@ impl Tray {
+         menu.append_items(&[&open, &restart, &PredefinedMenuItem::separator(), &quit]).ok()?;
+         let icon = Icon::from_rgba(icon_rgba(32), 32, 32).ok()?;
+         let tray = TrayIconBuilder::new()
+-            .with_menu(Box::new(menu))
++            .with_menu(Box::new(menu.clone()))
+             .with_tooltip(WINDOW_TITLE)
+             .with_icon(icon)
+             .with_menu_on_left_click(false)
+@@ -189,6 +196,100 @@ impl Tray {
+                 on_action(TrayAction::Open);
+             }
+         }));
+-        Some(Tray { _icon: tray })
++        Some(Tray { icon: tray, menu, rows: Vec::new(), rows_separator: None })
++    }
++
++    /// Show `lines`, one per device, in the tooltip under the app's name and
++    /// at the top of the menu (greyed: they are for reading).
++    pub fn show_devices(&mut self, lines: &[String]) {
++        use tray_icon::menu::{MenuItem, PredefinedMenuItem};
++
++        let mut tip = String::from(WINDOW_TITLE);
++        for line in lines {
++            tip.push('\n');
++            tip.push_str(line);
++        }
++        let tip: String = tip.chars().take(TOOLTIP_MAX).collect();
++        let _ = self.icon.set_tooltip(Some(tip));
++
++        for row in self.rows.drain(..) {
++            let _ = self.menu.remove(&row);
++        }
++        if let Some(separator) = self.rows_separator.take() {
++            let _ = self.menu.remove(&separator);
++        }
++        for (position, line) in lines.iter().enumerate() {
++            let row = MenuItem::new(line, false, None);
++            if self.menu.insert(&row, position).is_ok() {
++                self.rows.push(row);
++            }
++        }
++        if !self.rows.is_empty() {
++            let separator = PredefinedMenuItem::separator();
++            if self.menu.insert(&separator, self.rows.len()).is_ok() {
++                self.rows_separator = Some(separator);
++            }
++        }
++    }
++}
++
++/// A Windows notification: a warning icon shows in the tray for a few
++/// seconds and its balloon, which Windows 10 and 11 present as a regular
++/// notification. Runs on a thread of its own, which owns the window behind it.
++#[cfg(windows)]
++pub fn notify(title: &str, text: &str) {
++    use windows_sys::Win32::UI::Shell::{
++        Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_TIP, NIIF_WARNING, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
++    };
++    use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, LoadIconW, HWND_MESSAGE, IDI_WARNING};
++
++    fn copy(into: &mut [u16], text: &str) {
++        let wide: Vec<u16> = text.encode_utf16().take(into.len() - 1).collect();
++        into[..wide.len()].copy_from_slice(&wide);
+     }
++
++    let (title, text) = (title.to_owned(), text.to_owned());
++    std::thread::spawn(move || {
++        let class: Vec<u16> = "STATIC\0".encode_utf16().collect();
++        // SAFETY: a message-only window of a system class, made, used and
++        // destroyed on this thread; the notify-icon data is a plain C struct
++        // whose all-zero state is empty.
++        unsafe {
++            let hwnd = CreateWindowExW(
++                0,
++                class.as_ptr(),
++                std::ptr::null(),
++                0,
++                0,
++                0,
++                0,
++                0,
++                HWND_MESSAGE,
++                std::ptr::null_mut(),
++                std::ptr::null_mut(),
++                std::ptr::null(),
++            );
++            if hwnd.is_null() {
++                return;
++            }
++            let mut data: NOTIFYICONDATAW = std::mem::zeroed();
++            data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
++            data.hWnd = hwnd;
++            data.uID = 0x5254;
++            data.uFlags = NIF_ICON | NIF_TIP | NIF_INFO;
++            data.hIcon = LoadIconW(std::ptr::null_mut(), IDI_WARNING);
++            data.dwInfoFlags = NIIF_WARNING;
++            copy(&mut data.szTip, &title);
++            copy(&mut data.szInfoTitle, &title);
++            copy(&mut data.szInfo, &text);
++            if Shell_NotifyIconW(NIM_ADD, &data) != 0 {
++                std::thread::sleep(std::time::Duration::from_secs(15));
++                Shell_NotifyIconW(NIM_DELETE, &data);
++            }
++            DestroyWindow(hwnd);
++        }
++    });
+ }
++
++#[cfg(not(windows))]
++pub fn notify(_title: &str, _text: &str) {}
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index 0cce9ec..e023e6e 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -12,7 +12,7 @@ use crate::worker::{self, Command, DaemonState, Device, Shared, Snapshot};
+ use egui::{pos2, vec2, Align, Align2, Color32, CornerRadius, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, StrokeKind};
+ use openrazer_studio_core::theme::{self, icon, ACCENT, BORDER_HI, NAV, SURFACE, SURFACE_HI, TEXT, TEXT_DIM, TEXT_FAINT};
+ use openrazer_studio_core::{install, t, tf, widgets};
+-use std::collections::HashMap;
++use std::collections::{HashMap, HashSet};
+ use std::sync::mpsc::Sender;
+ use std::sync::{Arc, Mutex};
+ use std::time::{Duration, Instant};
+@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
+ /// the UI thread: the installer's signal arrives on a thread of its own.
+ static TRAY: Mutex<Option<TrayIcon>> = Mutex::new(None);
+ 
+-struct TrayIcon(#[allow(dead_code)] Tray);
++struct TrayIcon(Tray);
+ 
+ // It is not `Send` for an `Rc` inside it, but it is only ever put here on the
+ // UI thread and then dropped, once, by whichever thread ends the process; and
+@@ -89,6 +89,10 @@ pub struct App {
+     pub installed: Option<install::Installed>,
+     pub started: Instant,
+     tray_ok: bool,
++    /// The device lines the tray shows now, so it is only told of a change.
++    tray_lines: Vec<String>,
++    /// Devices whose low battery has been announced in this discharge.
++    tray_warned: HashSet<String>,
+     capture: Option<Capture>,
+     /// The library macro the screenshot hook opened, so it is opened once.
+     macros_opened: Option<usize>,
+@@ -180,6 +184,8 @@ impl App {
+             installed: install::installed(),
+             started: Instant::now(),
+             tray_ok,
++            tray_lines: Vec::new(),
++            tray_warned: HashSet::new(),
+             hide_frames: if background && tray_ok { 4 } else { 0 },
+             capture,
+             macros_opened: None,
+@@ -284,6 +290,8 @@ impl eframe::App for App {
+         }
+         let snap = self.shared.lock().unwrap().clone();
+         self.sync(&snap);
++        // Before the early return below: the tray is read while the window is hidden.
++        self.refresh_tray(&snap);
+         self.flush_pending(ctx);
+         // In the tray (or minimized) nothing is seen, so draw nothing: a page
+         // that animates would otherwise keep asking for frames (issue #28).
+@@ -317,6 +325,49 @@ impl eframe::App for App {
+ 
+ impl App {
+     /// Keep the selection pointing at something that exists, and edits current.
++    /// One tray line per device (its tray name and battery), and the
++    /// low-battery notification, once per discharge.
++    fn refresh_tray(&mut self, snap: &Snapshot) {
++        let settings = &self.settings;
++        let mut lines = Vec::with_capacity(snap.devices.len());
++        for device in &snap.devices {
++            let name = settings
++                .tray_names
++                .get(&device.serial)
++                .map(|name| name.trim())
++                .filter(|name| !name.is_empty())
++                .unwrap_or(&device.name)
++                .to_owned();
++            let detail = snap.details.get(&device.serial);
++            let Some(level) = detail.and_then(|d| d.battery) else {
++                lines.push(name);
++                continue;
++            };
++            let charging = detail.and_then(|d| d.charging).unwrap_or(false);
++            let percent = level.clamp(0.0, 100.0).round() as u8;
++            lines.push(if charging {
++                format!("{name}: {percent}% ({})", t("charging"))
++            } else {
++                format!("{name}: {percent}%")
++            });
++
++            if !settings.low_battery_warning || charging || percent >= settings.low_battery_rearm_at {
++                self.tray_warned.remove(&device.serial);
++            } else if percent <= settings.low_battery_warn_at && self.tray_warned.insert(device.serial.clone()) {
++                shell::notify(
++                    &tf("{} battery low", &[&name]),
++                    &tf("{}% left. Charge it soon.", &[&percent]),
++                );
++            }
++        }
++        if lines != self.tray_lines {
++            if let Some(TrayIcon(tray)) = TRAY.lock().unwrap().as_mut() {
++                tray.show_devices(&lines);
++            }
++            self.tray_lines = lines;
++        }
++    }
++
+     fn sync(&mut self, snap: &Snapshot) {
+         if self.selected.as_ref().is_none_or(|s| !snap.devices.iter().any(|d| &d.serial == s)) {
+             self.selected = snap.devices.first().map(|d| d.serial.clone());
+diff --git a/studio/app/src/ui/settings.rs b/studio/app/src/ui/settings.rs
+index 5aa8445..e6b35c4 100644
+--- a/studio/app/src/ui/settings.rs
++++ b/studio/app/src/ui/settings.rs
+@@ -26,6 +26,7 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
+         widgets::columns(ui, 0.5, super::device::TWO_COLUMNS, |ui, column| {
+             if column == 0 {
+                 general(app, ui);
++                tray(app, ui, snap);
+                 support(app, ui, snap);
+                 about(app, ui);
+             } else {
+@@ -45,6 +46,45 @@ fn language_name(lang: Lang) -> &'static str {
+     }
+ }
+ 
++/// The tray's names for the devices, and the low-battery warning.
++fn tray(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
++    widgets::panel(ui, t("System tray"), |ui| {
++        for device in &snap.devices {
++            let mut changed = false;
++            let name = app.settings.tray_names.entry(device.serial.clone()).or_default();
++            widgets::row(ui, &device.name, t("Its name in the tray. Empty: the device's own name."), |ui| {
++                changed = widgets::text_field(ui, name, &device.name, 200.0).changed();
++            });
++            if changed {
++                app.save_settings();
++            }
++            widgets::divider(ui);
++        }
++        let mut warn = app.settings.low_battery_warning;
++        if widgets::toggle_row(ui, t("Warn when a battery runs low"), t("A Windows notification, once per discharge."), &mut warn) {
++            app.settings.low_battery_warning = warn;
++            app.save_settings();
++        }
++        if app.settings.low_battery_warning {
++            let mut warn_at = f64::from(app.settings.low_battery_warn_at);
++            let mut rearm_at = f64::from(app.settings.low_battery_rearm_at);
++            let mut changed = false;
++            widgets::row(ui, t("Warn at"), t("The charge that brings the warning."), |ui| {
++                changed |= widgets::slider_field(ui, "tray-warn-at", &mut warn_at, 5.0..=50.0, 1.0, 0, "%", 60.0);
++            });
++            widgets::row(ui, t("Warn again after"), t("The charge a device must reach before its next low battery is announced."), |ui| {
++                changed |= widgets::slider_field(ui, "tray-rearm-at", &mut rearm_at, 10.0..=95.0, 1.0, 0, "%", 60.0);
++            });
++            if changed {
++                let warn_at = warn_at.clamp(5.0, 50.0).round() as u8;
++                app.settings.low_battery_warn_at = warn_at;
++                app.settings.low_battery_rearm_at = (rearm_at.clamp(10.0, 95.0).round() as u8).max(warn_at + 5);
++                app.save_settings();
++            }
++        }
++    });
++}
++
+ fn general(app: &mut App, ui: &mut egui::Ui) {
+     widgets::panel(ui, t("General"), |ui| {
+         let mut chosen = None;
+-- 
+2.43.0
+
+From 9d696b3d591c7ce7b09ae0d4f6a9baa44c15fb94 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Wed, 25 Nov 2026 22:18:33 +0000
+Subject: [PATCH 2/9] Studio: a visible low-battery warning
+
+The notification was asked for in the same call that added its icon,
+which Windows often answers with the icon alone. It now follows the
+documented order: add the icon, set it to NOTIFYICON_VERSION_4, then
+request the notification as its own step (warning icon, large).
+
+A low battery also brings up a warning window: always on top at the
+bottom centre of the main display's work area, for a time set in
+Settings > System tray (10 s by default; a click closes it sooner),
+independent of Windows' notification settings and Focus Assist. Drawn
+as an egui immediate viewport, shown while the main window is parked in
+the tray.
+---
+ studio/app/src/settings.rs    |  6 ++++
+ studio/app/src/shell.rs       | 42 +++++++++++++++++++++---
+ studio/app/src/ui/app.rs      | 60 ++++++++++++++++++++++++++++++++---
+ studio/app/src/ui/settings.rs | 16 ++++++++++
+ 4 files changed, 114 insertions(+), 10 deletions(-)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index 608cb07..f035641 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -55,6 +55,10 @@ pub struct Settings {
+     /// The charge, in percent, at or above which a device counts as charged
+     /// again, so its next discharge is announced too.
+     pub low_battery_rearm_at: u8,
++    /// Whether a low battery also brings up a warning window on screen.
++    pub low_battery_popup: bool,
++    /// How long that window stays, in seconds.
++    pub low_battery_popup_seconds: u16,
+ }
+ 
+ impl Default for Settings {
+@@ -76,6 +80,8 @@ impl Default for Settings {
+             low_battery_warning: true,
+             low_battery_warn_at: 15,
+             low_battery_rearm_at: 25,
++            low_battery_popup: true,
++            low_battery_popup_seconds: 10,
+         }
+     }
+ }
+diff --git a/studio/app/src/shell.rs b/studio/app/src/shell.rs
+index d575d84..a168a35 100644
+--- a/studio/app/src/shell.rs
++++ b/studio/app/src/shell.rs
+@@ -239,7 +239,8 @@ impl Tray {
+ #[cfg(windows)]
+ pub fn notify(title: &str, text: &str) {
+     use windows_sys::Win32::UI::Shell::{
+-        Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_TIP, NIIF_WARNING, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
++        Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_TIP, NIIF_LARGE_ICON, NIIF_WARNING, NIM_ADD, NIM_DELETE,
++        NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4,
+     };
+     use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, LoadIconW, HWND_MESSAGE, IDI_WARNING};
+ 
+@@ -276,13 +277,20 @@ pub fn notify(title: &str, text: &str) {
+             data.cbSize = std::mem::size_of::<NOTIFYICONDATAW>() as u32;
+             data.hWnd = hwnd;
+             data.uID = 0x5254;
+-            data.uFlags = NIF_ICON | NIF_TIP | NIF_INFO;
++            // The documented order: add the icon, switch it to the current
++            // notification behaviour, then ask for the notification as its own
++            // step (a balloon requested in the add itself is often dropped).
++            data.uFlags = NIF_ICON | NIF_TIP;
+             data.hIcon = LoadIconW(std::ptr::null_mut(), IDI_WARNING);
+-            data.dwInfoFlags = NIIF_WARNING;
+             copy(&mut data.szTip, &title);
+-            copy(&mut data.szInfoTitle, &title);
+-            copy(&mut data.szInfo, &text);
+             if Shell_NotifyIconW(NIM_ADD, &data) != 0 {
++                data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
++                Shell_NotifyIconW(NIM_SETVERSION, &data);
++                data.uFlags = NIF_INFO;
++                data.dwInfoFlags = NIIF_WARNING | NIIF_LARGE_ICON;
++                copy(&mut data.szInfoTitle, &title);
++                copy(&mut data.szInfo, &text);
++                Shell_NotifyIconW(NIM_MODIFY, &data);
+                 std::thread::sleep(std::time::Duration::from_secs(15));
+                 Shell_NotifyIconW(NIM_DELETE, &data);
+             }
+@@ -293,3 +301,27 @@ pub fn notify(title: &str, text: &str) {
+ 
+ #[cfg(not(windows))]
+ pub fn notify(_title: &str, _text: &str) {}
++
++/// Where a window of `size` points sits at the bottom centre of the main
++/// display's work area (above the taskbar), for a display at
++/// `pixels_per_point`.
++#[cfg(windows)]
++pub fn popup_position(size: egui::Vec2, pixels_per_point: f32) -> Option<egui::Pos2> {
++    use windows_sys::Win32::Foundation::RECT;
++    use windows_sys::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETWORKAREA};
++
++    let mut area = RECT { left: 0, top: 0, right: 0, bottom: 0 };
++    // SAFETY: SPI_GETWORKAREA writes one RECT into `area`, which is sized for it.
++    let ok = unsafe { SystemParametersInfoW(SPI_GETWORKAREA, 0, (&raw mut area).cast(), 0) };
++    if ok == 0 || pixels_per_point <= 0.0 {
++        return None;
++    }
++    let scale = |v: i32| v as f32 / pixels_per_point;
++    let centre = (scale(area.left) + scale(area.right)) / 2.0;
++    Some(egui::pos2(centre - size.x / 2.0, scale(area.bottom) - size.y - 48.0))
++}
++
++#[cfg(not(windows))]
++pub fn popup_position(_size: egui::Vec2, _pixels_per_point: f32) -> Option<egui::Pos2> {
++    None
++}
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index e023e6e..ea8ac30 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -93,6 +93,8 @@ pub struct App {
+     tray_lines: Vec<String>,
+     /// Devices whose low battery has been announced in this discharge.
+     tray_warned: HashSet<String>,
++    /// The low-battery warning window on screen: title, text, until when.
++    popup: Option<(String, String, std::time::Instant)>,
+     capture: Option<Capture>,
+     /// The library macro the screenshot hook opened, so it is opened once.
+     macros_opened: Option<usize>,
+@@ -186,6 +188,7 @@ impl App {
+             tray_ok,
+             tray_lines: Vec::new(),
+             tray_warned: HashSet::new(),
++            popup: None,
+             hide_frames: if background && tray_ok { 4 } else { 0 },
+             capture,
+             macros_opened: None,
+@@ -290,8 +293,10 @@ impl eframe::App for App {
+         }
+         let snap = self.shared.lock().unwrap().clone();
+         self.sync(&snap);
+-        // Before the early return below: the tray is read while the window is hidden.
++        // Before the early return below: the tray is read, and the warning
++        // window shown, while the main window is hidden.
+         self.refresh_tray(&snap);
++        self.show_popup(ctx);
+         self.flush_pending(ctx);
+         // In the tray (or minimized) nothing is seen, so draw nothing: a page
+         // that animates would otherwise keep asking for frames (issue #28).
+@@ -325,6 +330,47 @@ impl eframe::App for App {
+ 
+ impl App {
+     /// Keep the selection pointing at something that exists, and edits current.
++    /// The low-battery warning window: always on top at the bottom centre of
++    /// the main display, until its time is up or it is clicked.
++    fn show_popup(&mut self, ctx: &egui::Context) {
++        let Some((title, text, until)) = self.popup.clone() else {
++            return;
++        };
++        let now = std::time::Instant::now();
++        if now >= until {
++            self.popup = None;
++            return;
++        }
++        ctx.request_repaint_after(until - now);
++        let size = egui::vec2(380.0, 96.0);
++        let mut builder = egui::ViewportBuilder::default()
++            .with_title(title.clone())
++            .with_decorations(false)
++            .with_always_on_top()
++            .with_resizable(false)
++            .with_taskbar(false)
++            .with_active(false)
++            .with_inner_size(size);
++        if let Some(position) = shell::popup_position(size, ctx.pixels_per_point()) {
++            builder = builder.with_position(position);
++        }
++        let mut dismissed = false;
++        ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("low-battery-warning"), builder, |ctx, _| {
++            egui::CentralPanel::default()
++                .frame(egui::Frame::window(&ctx.style()).inner_margin(16.0))
++                .show(ctx, |ui| {
++                    let click = ui.interact(ui.max_rect(), ui.id().with("dismiss"), egui::Sense::click());
++                    ui.heading(&title);
++                    ui.label(&text);
++                    ui.weak(t("Click to dismiss."));
++                    dismissed |= click.clicked();
++                });
++        });
++        if dismissed {
++            self.popup = None;
++        }
++    }
++
+     /// One tray line per device (its tray name and battery), and the
+     /// low-battery notification, once per discharge.
+     fn refresh_tray(&mut self, snap: &Snapshot) {
+@@ -354,10 +400,14 @@ impl App {
+             if !settings.low_battery_warning || charging || percent >= settings.low_battery_rearm_at {
+                 self.tray_warned.remove(&device.serial);
+             } else if percent <= settings.low_battery_warn_at && self.tray_warned.insert(device.serial.clone()) {
+-                shell::notify(
+-                    &tf("{} battery low", &[&name]),
+-                    &tf("{}% left. Charge it soon.", &[&percent]),
+-                );
++                let title = tf("{} battery low", &[&name]);
++                let text = tf("{}% left. Charge it soon.", &[&percent]);
++                shell::notify(&title, &text);
++                if settings.low_battery_popup {
++                    let seconds = u64::from(settings.low_battery_popup_seconds.clamp(2, 600));
++                    let until = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
++                    self.popup = Some((title, text, until));
++                }
+             }
+         }
+         if lines != self.tray_lines {
+diff --git a/studio/app/src/ui/settings.rs b/studio/app/src/ui/settings.rs
+index e6b35c4..084c027 100644
+--- a/studio/app/src/ui/settings.rs
++++ b/studio/app/src/ui/settings.rs
+@@ -81,6 +81,22 @@ fn tray(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
+                 app.settings.low_battery_rearm_at = (rearm_at.clamp(10.0, 95.0).round() as u8).max(warn_at + 5);
+                 app.save_settings();
+             }
++            let mut popup = app.settings.low_battery_popup;
++            if widgets::toggle_row(ui, t("Show a warning on screen"), t("A window at the bottom of the main display, on top of everything."), &mut popup) {
++                app.settings.low_battery_popup = popup;
++                app.save_settings();
++            }
++            if app.settings.low_battery_popup {
++                let mut seconds = f64::from(app.settings.low_battery_popup_seconds);
++                let mut changed = false;
++                widgets::row(ui, t("Show it for"), t("Seconds; a click closes it sooner."), |ui| {
++                    changed = widgets::slider_field(ui, "tray-popup-seconds", &mut seconds, 2.0..=120.0, 1.0, 0, " s", 60.0);
++                });
++                if changed {
++                    app.settings.low_battery_popup_seconds = seconds.clamp(2.0, 120.0).round() as u16;
++                    app.save_settings();
++                }
++            }
+         }
+     });
+ }
+-- 
+2.43.0
+
+From 9dfd73247258484991476b8756c1671fe0e01711 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Wed, 25 Nov 2026 22:38:19 +0000
+Subject: [PATCH 3/9] Studio: the low-battery window in Studio's look
+
+Near-black (NAV) with a thin border and a Razer-green edge down the left,
+the battery glyph in green, "LOW BATTERY" in small letter-spaced
+capitals over the device in heavy capitals, and the charge large in
+green on the right. A click still closes it.
+---
+ studio/app/src/ui/app.rs | 61 ++++++++++++++++++++++++++++++----------
+ 1 file changed, 46 insertions(+), 15 deletions(-)
+
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index ea8ac30..3da4d7e 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -93,8 +93,8 @@ pub struct App {
+     tray_lines: Vec<String>,
+     /// Devices whose low battery has been announced in this discharge.
+     tray_warned: HashSet<String>,
+-    /// The low-battery warning window on screen: title, text, until when.
+-    popup: Option<(String, String, std::time::Instant)>,
++    /// The low-battery warning window on screen: device, charge, until when.
++    popup: Option<(String, u8, std::time::Instant)>,
+     capture: Option<Capture>,
+     /// The library macro the screenshot hook opened, so it is opened once.
+     macros_opened: Option<usize>,
+@@ -331,9 +331,13 @@ impl eframe::App for App {
+ impl App {
+     /// Keep the selection pointing at something that exists, and edits current.
+     /// The low-battery warning window: always on top at the bottom centre of
+-    /// the main display, until its time is up or it is clicked.
++    /// the main display, until its time is up or it is clicked. Studio's own
++    /// look: near-black, a Razer-green edge, the device in heavy capitals and
++    /// the charge in green.
+     fn show_popup(&mut self, ctx: &egui::Context) {
+-        let Some((title, text, until)) = self.popup.clone() else {
++        use egui::{Align, Frame, Layout, Margin, RichText, Sense, Stroke};
++
++        let Some((name, percent, until)) = self.popup.clone() else {
+             return;
+         };
+         let now = std::time::Instant::now();
+@@ -342,9 +346,9 @@ impl App {
+             return;
+         }
+         ctx.request_repaint_after(until - now);
+-        let size = egui::vec2(380.0, 96.0);
++        let size = egui::vec2(400.0, 84.0);
+         let mut builder = egui::ViewportBuilder::default()
+-            .with_title(title.clone())
++            .with_title(tf("{} battery low", &[&name]))
+             .with_decorations(false)
+             .with_always_on_top()
+             .with_resizable(false)
+@@ -356,15 +360,42 @@ impl App {
+         }
+         let mut dismissed = false;
+         ctx.show_viewport_immediate(egui::ViewportId::from_hash_of("low-battery-warning"), builder, |ctx, _| {
+-            egui::CentralPanel::default()
+-                .frame(egui::Frame::window(&ctx.style()).inner_margin(16.0))
+-                .show(ctx, |ui| {
+-                    let click = ui.interact(ui.max_rect(), ui.id().with("dismiss"), egui::Sense::click());
+-                    ui.heading(&title);
+-                    ui.label(&text);
+-                    ui.weak(t("Click to dismiss."));
+-                    dismissed |= click.clicked();
++            let frame = Frame::new()
++                .fill(NAV)
++                .stroke(Stroke::new(1.0_f32, BORDER_HI))
++                .inner_margin(Margin { left: 22, right: 20, top: 14, bottom: 14 });
++            egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
++                let whole = ui.max_rect().expand2(egui::vec2(22.0, 14.0));
++                // The Razer-green edge down the left side.
++                let edge = egui::Rect::from_min_size(whole.min, egui::vec2(4.0, whole.height()));
++                ui.painter().rect_filled(edge, egui::CornerRadius::ZERO, ACCENT);
++                let click = ui.interact(whole, ui.id().with("dismiss"), Sense::click());
++                ui.horizontal_centered(|ui| {
++                    ui.label(RichText::new(icon::BATTERY).font(theme::icon_font(26.0)).color(ACCENT));
++                    ui.add_space(10.0);
++                    ui.vertical(|ui| {
++                        ui.label(
++                            RichText::new(t("Low battery").to_uppercase())
++                                .font(theme::bold(11.0))
++                                .color(TEXT_DIM)
++                                .extra_letter_spacing(1.4),
++                        );
++                        ui.add(
++                            egui::Label::new(
++                                RichText::new(name.to_uppercase())
++                                    .font(theme::heavy(18.0))
++                                    .color(TEXT)
++                                    .extra_letter_spacing(0.8),
++                            )
++                            .truncate(),
++                        );
++                    });
++                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
++                        ui.label(RichText::new(format!("{percent}%")).font(theme::heavy(30.0)).color(ACCENT));
++                    });
+                 });
++                dismissed |= click.clicked();
++            });
+         });
+         if dismissed {
+             self.popup = None;
+@@ -406,7 +437,7 @@ impl App {
+                 if settings.low_battery_popup {
+                     let seconds = u64::from(settings.low_battery_popup_seconds.clamp(2, 600));
+                     let until = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+-                    self.popup = Some((title, text, until));
++                    self.popup = Some((name.clone(), percent, until));
+                 }
+             }
+         }
+-- 
+2.43.0
+
+From 64bba954d448e0e34fddbcfc8cb4e346b8375fa2 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Wed, 25 Nov 2026 22:51:48 +0000
+Subject: [PATCH 4/9] Studio: a one-line low-battery window; the Windows
+ notification optional
+
+The warning window shrinks to one line (300 x 44): the green edge, the
+battery glyph, the device in bold capitals and the charge in green.
+
+The Windows notification is drawn by Windows and can't take Studio's
+look, so it is now optional and off by default (Settings > System tray,
+"Also show a Windows notification"), with a shorter text and the
+normal icon.
+---
+ studio/app/src/settings.rs    |  4 +++
+ studio/app/src/shell.rs       |  4 +--
+ studio/app/src/ui/app.rs      | 52 +++++++++++++++--------------------
+ studio/app/src/ui/settings.rs |  5 ++++
+ 4 files changed, 33 insertions(+), 32 deletions(-)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index f035641..4b55d62 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -59,6 +59,9 @@ pub struct Settings {
+     pub low_battery_popup: bool,
+     /// How long that window stays, in seconds.
+     pub low_battery_popup_seconds: u16,
++    /// Whether a low battery is also announced as a Windows notification
++    /// (drawn by Windows; off by default, the window covers it).
++    pub low_battery_system_notification: bool,
+ }
+ 
+ impl Default for Settings {
+@@ -82,6 +85,7 @@ impl Default for Settings {
+             low_battery_rearm_at: 25,
+             low_battery_popup: true,
+             low_battery_popup_seconds: 10,
++            low_battery_system_notification: false,
+         }
+     }
+ }
+diff --git a/studio/app/src/shell.rs b/studio/app/src/shell.rs
+index a168a35..3a739ca 100644
+--- a/studio/app/src/shell.rs
++++ b/studio/app/src/shell.rs
+@@ -239,7 +239,7 @@ impl Tray {
+ #[cfg(windows)]
+ pub fn notify(title: &str, text: &str) {
+     use windows_sys::Win32::UI::Shell::{
+-        Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_TIP, NIIF_LARGE_ICON, NIIF_WARNING, NIM_ADD, NIM_DELETE,
++        Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_TIP, NIIF_WARNING, NIM_ADD, NIM_DELETE,
+         NIM_MODIFY, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4,
+     };
+     use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, LoadIconW, HWND_MESSAGE, IDI_WARNING};
+@@ -287,7 +287,7 @@ pub fn notify(title: &str, text: &str) {
+                 data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
+                 Shell_NotifyIconW(NIM_SETVERSION, &data);
+                 data.uFlags = NIF_INFO;
+-                data.dwInfoFlags = NIIF_WARNING | NIIF_LARGE_ICON;
++                data.dwInfoFlags = NIIF_WARNING;
+                 copy(&mut data.szInfoTitle, &title);
+                 copy(&mut data.szInfo, &text);
+                 Shell_NotifyIconW(NIM_MODIFY, &data);
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index 3da4d7e..f4a9551 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -331,9 +331,9 @@ impl eframe::App for App {
+ impl App {
+     /// Keep the selection pointing at something that exists, and edits current.
+     /// The low-battery warning window: always on top at the bottom centre of
+-    /// the main display, until its time is up or it is clicked. Studio's own
+-    /// look: near-black, a Razer-green edge, the device in heavy capitals and
+-    /// the charge in green.
++    /// the main display, until its time is up or it is clicked. One line in
++    /// Studio's look: near-black, a Razer-green edge, the battery glyph, the
++    /// device in capitals and the charge in green.
+     fn show_popup(&mut self, ctx: &egui::Context) {
+         use egui::{Align, Frame, Layout, Margin, RichText, Sense, Stroke};
+ 
+@@ -346,7 +346,7 @@ impl App {
+             return;
+         }
+         ctx.request_repaint_after(until - now);
+-        let size = egui::vec2(400.0, 84.0);
++        let size = egui::vec2(300.0, 44.0);
+         let mut builder = egui::ViewportBuilder::default()
+             .with_title(tf("{} battery low", &[&name]))
+             .with_decorations(false)
+@@ -363,35 +363,27 @@ impl App {
+             let frame = Frame::new()
+                 .fill(NAV)
+                 .stroke(Stroke::new(1.0_f32, BORDER_HI))
+-                .inner_margin(Margin { left: 22, right: 20, top: 14, bottom: 14 });
++                .inner_margin(Margin { left: 16, right: 14, top: 0, bottom: 0 });
+             egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
+-                let whole = ui.max_rect().expand2(egui::vec2(22.0, 14.0));
++                let whole = ui.max_rect().expand2(egui::vec2(16.0, 0.0));
+                 // The Razer-green edge down the left side.
+-                let edge = egui::Rect::from_min_size(whole.min, egui::vec2(4.0, whole.height()));
++                let edge = egui::Rect::from_min_size(whole.min, egui::vec2(3.0, whole.height()));
+                 ui.painter().rect_filled(edge, egui::CornerRadius::ZERO, ACCENT);
+                 let click = ui.interact(whole, ui.id().with("dismiss"), Sense::click());
+                 ui.horizontal_centered(|ui| {
+-                    ui.label(RichText::new(icon::BATTERY).font(theme::icon_font(26.0)).color(ACCENT));
+-                    ui.add_space(10.0);
+-                    ui.vertical(|ui| {
+-                        ui.label(
+-                            RichText::new(t("Low battery").to_uppercase())
+-                                .font(theme::bold(11.0))
+-                                .color(TEXT_DIM)
+-                                .extra_letter_spacing(1.4),
+-                        );
+-                        ui.add(
+-                            egui::Label::new(
+-                                RichText::new(name.to_uppercase())
+-                                    .font(theme::heavy(18.0))
+-                                    .color(TEXT)
+-                                    .extra_letter_spacing(0.8),
+-                            )
+-                            .truncate(),
+-                        );
+-                    });
++                    ui.label(RichText::new(icon::BATTERY).font(theme::icon_font(18.0)).color(ACCENT));
++                    ui.add_space(6.0);
++                    ui.add(
++                        egui::Label::new(
++                            RichText::new(name.to_uppercase())
++                                .font(theme::bold(12.5))
++                                .color(TEXT)
++                                .extra_letter_spacing(0.8),
++                        )
++                        .truncate(),
++                    );
+                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+-                        ui.label(RichText::new(format!("{percent}%")).font(theme::heavy(30.0)).color(ACCENT));
++                        ui.label(RichText::new(format!("{percent}%")).font(theme::heavy(16.0)).color(ACCENT));
+                     });
+                 });
+                 dismissed |= click.clicked();
+@@ -431,9 +423,9 @@ impl App {
+             if !settings.low_battery_warning || charging || percent >= settings.low_battery_rearm_at {
+                 self.tray_warned.remove(&device.serial);
+             } else if percent <= settings.low_battery_warn_at && self.tray_warned.insert(device.serial.clone()) {
+-                let title = tf("{} battery low", &[&name]);
+-                let text = tf("{}% left. Charge it soon.", &[&percent]);
+-                shell::notify(&title, &text);
++                if settings.low_battery_system_notification {
++                    shell::notify(&tf("{} battery low", &[&name]), &tf("{}% left", &[&percent]));
++                }
+                 if settings.low_battery_popup {
+                     let seconds = u64::from(settings.low_battery_popup_seconds.clamp(2, 600));
+                     let until = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+diff --git a/studio/app/src/ui/settings.rs b/studio/app/src/ui/settings.rs
+index 084c027..aa5b756 100644
+--- a/studio/app/src/ui/settings.rs
++++ b/studio/app/src/ui/settings.rs
+@@ -86,6 +86,11 @@ fn tray(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
+                 app.settings.low_battery_popup = popup;
+                 app.save_settings();
+             }
++            let mut system = app.settings.low_battery_system_notification;
++            if widgets::toggle_row(ui, t("Also show a Windows notification"), t("Drawn by Windows, in its own style."), &mut system) {
++                app.settings.low_battery_system_notification = system;
++                app.save_settings();
++            }
+             if app.settings.low_battery_popup {
+                 let mut seconds = f64::from(app.settings.low_battery_popup_seconds);
+                 let mut changed = false;
+-- 
+2.43.0
+
+From f3a1240c7096a129e352c70c00c19bf74c75f216 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Thu, 26 Nov 2026 09:06:06 +0000
+Subject: [PATCH 5/9] Studio: the tray keeps a device's last battery while it
+ is offline
+
+The tray showed a device's battery only while a reading was in the
+snapshot, so it went as soon as the device stopped answering or left the
+list. Each device's last reading is now kept in settings.json (written
+only when a percentage changes) and shown as "Name: 63% (Offline)"
+while the device is listed without a reading or not listed at all,
+however long it has been away.
+---
+ studio/app/src/settings.rs | 13 +++++++++
+ studio/app/src/ui/app.rs   | 55 +++++++++++++++++++++++++++++++-------
+ 2 files changed, 58 insertions(+), 10 deletions(-)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index 4b55d62..32fbd87 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -62,6 +62,18 @@ pub struct Settings {
+     /// Whether a low battery is also announced as a Windows notification
+     /// (drawn by Windows; off by default, the window covers it).
+     pub low_battery_system_notification: bool,
++    /// Each device's last battery reading, by serial, so the tray still shows
++    /// it while the device is off, asleep or unplugged, however long for.
++    pub last_battery: BTreeMap<String, LastBattery>,
++}
++
++/// A device's last battery reading, as the tray shows it while it is offline.
++#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
++pub struct LastBattery {
++    /// The device's own name, for when it is no longer listed at all.
++    pub name: String,
++    /// The charge, in percent.
++    pub percent: u8,
+ }
+ 
+ impl Default for Settings {
+@@ -86,6 +98,7 @@ impl Default for Settings {
+             low_battery_popup: true,
+             low_battery_popup_seconds: 10,
+             low_battery_system_notification: false,
++            last_battery: BTreeMap::new(),
+         }
+     }
+ }
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index f4a9551..a82dbf2 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -395,31 +395,37 @@ impl App {
+     }
+ 
+     /// One tray line per device (its tray name and battery), and the
+-    /// low-battery notification, once per discharge.
++    /// low-battery notification, once per discharge. A device out of reach,
++    /// whether still listed without a reading or gone from the list, shows
++    /// its last reading with "(Offline)"; the readings are kept in the
++    /// settings file, so they last across restarts and long absences.
+     fn refresh_tray(&mut self, snap: &Snapshot) {
+-        let settings = &self.settings;
++        let offline = t("Offline");
+         let mut lines = Vec::with_capacity(snap.devices.len());
++        let mut readings: Vec<(String, crate::settings::LastBattery)> = Vec::new();
+         for device in &snap.devices {
+-            let name = settings
+-                .tray_names
+-                .get(&device.serial)
+-                .map(|name| name.trim())
+-                .filter(|name| !name.is_empty())
+-                .unwrap_or(&device.name)
+-                .to_owned();
++            let name = self.tray_name(&device.serial, &device.name);
+             let detail = snap.details.get(&device.serial);
+             let Some(level) = detail.and_then(|d| d.battery) else {
+-                lines.push(name);
++                lines.push(match self.settings.last_battery.get(&device.serial) {
++                    Some(last) => format!("{name}: {}% ({offline})", last.percent),
++                    None => name,
++                });
+                 continue;
+             };
+             let charging = detail.and_then(|d| d.charging).unwrap_or(false);
+             let percent = level.clamp(0.0, 100.0).round() as u8;
++            readings.push((
++                device.serial.clone(),
++                crate::settings::LastBattery { name: device.name.clone(), percent },
++            ));
+             lines.push(if charging {
+                 format!("{name}: {percent}% ({})", t("charging"))
+             } else {
+                 format!("{name}: {percent}%")
+             });
+ 
++            let settings = &self.settings;
+             if !settings.low_battery_warning || charging || percent >= settings.low_battery_rearm_at {
+                 self.tray_warned.remove(&device.serial);
+             } else if percent <= settings.low_battery_warn_at && self.tray_warned.insert(device.serial.clone()) {
+@@ -433,6 +439,24 @@ impl App {
+                 }
+             }
+         }
++        // Devices seen before but not listed now: their last reading, offline.
++        for (serial, last) in &self.settings.last_battery {
++            if !snap.devices.iter().any(|device| &device.serial == serial) {
++                let name = self.tray_name(serial, &last.name);
++                lines.push(format!("{name}: {}% ({offline})", last.percent));
++            }
++        }
++        // Keep new readings; the settings file is written only when one changed.
++        let mut changed = false;
++        for (serial, reading) in readings {
++            if self.settings.last_battery.get(&serial) != Some(&reading) {
++                self.settings.last_battery.insert(serial, reading);
++                changed = true;
++            }
++        }
++        if changed {
++            self.save_settings();
++        }
+         if lines != self.tray_lines {
+             if let Some(TrayIcon(tray)) = TRAY.lock().unwrap().as_mut() {
+                 tray.show_devices(&lines);
+@@ -441,6 +465,17 @@ impl App {
+         }
+     }
+ 
++    /// The name a device has in the tray: the one set for it, else `fallback`.
++    fn tray_name(&self, serial: &str, fallback: &str) -> String {
++        self.settings
++            .tray_names
++            .get(serial)
++            .map(|name| name.trim())
++            .filter(|name| !name.is_empty())
++            .unwrap_or(fallback)
++            .to_owned()
++    }
++
+     fn sync(&mut self, snap: &Snapshot) {
+         if self.selected.as_ref().is_none_or(|s| !snap.devices.iter().any(|d| &d.serial == s)) {
+             self.selected = snap.devices.first().map(|d| d.serial.clone());
+-- 
+2.43.0
+
+From 0ad6717cba9c795f5904eb3a98381ed7be79dfa3 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Thu, 26 Nov 2026 09:11:30 +0000
+Subject: [PATCH 6/9] Studio: show or hide a device in the tray, and forget an
+ offline one
+
+Settings > System tray gets a switch per device, connected or offline,
+that leaves it out of the tray (its low-battery warning still comes),
+and lists remembered devices that aren't connected, each with a Forget
+button that drops its last reading, tray name and hidden flag, so it
+leaves the tray until it connects again.
+---
+ studio/app/src/settings.rs    |  5 +++-
+ studio/app/src/ui/app.rs      | 19 ++++++++-----
+ studio/app/src/ui/settings.rs | 51 ++++++++++++++++++++++++++++++++---
+ 3 files changed, 65 insertions(+), 10 deletions(-)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index 32fbd87..879ab19 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -6,7 +6,7 @@ use crate::layout::Variant;
+ use openrazer_studio_core::i18n::Lang;
+ use serde::{Deserialize, Serialize};
+ use serde_json::Value;
+-use std::collections::BTreeMap;
++use std::collections::{BTreeMap, BTreeSet};
+ use std::path::PathBuf;
+ 
+ /// "When `exe` is in front, `serial` shows `profile`."
+@@ -65,6 +65,8 @@ pub struct Settings {
+     /// Each device's last battery reading, by serial, so the tray still shows
+     /// it while the device is off, asleep or unplugged, however long for.
+     pub last_battery: BTreeMap<String, LastBattery>,
++    /// Devices left out of the tray, by serial (their warnings still come).
++    pub tray_hidden: BTreeSet<String>,
+ }
+ 
+ /// A device's last battery reading, as the tray shows it while it is offline.
+@@ -99,6 +101,7 @@ impl Default for Settings {
+             low_battery_popup_seconds: 10,
+             low_battery_system_notification: false,
+             last_battery: BTreeMap::new(),
++            tray_hidden: BTreeSet::new(),
+         }
+     }
+ }
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index a82dbf2..fe183cf 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -405,8 +405,12 @@ impl App {
+         let mut readings: Vec<(String, crate::settings::LastBattery)> = Vec::new();
+         for device in &snap.devices {
+             let name = self.tray_name(&device.serial, &device.name);
++            let hidden = self.settings.tray_hidden.contains(&device.serial);
+             let detail = snap.details.get(&device.serial);
+             let Some(level) = detail.and_then(|d| d.battery) else {
++                if hidden {
++                    continue;
++                }
+                 lines.push(match self.settings.last_battery.get(&device.serial) {
+                     Some(last) => format!("{name}: {}% ({offline})", last.percent),
+                     None => name,
+@@ -419,12 +423,15 @@ impl App {
+                 device.serial.clone(),
+                 crate::settings::LastBattery { name: device.name.clone(), percent },
+             ));
+-            lines.push(if charging {
+-                format!("{name}: {percent}% ({})", t("charging"))
+-            } else {
+-                format!("{name}: {percent}%")
+-            });
++            if !hidden {
++                lines.push(if charging {
++                    format!("{name}: {percent}% ({})", t("charging"))
++                } else {
++                    format!("{name}: {percent}%")
++                });
++            }
+ 
++            // A device left out of the tray still warns of a low battery.
+             let settings = &self.settings;
+             if !settings.low_battery_warning || charging || percent >= settings.low_battery_rearm_at {
+                 self.tray_warned.remove(&device.serial);
+@@ -441,7 +448,7 @@ impl App {
+         }
+         // Devices seen before but not listed now: their last reading, offline.
+         for (serial, last) in &self.settings.last_battery {
+-            if !snap.devices.iter().any(|device| &device.serial == serial) {
++            if !self.settings.tray_hidden.contains(serial) && !snap.devices.iter().any(|device| &device.serial == serial) {
+                 let name = self.tray_name(serial, &last.name);
+                 lines.push(format!("{name}: {}% ({offline})", last.percent));
+             }
+diff --git a/studio/app/src/ui/settings.rs b/studio/app/src/ui/settings.rs
+index aa5b756..afe358b 100644
+--- a/studio/app/src/ui/settings.rs
++++ b/studio/app/src/ui/settings.rs
+@@ -6,7 +6,7 @@ use egui::RichText;
+ use openrazer_studio_core::i18n::Lang;
+ use openrazer_studio_core::install::{self, COMMUNITY, REPOSITORY};
+ use openrazer_studio_core::theme::{self, icon, ACCENT, TEXT_DIM, TEXT_FAINT};
+-use openrazer_studio_core::widgets::{self, Button};
++use openrazer_studio_core::widgets::{self, Button, IconButton};
+ use openrazer_studio_core::{t, tf};
+ 
+ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+@@ -51,11 +51,56 @@ fn tray(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
+     widgets::panel(ui, t("System tray"), |ui| {
+         for device in &snap.devices {
+             let mut changed = false;
++            let mut shown = !app.settings.tray_hidden.contains(&device.serial);
+             let name = app.settings.tray_names.entry(device.serial.clone()).or_default();
+-            widgets::row(ui, &device.name, t("Its name in the tray. Empty: the device's own name."), |ui| {
+-                changed = widgets::text_field(ui, name, &device.name, 200.0).changed();
++            widgets::row(ui, &device.name, t("Its name in the tray. Empty: the device's own name. The switch shows or hides it there."), |ui| {
++                changed |= widgets::toggle(ui, &mut shown).changed();
++                changed |= widgets::text_field(ui, name, &device.name, 200.0).changed();
+             });
+             if changed {
++                if shown {
++                    app.settings.tray_hidden.remove(&device.serial);
++                } else {
++                    app.settings.tray_hidden.insert(device.serial.clone());
++                }
++                app.save_settings();
++            }
++            widgets::divider(ui);
++        }
++        // Devices remembered but not connected now: show or hide, or forget.
++        let offline: Vec<(String, String, u8)> = app
++            .settings
++            .last_battery
++            .iter()
++            .filter(|(serial, _)| !snap.devices.iter().any(|device| &&device.serial == serial))
++            .map(|(serial, last)| (serial.clone(), last.name.clone(), last.percent))
++            .collect();
++        for (serial, own_name, percent) in offline {
++            let label = app
++                .settings
++                .tray_names
++                .get(&serial)
++                .map(|name| name.trim().to_owned())
++                .filter(|name| !name.is_empty())
++                .unwrap_or_else(|| own_name.clone());
++            let mut shown = !app.settings.tray_hidden.contains(&serial);
++            let mut toggled = false;
++            let mut forget = false;
++            widgets::row(ui, &label, &tf("Offline, last {}%. Forget removes it from the tray until it connects again.", &[&percent]), |ui| {
++                toggled = widgets::toggle(ui, &mut shown).changed();
++                forget = ui.add(IconButton::new(icon::DELETE, t("Forget")).danger().size(26.0)).clicked();
++            });
++            if forget {
++                app.settings.last_battery.remove(&serial);
++                app.settings.tray_names.remove(&serial);
++                app.settings.tray_hidden.remove(&serial);
++                app.save_settings();
++            } else if toggled {
++                if shown {
++                    app.settings.tray_hidden.remove(&serial);
++                } else {
++                    app.settings.tray_hidden.insert(serial.clone());
++                }
+                 app.save_settings();
+             }
+             widgets::divider(ui);
+-- 
+2.43.0
+
+From a3a1666f3a7a3dcd9b26ee2757e7a3291a713609 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Fri, 27 Nov 2026 10:01:50 +0000
+Subject: [PATCH 7/9] Studio: remember when each device was last charged
+
+Studio records, per device, the highest charge of its last charge and
+the day (local time), in settings.json: a charge is seen when the device
+reports charging or reads at least 3 points above its lowest since the
+last charge; a charge to less than full counts and the next replaces
+it. The device page's Battery panel shows "Last charged to 98% on
+25 Nov 2026", also while the device reports no level.
+---
+ studio/app/src/settings.rs  | 46 +++++++++++++++++++++++++++++++++++++
+ studio/app/src/shell.rs     | 30 ++++++++++++++++++++++++
+ studio/app/src/ui/app.rs    |  8 +++++++
+ studio/app/src/ui/device.rs | 20 ++++++++++++++++
+ 4 files changed, 104 insertions(+)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index 879ab19..67f870c 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -67,6 +67,51 @@ pub struct Settings {
+     pub last_battery: BTreeMap<String, LastBattery>,
+     /// Devices left out of the tray, by serial (their warnings still come).
+     pub tray_hidden: BTreeSet<String>,
++    /// When each device was last charged, by serial.
++    pub charges: BTreeMap<String, Charge>,
++}
++
++/// When a device was last charged: the highest charge it reached and the
++/// day. A charge is seen when the device reports charging, or when a reading
++/// is at least 3 points above the lowest since the last charge (a gauge's
++/// one-point wobble isn't one). A charge to less than full counts; the next
++/// charge replaces the record.
++#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(default)]
++pub struct Charge {
++    /// The highest charge, in percent, of the last charge.
++    pub percent: u8,
++    /// The day of the last charge, `YYYY-MM-DD` local time; empty before the first.
++    pub date: String,
++    low: u8,
++    dropped: bool,
++    seen: bool,
++}
++
++impl Charge {
++    /// Takes a reading; returns whether the record changed.
++    pub fn observe(&mut self, percent: u8, charging: bool, today: &str) -> bool {
++        let before = self.clone();
++        if !self.seen {
++            self.seen = true;
++            self.low = percent;
++            if !charging {
++                return true;
++            }
++        }
++        if charging || percent >= self.low.saturating_add(3) {
++            self.percent = if self.dropped || self.date.is_empty() { percent } else { self.percent.max(percent) };
++            self.dropped = false;
++            self.date = today.to_owned();
++            self.low = percent;
++        } else if percent < self.low {
++            self.low = percent;
++            if !self.date.is_empty() && percent < self.percent {
++                self.dropped = true;
++            }
++        }
++        *self != before
++    }
+ }
+ 
+ /// A device's last battery reading, as the tray shows it while it is offline.
+@@ -102,6 +147,7 @@ impl Default for Settings {
+             low_battery_system_notification: false,
+             last_battery: BTreeMap::new(),
+             tray_hidden: BTreeSet::new(),
++            charges: BTreeMap::new(),
+         }
+     }
+ }
+diff --git a/studio/app/src/shell.rs b/studio/app/src/shell.rs
+index 3a739ca..ca7aac7 100644
+--- a/studio/app/src/shell.rs
++++ b/studio/app/src/shell.rs
+@@ -302,6 +302,36 @@ pub fn notify(title: &str, text: &str) {
+ #[cfg(not(windows))]
+ pub fn notify(_title: &str, _text: &str) {}
+ 
++/// Today in local time, `YYYY-MM-DD`.
++pub fn today() -> String {
++    #[cfg(windows)]
++    let (year, month, day) = {
++        use windows_sys::Win32::System::SystemInformation::GetLocalTime;
++        // SAFETY: GetLocalTime writes one SYSTEMTIME, valid all-zero.
++        let time = unsafe {
++            let mut time = std::mem::zeroed();
++            GetLocalTime(&mut time);
++            time
++        };
++        (i64::from(time.wYear), i64::from(time.wMonth), i64::from(time.wDay))
++    };
++    #[cfg(not(windows))]
++    let (year, month, day) = {
++        // Elsewhere the UTC day (Howard Hinnant's days-to-civil).
++        let days = std::time::SystemTime::now()
++            .duration_since(std::time::UNIX_EPOCH)
++            .map_or(0, |since| since.as_secs() / 86_400) as i64;
++        let z = days + 719_468;
++        let (era, doe) = (z.div_euclid(146_097), z.rem_euclid(146_097));
++        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
++        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
++        let mp = (5 * doy + 2) / 153;
++        let month = if mp < 10 { mp + 3 } else { mp - 9 };
++        (yoe + era * 400 + i64::from(month <= 2), month, doy - (153 * mp + 2) / 5 + 1)
++    };
++    format!("{year:04}-{month:02}-{day:02}")
++}
++
+ /// Where a window of `size` points sits at the bottom centre of the main
+ /// display's work area (above the taskbar), for a display at
+ /// `pixels_per_point`.
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index fe183cf..44e6eae 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -403,6 +403,7 @@ impl App {
+         let offline = t("Offline");
+         let mut lines = Vec::with_capacity(snap.devices.len());
+         let mut readings: Vec<(String, crate::settings::LastBattery)> = Vec::new();
++        let mut charge_readings: Vec<(String, u8, bool)> = Vec::new();
+         for device in &snap.devices {
+             let name = self.tray_name(&device.serial, &device.name);
+             let hidden = self.settings.tray_hidden.contains(&device.serial);
+@@ -419,6 +420,7 @@ impl App {
+             };
+             let charging = detail.and_then(|d| d.charging).unwrap_or(false);
+             let percent = level.clamp(0.0, 100.0).round() as u8;
++            charge_readings.push((device.serial.clone(), percent, charging));
+             readings.push((
+                 device.serial.clone(),
+                 crate::settings::LastBattery { name: device.name.clone(), percent },
+@@ -461,6 +463,12 @@ impl App {
+                 changed = true;
+             }
+         }
++        if !charge_readings.is_empty() {
++            let today = shell::today();
++            for (serial, percent, charging) in charge_readings {
++                changed |= self.settings.charges.entry(serial).or_default().observe(percent, charging, &today);
++            }
++        }
+         if changed {
+             self.save_settings();
+         }
+diff --git a/studio/app/src/ui/device.rs b/studio/app/src/ui/device.rs
+index 22a1426..0ef3718 100644
+--- a/studio/app/src/ui/device.rs
++++ b/studio/app/src/ui/device.rs
+@@ -421,6 +421,8 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+     let Some(caps) = detail.caps.clone() else { return };
+     let serial = device.serial.clone();
+     let mut later: Vec<(String, Command)> = Vec::new();
++    // Read before `edit` borrows `app` mutably for the rest of the page.
++    let last_charged = last_charged(app, &device.serial);
+     let edit = app.edits.entry(serial.clone()).or_default();
+     let has_battery = caps["battery"] == true;
+     let has_saving = caps["idle_time"] == true || has_battery && detail.low_battery.is_some();
+@@ -443,9 +445,16 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+                     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 8.0), Sense::hover());
+                     ui.painter().rect_filled(rect, CornerRadius::same(4), SURFACE_HI);
+                     ui.painter().rect_filled(Rect::from_min_size(rect.min, vec2(rect.width() * (level / 100.0).clamp(0.0, 1.0) as f32, rect.height())), CornerRadius::same(4), colour);
++                    if let Some(text) = &last_charged {
++                        ui.add_space(6.0);
++                        ui.label(widgets::dim(text));
++                    }
+                 }
+                 None => {
+                     ui.label(widgets::dim(t("Not reported yet.")));
++                    if let Some(text) = &last_charged {
++                        ui.label(widgets::dim(text));
++                    }
+                 }
+             });
+         }
+@@ -514,6 +523,17 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+ // -- profiles -------------------------------------------------------------------------------
+ 
+ /// The profile the daemon writes this device's changes into, if any.
++/// "Last charged to 98% on 25 Nov 2026", from the record kept in the settings.
++fn last_charged(app: &App, serial: &str) -> Option<String> {
++    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
++    let charge = app.settings.charges.get(serial).filter(|charge| !charge.date.is_empty())?;
++    let mut parts = charge.date.split('-');
++    let (year, month, day) = (parts.next()?, parts.next()?, parts.next()?);
++    let month = MONTHS.get(month.parse::<usize>().ok()?.checked_sub(1)?)?;
++    let date = format!("{} {month} {year}", day.trim_start_matches('0'));
++    Some(tf("Last charged to {}% on {}", &[&charge.percent, &date]))
++}
++
+ fn active_profile(profiles: &[serde_json::Value]) -> Option<&str> {
+     profiles.iter().find(|p| p["active"] == true).and_then(|p| p["name"].as_str())
+ }
+-- 
+2.43.0
+
+From 23efd9592fa84ef2343c25bd2baf2d96644d6a72 Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Fri, 27 Nov 2026 13:06:47 +0000
+Subject: [PATCH 8/9] Studio: preliminary and final charge level, shown in the
+ device header
+
+Readings while charging are no longer the level: the first reading at
+least 20 seconds after charging stopped is recorded as preliminary, the
+first at least 10 minutes after replaces it as final (charging again
+restarts both), as OpenLogi does. The device header shows it beside the
+battery: "Charged to 78% on 25 Nov 2026", with "(preliminary)" until
+the final level is in.
+---
+ studio/app/src/settings.rs  | 68 ++++++++++++++++++++++++++-----------
+ studio/app/src/ui/app.rs    |  5 ++-
+ studio/app/src/ui/device.rs | 11 ++++--
+ 3 files changed, 62 insertions(+), 22 deletions(-)
+
+diff --git a/studio/app/src/settings.rs b/studio/app/src/settings.rs
+index 67f870c..94d5b8c 100644
+--- a/studio/app/src/settings.rs
++++ b/studio/app/src/settings.rs
+@@ -71,44 +71,74 @@ pub struct Settings {
+     pub charges: BTreeMap<String, Charge>,
+ }
+ 
+-/// When a device was last charged: the highest charge it reached and the
+-/// day. A charge is seen when the device reports charging, or when a reading
+-/// is at least 3 points above the lowest since the last charge (a gauge's
+-/// one-point wobble isn't one). A charge to less than full counts; the next
++/// When a device was last charged: the level it settled at, and the day.
++/// A charge is seen when the device reports charging, or when a reading is at
++/// least 3 points above the lowest since the last charge (a gauge's one-point
++/// wobble isn't one). Readings while charging are not the level; the first
++/// reading at least 20 seconds after charging stopped is recorded as
++/// preliminary, the first at least 10 minutes after replaces it as final.
++/// Charging again restarts both. A charge to less than full counts; the next
+ /// charge replaces the record.
+ #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+ #[serde(default)]
+ pub struct Charge {
+-    /// The highest charge, in percent, of the last charge.
++    /// The level, in percent, of the last charge.
+     pub percent: u8,
+     /// The day of the last charge, `YYYY-MM-DD` local time; empty before the first.
+     pub date: String,
++    /// Whether the level is still the preliminary one.
++    pub preliminary: bool,
+     low: u8,
+-    dropped: bool,
+     seen: bool,
++    /// The day of a charge whose level is still settling; empty when none.
++    pending: String,
++    /// When it stopped charging, seconds since the Unix epoch; 0 while it
++    /// charges or when nothing is settling.
++    settling_since: u64,
++    preliminary_taken: bool,
+ }
+ 
+ impl Charge {
+-    /// Takes a reading; returns whether the record changed.
+-    pub fn observe(&mut self, percent: u8, charging: bool, today: &str) -> bool {
++    /// Seconds after charging stopped for the preliminary level.
++    pub const PRELIMINARY_SECS: u64 = 20;
++    /// Seconds after charging stopped for the final level.
++    pub const FINAL_SECS: u64 = 10 * 60;
++
++    /// Takes a reading at `now` (seconds since the Unix epoch); returns
++    /// whether the record changed.
++    pub fn observe(&mut self, percent: u8, charging: bool, today: &str, now: u64) -> bool {
+         let before = self.clone();
+         if !self.seen {
+             self.seen = true;
+             self.low = percent;
+-            if !charging {
+-                return true;
+-            }
+         }
+-        if charging || percent >= self.low.saturating_add(3) {
+-            self.percent = if self.dropped || self.date.is_empty() { percent } else { self.percent.max(percent) };
+-            self.dropped = false;
+-            self.date = today.to_owned();
+-            self.low = percent;
++        if charging {
++            self.pending = today.to_owned();
++            self.settling_since = 0;
++            self.preliminary_taken = false;
++        } else if self.pending.is_empty() && percent >= self.low.saturating_add(3) {
++            self.pending = today.to_owned();
++            self.settling_since = now.max(1);
++            self.preliminary_taken = false;
++        } else if !self.pending.is_empty() {
++            if self.settling_since == 0 {
++                self.settling_since = now.max(1);
++            }
++            let waited = now.saturating_sub(self.settling_since);
++            if waited >= Self::FINAL_SECS {
++                self.percent = percent;
++                self.date = std::mem::take(&mut self.pending);
++                self.preliminary = false;
++                self.settling_since = 0;
++                self.low = percent;
++            } else if waited >= Self::PRELIMINARY_SECS && !self.preliminary_taken {
++                self.percent = percent;
++                self.date.clone_from(&self.pending);
++                self.preliminary = true;
++                self.preliminary_taken = true;
++            }
+         } else if percent < self.low {
+             self.low = percent;
+-            if !self.date.is_empty() && percent < self.percent {
+-                self.dropped = true;
+-            }
+         }
+         *self != before
+     }
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index 44e6eae..ee4e3bc 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -465,8 +465,11 @@ impl App {
+         }
+         if !charge_readings.is_empty() {
+             let today = shell::today();
++            let now = std::time::SystemTime::now()
++                .duration_since(std::time::UNIX_EPOCH)
++                .map_or(0, |since| since.as_secs());
+             for (serial, percent, charging) in charge_readings {
+-                changed |= self.settings.charges.entry(serial).or_default().observe(percent, charging, &today);
++                changed |= self.settings.charges.entry(serial).or_default().observe(percent, charging, &today, now);
+             }
+         }
+         if changed {
+diff --git a/studio/app/src/ui/device.rs b/studio/app/src/ui/device.rs
+index 0ef3718..51f6a6e 100644
+--- a/studio/app/src/ui/device.rs
++++ b/studio/app/src/ui/device.rs
+@@ -157,6 +157,8 @@ pub fn page(app: &mut App, ui: &mut egui::Ui, snap: &Snapshot) {
+ 
+ /// The device's picture, name and state, and the profile picker on the right.
+ fn header(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
++    // Read first: later code on this page borrows `app` mutably.
++    let charged = last_charged(app, &device.serial);
+     let detail = snap.details.get(&device.serial);
+     let caps = detail.and_then(|d| d.caps.as_ref());
+     let width = ui.available_width();
+@@ -188,6 +190,9 @@ fn header(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+                 if let Some(level) = detail.and_then(|d| d.battery) {
+                     super::widgets::battery(ui, level, detail.and_then(|d| d.charging).unwrap_or(false));
+                 }
++                if let Some(text) = &charged {
++                    ui.add(egui::Label::new(RichText::new(text).size(13.0).color(TEXT_DIM)).truncate());
++                }
+                 if let Some(effect) = snap.software.get(&device.serial) {
+                     widgets::badge(ui, super::effects::label(effect), ACCENT);
+                 }
+@@ -523,7 +528,8 @@ fn power(app: &mut App, ui: &mut egui::Ui, device: &Device, snap: &Snapshot) {
+ // -- profiles -------------------------------------------------------------------------------
+ 
+ /// The profile the daemon writes this device's changes into, if any.
+-/// "Last charged to 98% on 25 Nov 2026", from the record kept in the settings.
++/// "Charged to 98% on 25 Nov 2026", with "(preliminary)" until the final
++/// level is in, from the record kept in the settings.
+ fn last_charged(app: &App, serial: &str) -> Option<String> {
+     const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+     let charge = app.settings.charges.get(serial).filter(|charge| !charge.date.is_empty())?;
+@@ -531,7 +537,8 @@ fn last_charged(app: &App, serial: &str) -> Option<String> {
+     let (year, month, day) = (parts.next()?, parts.next()?, parts.next()?);
+     let month = MONTHS.get(month.parse::<usize>().ok()?.checked_sub(1)?)?;
+     let date = format!("{} {month} {year}", day.trim_start_matches('0'));
+-    Some(tf("Last charged to {}% on {}", &[&charge.percent, &date]))
++    let text = tf("Charged to {}% on {}", &[&charge.percent, &date]);
++    Some(if charge.preliminary { tf("{} (preliminary)", &[&text]) } else { text })
+ }
+ 
+ fn active_profile(profiles: &[serde_json::Value]) -> Option<&str> {
+-- 
+2.43.0
+
+From 5f62540fa6a064c57580d1bac7ffe02e9d17884f Mon Sep 17 00:00:00 2001
+From: openrazer-win contributor <contributor@localhost>
+Date: Fri, 27 Nov 2026 16:38:23 +0000
+Subject: [PATCH 9/9] Studio: a click on the tray icon also puts the window
+ back in the tray
+
+The tray icon's left click always showed the window. It now toggles:
+when the window is showing (visible, not minimized, not parked) it is
+parked in the tray, as close-to-tray does; otherwise it is shown. The
+menu's Open still only opens.
+---
+ studio/app/src/shell.rs  | 19 ++++++++++++++++---
+ studio/app/src/ui/app.rs |  4 ++++
+ 2 files changed, 20 insertions(+), 3 deletions(-)
+
+diff --git a/studio/app/src/shell.rs b/studio/app/src/shell.rs
+index ca7aac7..5da3c69 100644
+--- a/studio/app/src/shell.rs
++++ b/studio/app/src/shell.rs
+@@ -21,7 +21,7 @@ mod win {
+     use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HWND, POINT};
+     use windows_sys::Win32::System::Threading::CreateMutexW;
+     use windows_sys::Win32::UI::WindowsAndMessaging::{
+-        FindWindowW, GetWindowLongPtrW, GetWindowPlacement, IsIconic, SetForegroundWindow, SetWindowLongPtrW,
++        FindWindowW, GetWindowLongPtrW, GetWindowPlacement, IsIconic, IsWindowVisible, SetForegroundWindow, SetWindowLongPtrW,
+         SetWindowPlacement, ShowWindow, GWL_EXSTYLE, SW_HIDE, SW_RESTORE, SW_SHOW, SW_SHOWMINNOACTIVE, WINDOWPLACEMENT,
+         WPF_SETMINPOSITION, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
+     };
+@@ -83,6 +83,15 @@ mod win {
+         }
+     }
+ 
++    /// Back to the tray when the window is showing (visible, not minimized,
++    /// not parked); shown otherwise.
++    pub fn toggle() {
++        let showing = window().is_some_and(|hwnd| unsafe {
++            !parked(hwnd) && IsWindowVisible(hwnd) != 0 && IsIconic(hwnd) == 0
++        });
++        if showing { hide() } else { show() }
++    }
++
+     /// Put the window in the tray. See the top of this file for why it is
+     /// parked, not hidden.
+     pub fn hide() {
+@@ -112,10 +121,11 @@ mod win {
+         true
+     }
+     pub fn show() {}
++    pub fn toggle() {}
+     pub fn hide() {}
+ }
+ 
+-pub use win::{claim_single_instance, hide, show};
++pub use win::{claim_single_instance, hide, show, toggle};
+ 
+ /// The program's icon: a green ring with a bright core, drawn rather than
+ /// shipped, so the tray, the window and the executable all agree.
+@@ -144,6 +154,9 @@ pub fn icon_rgba(size: u32) -> Vec<u8> {
+ 
+ pub enum TrayAction {
+     Open,
++    /// The tray icon was clicked: open the window, or put it back in the tray
++    /// when it is showing.
++    Toggle,
+     RestartDaemon,
+     Quit,
+ }
+@@ -193,7 +206,7 @@ impl Tray {
+         }));
+         TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
+             if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+-                on_action(TrayAction::Open);
++                on_action(TrayAction::Toggle);
+             }
+         }));
+         Some(Tray { icon: tray, menu, rows: Vec::new(), rows_separator: None })
+diff --git a/studio/app/src/ui/app.rs b/studio/app/src/ui/app.rs
+index ee4e3bc..68579e3 100644
+--- a/studio/app/src/ui/app.rs
++++ b/studio/app/src/ui/app.rs
+@@ -142,6 +142,10 @@ impl App {
+                 shell::show();
+                 ctx.request_repaint();
+             }
++            TrayAction::Toggle => {
++                shell::toggle();
++                ctx.request_repaint();
++            }
+             TrayAction::RestartDaemon => {
+                 let _ = tray_tx.send(Command::RestartDaemon);
+             }
+-- 
+2.43.0
+

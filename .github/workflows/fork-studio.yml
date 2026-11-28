@@ -1,0 +1,149 @@
+# A copy of release.yml for a private fork: applies the patch series in
+# patches/ to this branch, then builds the daemon, Studio and its installer
+# the way a release does. The publishing jobs (PyPI, GitHub release) are left
+# out; they need the maintainer's secrets. Start it from Actions > Fork Studio
+# build > Run workflow; the installer is the "studio" artifact.
+name: Fork Studio build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.artifact }}
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - artifact: wheel
+          - artifact: exe
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply the patches
+        shell: bash
+        # The repository's top folder: the studio job runs from studio/.
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config user.name "fork build"
+          git config user.email "fork-build@localhost"
+          git am --3way patches/*.patch
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Build wheel and sdist
+        if: matrix.artifact == 'wheel'
+        run: |
+          pip install build
+          python -m build
+
+      - name: Build standalone executables
+        if: matrix.artifact == 'exe'
+        # A regular install, not editable: PyInstaller cannot follow imports
+        # through a PEP 660 editable finder, and silently produced a binary
+        # that could not import openrazer_win.cli.  The [ble] extra is included
+        # so the standalone binary can drive Bluetooth devices too -- there is
+        # no "pip install the extra" answer for someone using the exe.
+        run: |
+          pip install ".[ble]"
+          pip install pyinstaller
+          pyinstaller --clean --noconfirm packaging/openrazer-win.spec
+
+      - name: Smoke-test the executable
+        if: matrix.artifact == 'exe'
+        # The runner appends `exit $LASTEXITCODE`, so the script has to end on a
+        # deliberate exit: `autostart status` reports 1 when autostart is off,
+        # which is the expected state on a fresh runner.
+        run: |
+          .\dist\openrazer-win.exe --version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          .\dist\openrazer-win.exe supported viper
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          .\dist\openrazer-win.exe doctor
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          .\dist\openrazer-win.exe autostart status
+          if ($LASTEXITCODE -notin 0, 1) { exit 1 }
+          exit 0
+        shell: pwsh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.exe
+          if-no-files-found: error
+
+  studio:
+    name: Build OpenRazer Studio and its installer
+    # The installer carries the frozen daemon, so it is built after that.
+    needs: build
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: studio
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply the patches
+        shell: bash
+        # The repository's top folder: the studio job runs from studio/.
+        working-directory: ${{ github.workspace }}
+        run: |
+          git config user.name "fork build"
+          git config user.email "fork-build@localhost"
+          git am --3way patches/*.patch
+      - uses: actions/download-artifact@v4
+        with:
+          name: exe
+          path: daemon
+      - name: Install Rust
+        # The version pinned in studio/rust-toolchain.toml.
+        run: rustup toolchain install
+      - name: Build the Chroma DLL for 64- and 32-bit games
+        # Studio carries both, and puts them beside the games it is asked to.
+        shell: pwsh
+        run: |
+          cargo build --release --locked -p openrazer-chroma
+          cargo build --release --locked -p openrazer-chroma --target i686-pc-windows-msvc
+          New-Item -ItemType Directory -Force target/chroma | Out-Null
+          Copy-Item target/release/rzchromasdk.dll target/chroma/RzChromaSDK64.dll
+          Copy-Item target/i686-pc-windows-msvc/release/rzchromasdk.dll target/chroma/RzChromaSDK.dll
+      - name: Build Studio
+        shell: pwsh
+        run: |
+          $env:OPENRAZER_STUDIO_CHROMA = "$PWD/target/chroma"
+          cargo build --release --locked -p openrazer-studio
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force target/payload | Out-Null
+          Copy-Item target/release/openrazer-studio.exe target/payload/
+          Copy-Item ../daemon/openrazer-win.exe target/payload/
+          $env:OPENRAZER_STUDIO_PAYLOAD = "$PWD/target/payload"
+          cargo build --release --locked -p openrazer-studio-setup
+      - name: Install, repair and remove
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath target/release/openrazer-studio-setup.exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error 'no program inside the installer'; exit 1 }
+          $env:LOCALAPPDATA = "$env:RUNNER_TEMP\lad"
+          ./tools/installer-cycle.ps1 -Setup target/release/openrazer-studio-setup.exe -Dir "$env:RUNNER_TEMP\studio-install"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          New-Item -ItemType Directory -Force ../dist | Out-Null
+          Copy-Item target/release/openrazer-studio-setup.exe ../dist/
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio
+          path: dist/openrazer-studio-setup.exe
+          if-no-files-found: error
